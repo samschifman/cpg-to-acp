@@ -57,6 +57,55 @@ The system has four application components connected by standards-based contract
 - **Human-in-the-loop.** Clinicians review and approve DMN tables (extraction) and care plans (composition). The system proposes; clinicians approve.
 - **Pluggable architecture.** The platform is the constant; document parsers, decision engines, agent frameworks, vector stores, and automation runtimes are all swappable.
 
+## Getting Started (Phase 1)
+
+### Prerequisites
+
+- [Podman](https://podman.io/) (preferred) or Docker with compose support
+- Google Cloud credentials with access to Claude on Vertex AI (for LLM-driven extraction)
+
+### Quick Start
+
+1. **Configure credentials:**
+   ```bash
+   cp platform/litellm/.env.example platform/litellm/.env
+   # Edit .env with your Vertex AI project ID and location
+   # Ensure GCP Application Default Credentials are set up:
+   gcloud auth application-default login
+   ```
+
+2. **Start services:**
+   ```bash
+   podman-compose up -d hapi-fhir kogito litellm   # or: docker compose up -d ...
+   ```
+
+3. **Wait for services to be ready, then load patient data:**
+   ```bash
+   curl -sf http://localhost:8080/fhir/metadata > /dev/null && echo "FHIR ready"
+   curl -sf http://localhost:8081/q/health/ready > /dev/null && echo "Kogito ready"
+
+   curl -X POST http://localhost:8080/fhir \
+     -H "Content-Type: application/fhir+json" \
+     -d @mock-EHR/data/patient-bundle-medication.json
+
+   curl -X POST http://localhost:8080/fhir \
+     -H "Content-Type: application/fhir+json" \
+     -d @mock-EHR/data/patient-bundle-lifestyle.json
+   ```
+
+4. **Generate a care plan:**
+   ```bash
+   cd acp-writer
+   python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+   acp-writer patient-1   # Medication path (hypertension + diabetes)
+   acp-writer patient-2   # Lifestyle-only path
+   ```
+
+5. **Tear down:**
+   ```bash
+   podman-compose down   # or: docker compose down
+   ```
+
 ## Open Questions
 
 - **Recommendation contract format.** The contract between `cpg-ingester` and `acp-writer` for non-computable recommendations has no established standard (unlike DMN for decisions, BPMN for processes, and FHIR for clinical data). Defining this interface is an open design question.
