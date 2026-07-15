@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acp-writer"
+version = "0.1.0"
+description = "Compose patient-specific FHIR CarePlans from DMN decision outputs"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+    "requests>=2.31",
+    "click>=8.0",
+]
+
+[project.scripts]
+acp-writer = "acp_writer.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
