@@ -14,7 +14,8 @@ cpg-to-acp/
 ├── acp-writer/      # Steps 4-5: Patient data integration, care plan composition, clinician review UI
 ├── automation/      # Step 6: Execute BPMN process definitions produced by acp-writer
 ├── mock-EHR/        # HAPI FHIR server + simple EHR client (dev/test infrastructure)
-├── shared/          # Cross-component contracts (use sparingly)
+├── platform/        # Shared infrastructure services (MaaS, MLflow)
+├── shared/          # Cross-component contracts and utilities (use sparingly)
 └── dev_docs/        # Project proposals, design docs (point-in-time references)
 ```
 
@@ -25,10 +26,11 @@ These are hard rules. Do not violate them.
 ### Component Ownership
 
 - **`cpg-ingester`** has two outputs: (1) DMN decision tables for computable logic, and (2) recommendations and other non-computable content destined for a vector store in `acp-writer`. It must not be coupled to the decision engine runtime or vector store implementation. It interacts with downstream services only through API/MCP. **Open issue:** The contract format for the recommendation/vector-store output is TBD — there is no established standard equivalent to DMN, BPMN, or FHIR for this boundary.
-- **`acp-writer`** owns the Drools/Kogito decision engine runtime. It deploys and executes DMN. It produces two outputs: FHIR CarePlans (to the FHIR server) and BPMN (to automation).
+- **`acp-writer`** owns the Drools/Kogito decision engine runtime and the vector store. Both are internal implementation details of `acp-writer` — they are not platform services. It deploys and executes DMN. It produces two outputs: FHIR CarePlans (to the FHIR server) and BPMN (to automation).
 - **`automation`** is a downstream runtime service that executes BPMN process definitions. It does not orchestrate other services.
 - **`mock-EHR`** is development/test infrastructure. It is not application logic.
-- **`shared`** holds cross-component contracts. Use it sparingly to prevent coupling between components.
+- **`platform`** holds shared infrastructure services (MaaS, MLflow) that multiple application components consume. These are platform-level dependencies, not application logic. On OpenShift AI, these are typically configured rather than deployed; for local dev, this directory contains the deployment artifacts.
+- **`shared`** holds cross-component contracts and utilities. Use it sparingly to prevent coupling between components.
 
 ### Standards as Contracts
 

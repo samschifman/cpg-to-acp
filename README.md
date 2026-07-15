@@ -6,7 +6,7 @@ CPGs are published as narrative documents (PDFs, sometimes hundreds of pages) co
 
 ## Architecture
 
-The system has four main components connected by standards-based contracts:
+The system has four application components connected by standards-based contracts, plus shared platform services:
 
 ```
   CPG (PDF)
@@ -33,10 +33,11 @@ The system has four main components connected by standards-based contracts:
 | Directory | Purpose |
 |---|---|
 | [`cpg-ingester/`](cpg-ingester/) | Parses CPG documents (via Docling) and produces two outputs: (1) DMN decision tables for computable logic, and (2) recommendations and other non-computable content for the acp-writer's vector store. |
-| [`acp-writer/`](acp-writer/) | Composes patient-specific care plans by invoking DMN decision services (Drools/Kogito), retrieving recommendations, and integrating patient data from FHIR. Outputs FHIR CarePlans and BPMN for automatable activities. Includes the clinician review UI (SMART on FHIR). |
+| [`acp-writer/`](acp-writer/) | Composes patient-specific care plans by invoking DMN decision services (Drools/Kogito), retrieving recommendations from its vector store, and integrating patient data from FHIR. Outputs FHIR CarePlans and BPMN for automatable activities. The decision engine and vector store are internal implementation details. Includes the clinician review UI (SMART on FHIR). |
 | [`automation/`](automation/) | Executes BPMN process definitions produced by the acp-writer. The runtime is pluggable — Ansible playbooks, SonataFlow, or any BPMN-conformant engine. |
 | [`mock-EHR/`](mock-EHR/) | HAPI FHIR server acting as an EHR proxy, plus a simple EHR client that the acp-writer can launch within. Used for development and demonstration. |
-| [`shared/`](shared/) | Shared resources and contracts across components. Used sparingly to prevent coupling. |
+| [`platform/`](platform/) | Shared infrastructure services (MaaS, MLflow) consumed by multiple application components. On OpenShift AI these are platform capabilities; for local dev this directory provides equivalent deployments. |
+| [`shared/`](shared/) | Shared contracts and utilities across components. Used sparingly to prevent coupling. |
 | [`dev_docs/`](dev_docs/) | Project proposals, design documents, and onboarding materials. Point-in-time references — may not reflect current state. |
 
 ## Pipeline Overview
