@@ -1,0 +1,9 @@
+model_list:
+  - model_name: opus
+    litellm_params:
+      model: vertex_ai/claude-opus-4-6
+      vertex_project: os.environ/VERTEX_PROJECT
+      vertex_location: os.environ/VERTEX_LOCATION
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
