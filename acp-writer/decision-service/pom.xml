@@ -38,6 +38,21 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.kie</groupId>
+            <artifactId>kie-dmn-core</artifactId>
+            <version>${kie.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.kie</groupId>
+            <artifactId>kie-dmn-api</artifactId>
+            <version>${kie.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.drools</groupId>
+            <artifactId>drools-io</artifactId>
+            <version>${kie.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
