@@ -52,8 +52,8 @@ services:
 
   acp-writer:
     build:
-      context: ./acp-writer
-      dockerfile: deploy/Dockerfile
+      context: .
+      dockerfile: acp-writer/deploy/Dockerfile
     ports:
       - "8082:8082"
     depends_on:

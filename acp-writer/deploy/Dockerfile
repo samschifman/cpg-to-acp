@@ -2,8 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY pyproject.toml .
-COPY src/ src/
+COPY shared/ /app/shared/
+RUN pip install --no-cache-dir /app/shared/
+
+COPY acp-writer/pyproject.toml .
+COPY acp-writer/src/ src/
 
 RUN pip install --no-cache-dir .
 
