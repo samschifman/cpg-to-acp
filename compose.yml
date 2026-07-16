@@ -15,7 +15,7 @@ services:
 
   fhir-loader:
     build:
-      context: ./mock-EHR/docker
+      context: ./mock-EHR/deploy
       dockerfile: Dockerfile.loader
     volumes:
       - ./mock-EHR/data:/data:ro
@@ -28,6 +28,7 @@ services:
   kogito:
     build:
       context: ./acp-writer/decision-service
+      dockerfile: deploy/Dockerfile
     ports:
       - "8081:8081"
     healthcheck:
@@ -39,10 +40,11 @@ services:
   litellm:
     build:
       context: ./platform/litellm
+      dockerfile: deploy/Dockerfile
     ports:
       - "4000:4000"
     env_file:
-      - ./platform/litellm/.env
+      - ./platform/litellm/deploy/.env
     volumes:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro
     environment:
@@ -51,6 +53,7 @@ services:
   acp-writer:
     build:
       context: ./acp-writer
+      dockerfile: deploy/Dockerfile
     ports:
       - "8082:8082"
     depends_on:

@@ -68,7 +68,7 @@ The system has four application components connected by standards-based contract
 
 1. **Configure credentials:**
    ```bash
-   cp platform/litellm/.env.example platform/litellm/.env
+   cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
    # Edit .env with your Vertex AI project ID and location
    # Ensure GCP Application Default Credentials are set up:
    gcloud auth application-default login

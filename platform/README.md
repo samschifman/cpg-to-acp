@@ -20,17 +20,17 @@ LiteLLM provides a unified OpenAI-compatible endpoint that proxies requests to C
 
 1. Copy `.env.example` to `.env` and fill in your GCP project details:
    ```bash
-   cp platform/litellm/.env.example platform/litellm/.env
+   cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
    ```
 
 2. Place your GCP service account credentials JSON file where the container can mount it (path configured via `GOOGLE_APPLICATION_CREDENTIALS`).
 
-3. Run via docker-compose (see root `docker-compose.yml`) or standalone:
+3. Run via compose (see root `compose.yml`) or standalone:
    ```bash
    cd platform/litellm
-   docker build -t cpg-litellm .
-   docker run -p 4000:4000 \
-     --env-file .env \
+   podman build -f deploy/Dockerfile -t cpg-litellm .
+   podman run -p 4000:4000 \
+     --env-file deploy/.env \
      -v /path/to/credentials.json:/app/credentials.json \
      cpg-litellm
    ```
