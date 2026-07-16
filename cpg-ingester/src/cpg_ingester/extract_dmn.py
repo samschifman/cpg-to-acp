@@ -57,7 +57,9 @@ def extract_dmn(cpg_markdown: str, client: OpenAI, model: str) -> list[str]:
 @click.option("--litellm-url", default="http://localhost:4000", help="LiteLLM proxy URL.")
 @click.option("--model", default="opus", help="Model name configured in LiteLLM.")
 @click.option("--api-key", default="sk-change-me", help="LiteLLM master key.")
-def main(input_markdown: Path, output_dir: Path, litellm_url: str, model: str, api_key: str):
+@click.option("--deploy", is_flag=True, help="Push extracted DMN to acp-writer after writing.")
+@click.option("--acp-writer-url", default="http://localhost:8082", help="ACP Writer URL (used with --deploy).")
+def main(input_markdown: Path, output_dir: Path, litellm_url: str, model: str, api_key: str, deploy: bool, acp_writer_url: str):
     """Extract DMN decision tables from parsed CPG Markdown."""
     logging.basicConfig(level=logging.INFO)
 
@@ -70,11 +72,20 @@ def main(input_markdown: Path, output_dir: Path, litellm_url: str, model: str, a
     dmn_docs = extract_dmn(cpg_markdown, client, model)
     logger.info("Extracted %d DMN document(s)", len(dmn_docs))
 
+    out_paths = []
     for i, dmn_xml in enumerate(dmn_docs):
         out_path = output_dir / f"decision-table-{i + 1}.dmn"
         out_path.write_text(dmn_xml)
         logger.info("Wrote: %s", out_path)
         click.echo(f"  {out_path}")
+        out_paths.append(out_path)
+
+    if deploy:
+        from cpg_ingester.deploy import deploy_dmn
+        click.echo(f"\nDeploying to {acp_writer_url}...")
+        for out_path in out_paths:
+            summary = deploy_dmn(out_path, acp_writer_url)
+            click.echo(f"  Deployed: {summary.name} ({summary.id})")
 
 
 if __name__ == "__main__":

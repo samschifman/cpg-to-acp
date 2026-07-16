@@ -12,11 +12,14 @@ dependencies = [
     "docling>=2.0",
     "openai>=1.0",
     "click>=8.0",
+    "requests>=2.31",
+    "cpg-contracts",
 ]
 
 [project.scripts]
 cpg-parse = "cpg_ingester.parse:main"
 cpg-extract-dmn = "cpg_ingester.extract_dmn:main"
+cpg-deploy-dmn = "cpg_ingester.deploy:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
