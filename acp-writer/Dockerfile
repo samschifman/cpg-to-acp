@@ -7,4 +7,6 @@ COPY src/ src/
 
 RUN pip install --no-cache-dir .
 
-ENTRYPOINT ["acp-writer"]
+EXPOSE 8082
+
+CMD ["uvicorn", "acp_writer.api:app", "--host", "0.0.0.0", "--port", "8082"]

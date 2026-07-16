@@ -51,13 +51,15 @@ services:
   acp-writer:
     build:
       context: ./acp-writer
+    ports:
+      - "8082:8082"
     depends_on:
-      hapi-fhir:
-        condition: service_healthy
       kogito:
         condition: service_healthy
     environment:
-      - FHIR_URL=http://hapi-fhir:8080/fhir
       - KOGITO_URL=http://kogito:8081
-    profiles:
-      - cli
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8082/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
