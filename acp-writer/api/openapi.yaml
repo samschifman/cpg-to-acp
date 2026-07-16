@@ -1,0 +1,566 @@
+openapi: 3.1.0
+info:
+  title: ACP Writer API
+  description: |
+    Composes patient-specific, FHIR-compliant care plans by combining clinical
+    decision logic (DMN) with patient data. Manages an internal decision engine
+    (Drools/Kogito) and knowledge base (vector store).
+
+    Callers provide patient data directly — the acp-writer does not query FHIR
+    servers. The decision engine and vector store are internal implementation
+    details hidden behind this API.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8082
+    description: Local development
+
+paths:
+
+  # --- Decision Models ---
+
+  /api/v1/decisions/models:
+    post:
+      operationId: deployDecisionModel
+      summary: Deploy a DMN decision model
+      description: |
+        Accepts a DMN 1.3 XML document and deploys it to the internal decision
+        engine. The model becomes available for care plan generation and
+        direct evaluation.
+      tags: [decisions]
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+              description: DMN 1.3 XML document
+      responses:
+        "201":
+          description: Model deployed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionModelSummary"
+        "400":
+          description: Invalid DMN XML
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      operationId: listDecisionModels
+      summary: List deployed decision models
+      tags: [decisions]
+      responses:
+        "200":
+          description: List of deployed models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DecisionModelSummary"
+
+  /api/v1/decisions/models/{modelId}:
+    parameters:
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    get:
+      operationId: getDecisionModel
+      summary: Get a deployed decision model
+      tags: [decisions]
+      responses:
+        "200":
+          description: Model details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionModelDetail"
+        "404":
+          description: Model not found
+
+    delete:
+      operationId: removeDecisionModel
+      summary: Remove a deployed decision model
+      tags: [decisions]
+      responses:
+        "204":
+          description: Model removed
+        "404":
+          description: Model not found
+
+  /api/v1/decisions/evaluate/{modelId}:
+    post:
+      operationId: evaluateDecision
+      summary: Evaluate a decision model with test inputs
+      description: |
+        Invokes a deployed DMN model with the provided inputs and returns the
+        decision output. Useful for validating extracted DMN before committing.
+      tags: [decisions]
+      parameters:
+        - name: modelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: DMN input values keyed by input data name
+              example:
+                Systolic BP: 142
+                Has Diabetes: true
+                Has Kidney Disease: false
+      responses:
+        "200":
+          description: Decision output
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                description: DMN decision results
+        "404":
+          description: Model not found
+        "400":
+          description: Invalid input data
+
+  # --- Knowledge Base ---
+
+  /api/v1/knowledge/documents:
+    post:
+      operationId: ingestDocument
+      summary: Ingest a document into the knowledge base
+      description: |
+        Stores a clinical recommendation or document chunk in the internal
+        vector store for retrieval during care plan generation.
+
+        Note: the document schema is a starting point. The recommendation
+        contract format between cpg-ingester and acp-writer is an open
+        design question.
+      tags: [knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeDocument"
+      responses:
+        "201":
+          description: Document ingested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentSummary"
+        "400":
+          description: Invalid document
+
+    get:
+      operationId: listDocuments
+      summary: List ingested documents
+      tags: [knowledge]
+      parameters:
+        - name: source_cpg
+          in: query
+          schema:
+            type: string
+          description: Filter by source CPG identifier
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeDocumentSummary"
+
+  /api/v1/knowledge/documents/{documentId}:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    get:
+      operationId: getDocument
+      summary: Get a document from the knowledge base
+      tags: [knowledge]
+      responses:
+        "200":
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "404":
+          description: Document not found
+
+    delete:
+      operationId: removeDocument
+      summary: Remove a document from the knowledge base
+      tags: [knowledge]
+      responses:
+        "204":
+          description: Document removed
+        "404":
+          description: Document not found
+
+  /api/v1/knowledge/search:
+    post:
+      operationId: searchKnowledge
+      summary: Search the knowledge base
+      description: Semantic search over ingested documents.
+      tags: [knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeSearchRequest"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeSearchResponse"
+
+  # --- Care Plans ---
+
+  /api/v1/careplans:
+    post:
+      operationId: generateCarePlan
+      summary: Generate a care plan from patient data
+      description: |
+        Accepts patient data as a FHIR Bundle or IPS document. Internally
+        extracts relevant clinical data, invokes applicable DMN decision
+        models, retrieves relevant recommendations from the knowledge base,
+        and assembles a FHIR CarePlan Bundle.
+
+        The caller is responsible for providing patient data — this service
+        does not query FHIR servers directly.
+      tags: [careplans]
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              type: object
+              description: FHIR Bundle or IPS document containing patient data
+      responses:
+        "201":
+          description: Care plan generated
+          content:
+            application/fhir+json:
+              schema:
+                type: object
+                description: FHIR Bundle containing CarePlan, Goal, and activity resources
+        "400":
+          description: Invalid patient data
+        "422":
+          description: Unable to generate care plan (e.g., no applicable decision models)
+
+    get:
+      operationId: listCarePlans
+      summary: List generated care plans
+      tags: [careplans]
+      parameters:
+        - name: patient
+          in: query
+          schema:
+            type: string
+          description: Filter by patient reference
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, approved, rejected]
+          description: Filter by care plan status
+      responses:
+        "200":
+          description: List of care plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CarePlanSummary"
+
+  /api/v1/careplans/{careplanId}:
+    parameters:
+      - name: careplanId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    get:
+      operationId: getCarePlan
+      summary: Retrieve a generated care plan
+      tags: [careplans]
+      responses:
+        "200":
+          description: Care plan bundle
+          content:
+            application/fhir+json:
+              schema:
+                type: object
+                description: FHIR Bundle containing CarePlan and related resources
+        "404":
+          description: Care plan not found
+
+  /api/v1/careplans/{careplanId}/status:
+    put:
+      operationId: updateCarePlanStatus
+      summary: Update care plan status
+      description: |
+        Approve or reject a care plan. In Phase 3, approval triggers BPMN
+        generation and dispatch to the automation service.
+      tags: [careplans]
+      parameters:
+        - name: careplanId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CarePlanStatusUpdate"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarePlanSummary"
+        "404":
+          description: Care plan not found
+
+  # --- Health ---
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Liveness check
+      tags: [health]
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+
+  /health/ready:
+    get:
+      operationId: readinessCheck
+      summary: Readiness check
+      description: Returns healthy only when all internal dependencies are available.
+      tags: [health]
+      responses:
+        "200":
+          description: Service is ready
+        "503":
+          description: Service is not ready
+
+  /api/v1/status:
+    get:
+      operationId: getStatus
+      summary: Detailed component status
+      tags: [health]
+      responses:
+        "200":
+          description: Component status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatus"
+
+components:
+  schemas:
+
+    DecisionModelSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DecisionVariable"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DecisionVariable"
+        deployed_at:
+          type: string
+          format: date-time
+
+    DecisionModelDetail:
+      allOf:
+        - $ref: "#/components/schemas/DecisionModelSummary"
+        - type: object
+          properties:
+            dmn_xml:
+              type: string
+              description: The original DMN XML
+            source_cpg:
+              type: string
+
+    DecisionVariable:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string, number, boolean]
+
+    KnowledgeDocument:
+      type: object
+      required: [content]
+      properties:
+        id:
+          type: string
+          readOnly: true
+        source_cpg:
+          type: string
+          description: Identifier of the source CPG
+        section:
+          type: string
+          description: Section reference within the CPG
+        title:
+          type: string
+        content:
+          type: string
+          description: The recommendation or document text
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Flexible metadata (recommendation strength, evidence grade, etc.)
+
+    KnowledgeDocumentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        source_cpg:
+          type: string
+        title:
+          type: string
+        ingested_at:
+          type: string
+          format: date-time
+
+    KnowledgeSearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        top_k:
+          type: integer
+          default: 5
+        source_cpg:
+          type: string
+          description: Optionally scope search to a specific CPG
+
+    KnowledgeSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              document:
+                $ref: "#/components/schemas/KnowledgeDocumentSummary"
+              score:
+                type: number
+              excerpt:
+                type: string
+
+    CarePlanSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        patient_reference:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, approved, rejected]
+        generated_at:
+          type: string
+          format: date-time
+        decision_models_used:
+          type: array
+          items:
+            type: string
+
+    CarePlanStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+        reason:
+          type: string
+          description: Required when rejecting
+
+    ServiceStatus:
+      type: object
+      properties:
+        version:
+          type: string
+        decision_engine:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy, degraded, unavailable]
+            models_deployed:
+              type: integer
+        knowledge_base:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy, degraded, unavailable]
+            documents_ingested:
+              type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string

@@ -1,0 +1,184 @@
+{
+  "tools": [
+    {
+      "name": "deploy_decision_model",
+      "description": "Deploy a DMN decision model to the care plan writer's internal decision engine. The model becomes available for care plan generation and direct evaluation.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["dmn_xml"],
+        "properties": {
+          "dmn_xml": {
+            "type": "string",
+            "description": "DMN 1.3 XML document as a string"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/decisions/models",
+        "rest_content_type": "application/xml"
+      }
+    },
+    {
+      "name": "list_decision_models",
+      "description": "List all decision models currently deployed in the care plan writer.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "rest_method": "GET",
+        "rest_path": "/api/v1/decisions/models"
+      }
+    },
+    {
+      "name": "evaluate_decision",
+      "description": "Evaluate a deployed DMN decision model with test inputs and return the decision output. Useful for validating extracted DMN before committing.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["model_id", "inputs"],
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "ID of the deployed decision model"
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "DMN input values keyed by input data name (e.g., {\"Systolic BP\": 142, \"Has Diabetes\": true})"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/decisions/evaluate/{model_id}"
+      }
+    },
+    {
+      "name": "ingest_knowledge",
+      "description": "Ingest a clinical recommendation or document chunk into the care plan writer's knowledge base for retrieval during care plan generation.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "source_cpg": {
+            "type": "string",
+            "description": "Identifier of the source CPG (e.g., SYN-HTN-2026-001)"
+          },
+          "section": {
+            "type": "string",
+            "description": "Section reference within the CPG"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the recommendation or section"
+          },
+          "content": {
+            "type": "string",
+            "description": "The recommendation text or document content"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Flexible metadata (recommendation_strength, evidence_grade, etc.)"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/knowledge/documents"
+      }
+    },
+    {
+      "name": "search_knowledge",
+      "description": "Search the knowledge base for clinical content relevant to a query. Returns ranked results with similarity scores.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language search query"
+          },
+          "top_k": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of results to return"
+          },
+          "source_cpg": {
+            "type": "string",
+            "description": "Optionally scope search to a specific CPG"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/knowledge/search"
+      }
+    },
+    {
+      "name": "generate_careplan",
+      "description": "Generate a patient-specific FHIR CarePlan from patient data. Accepts a FHIR Bundle or IPS document, invokes applicable decision models, retrieves relevant recommendations, and assembles a FHIR CarePlan Bundle.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["patient_data"],
+        "properties": {
+          "patient_data": {
+            "type": "object",
+            "description": "FHIR Bundle or IPS document containing the patient's clinical data"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/careplans",
+        "rest_content_type": "application/fhir+json"
+      }
+    },
+    {
+      "name": "get_careplan",
+      "description": "Retrieve a previously generated care plan by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["careplan_id"],
+        "properties": {
+          "careplan_id": {
+            "type": "string",
+            "description": "ID of the care plan to retrieve"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "GET",
+        "rest_path": "/api/v1/careplans/{careplan_id}"
+      }
+    },
+    {
+      "name": "approve_careplan",
+      "description": "Approve or reject a generated care plan. Approval may trigger BPMN generation and dispatch to the automation service.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["careplan_id", "status"],
+        "properties": {
+          "careplan_id": {
+            "type": "string",
+            "description": "ID of the care plan"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["approved", "rejected"],
+            "description": "New status for the care plan"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for rejection (required when rejecting)"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "PUT",
+        "rest_path": "/api/v1/careplans/{careplan_id}/status"
+      }
+    }
+  ]
+}
