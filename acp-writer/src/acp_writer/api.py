@@ -1,49 +1,24 @@
 """FastAPI REST API for the acp-writer service."""
 
+import base64
 import json
 import logging
 import os
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from acp_writer.careplan import build_careplan, extract_patient_data, invoke_decisions
+from cpg_contracts import DecisionModelSummary, DecisionVariable
+from acp_writer.careplan import build_careplan, extract_patient_data
 
 logger = logging.getLogger(__name__)
 
 KOGITO_URL = os.environ.get("KOGITO_URL", "http://localhost:8081")
+DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
 
-DECISION_MODELS = {
-    "treatment-recommendation": {
-        "id": "treatment-recommendation",
-        "name": "Treatment Recommendation",
-        "kogito_path": "Treatment%20Recommendation",
-        "inputs": [
-            {"name": "Systolic BP", "type": "number"},
-            {"name": "Has Diabetes", "type": "boolean"},
-            {"name": "Has Kidney Disease", "type": "boolean"},
-        ],
-        "outputs": [
-            {"name": "Action", "type": "string"},
-            {"name": "Medication", "type": "string"},
-            {"name": "Dose", "type": "string"},
-            {"name": "Follow Up Weeks", "type": "number"},
-        ],
-    },
-    "monitoring-plan": {
-        "id": "monitoring-plan",
-        "name": "Monitoring Plan",
-        "kogito_path": "Monitoring%20Plan",
-        "inputs": [
-            {"name": "Treatment Action", "type": "string"},
-            {"name": "Has Kidney Disease", "type": "boolean"},
-        ],
-        "outputs": [
-            {"name": "Lab Order", "type": "string"},
-            {"name": "Lab Timing Weeks", "type": "number"},
-        ],
-    },
-}
+_dynamic_models: dict[str, dict] = {}
 
 app = FastAPI(
     title="ACP Writer API",
@@ -58,6 +33,94 @@ def _check_kogito() -> bool:
         return r.status_code == 200
     except requests.RequestException:
         return False
+
+
+def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
+    """Extract model name, inputs, and outputs from DMN XML."""
+    root = ET.fromstring(dmn_xml)
+
+    model_name = root.get("name", "unknown")
+    model_id = model_name.lower().replace(" ", "-")
+
+    inputs = []
+    for input_data in root.findall(f"{{{DMN_NS}}}inputData"):
+        var = input_data.find(f"{{{DMN_NS}}}variable")
+        if var is not None:
+            inputs.append(DecisionVariable(
+                name=var.get("name", ""),
+                type=var.get("typeRef", "string"),
+            ))
+
+    outputs = []
+    for decision in root.findall(f"{{{DMN_NS}}}decision"):
+        dt = decision.find(f"{{{DMN_NS}}}decisionTable")
+        if dt is not None:
+            for output in dt.findall(f"{{{DMN_NS}}}output"):
+                outputs.append(DecisionVariable(
+                    name=output.get("name", ""),
+                    type=output.get("typeRef", "string"),
+                ))
+
+    return DecisionModelSummary(
+        id=model_id,
+        name=model_name,
+        inputs=inputs,
+        outputs=outputs,
+        deployed_at=datetime.now(timezone.utc),
+    )
+
+
+def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
+    """Evaluate DMN via the JIT endpoint on the decision-service."""
+    dmn_b64 = base64.b64encode(dmn_xml.encode()).decode()
+    r = requests.post(
+        f"{KOGITO_URL}/jit/dmn",
+        json={"dmn_xml_base64": dmn_b64, "inputs": inputs},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def invoke_decisions_dynamic(patient_data: dict) -> dict:
+    """Invoke decisions using dynamically deployed models.
+
+    Phase 1 shortcut: hardcoded to call treatment-recommendation then
+    monitoring-plan by name. Does not generalize.
+    """
+    treatment_model = _dynamic_models.get("treatment-recommendation")
+    monitoring_model = _dynamic_models.get("monitoring-plan")
+
+    if not treatment_model or not monitoring_model:
+        raise ValueError("Required decision models not deployed: treatment-recommendation, monitoring-plan")
+
+    treatment_result = _evaluate_jit(
+        treatment_model["dmn_xml"],
+        {
+            "Systolic BP": patient_data["systolic_bp"],
+            "Has Diabetes": patient_data["has_diabetes"],
+            "Has Kidney Disease": patient_data["has_kidney_disease"],
+        },
+    )
+
+    action = treatment_result["Treatment Recommendation"]["Action"]
+
+    monitoring_result = _evaluate_jit(
+        monitoring_model["dmn_xml"],
+        {
+            "Treatment Action": action,
+            "Has Kidney Disease": patient_data["has_kidney_disease"],
+        },
+    )
+
+    return {
+        "action": action,
+        "medication": treatment_result["Treatment Recommendation"]["Medication"],
+        "dose": treatment_result["Treatment Recommendation"]["Dose"],
+        "follow_up_weeks": treatment_result["Treatment Recommendation"]["Follow Up Weeks"],
+        "lab_order": monitoring_result["Monitoring Plan"]["Lab Order"],
+        "lab_timing_weeks": monitoring_result["Monitoring Plan"]["Lab Timing Weeks"],
+    }
 
 
 # --- Health ---
@@ -78,11 +141,12 @@ def readiness():
 @app.get("/api/v1/status")
 def status():
     kogito_healthy = _check_kogito()
+    total_models = len(_dynamic_models)
     return {
         "version": "0.1.0",
         "decision_engine": {
             "status": "healthy" if kogito_healthy else "unavailable",
-            "models_deployed": len(DECISION_MODELS) if kogito_healthy else 0,
+            "models_deployed": total_models,
         },
         "knowledge_base": {
             "status": "unavailable",
@@ -107,7 +171,7 @@ async def generate_careplan(request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
-        decisions = invoke_decisions(KOGITO_URL, patient_data)
+        decisions = invoke_decisions_dynamic(patient_data)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Decision evaluation failed: {e}")
 
@@ -121,10 +185,7 @@ async def generate_careplan(request: Request):
 
 @app.get("/api/v1/careplans", status_code=501)
 def list_careplans():
-    raise HTTPException(
-        status_code=501,
-        detail="Care plan persistence not implemented. Generated care plans are returned directly and not stored.",
-    )
+    raise HTTPException(status_code=501, detail="Care plan persistence not implemented")
 
 
 @app.get("/api/v1/careplans/{careplan_id}", status_code=501)
@@ -134,51 +195,67 @@ def get_careplan(careplan_id: str):
 
 @app.put("/api/v1/careplans/{careplan_id}/status", status_code=501)
 def update_careplan_status(careplan_id: str):
-    raise HTTPException(
-        status_code=501,
-        detail="Care plan approval workflow not implemented. BPMN generation is a Phase 3 feature.",
-    )
+    raise HTTPException(status_code=501, detail="Care plan approval workflow not implemented")
 
 
 # --- Decision Models ---
 
 
+@app.post("/api/v1/decisions/models", status_code=201)
+async def deploy_decision_model(request: Request):
+    content_type = request.headers.get("content-type", "")
+    body = await request.body()
+    dmn_xml = body.decode("utf-8")
+
+    try:
+        summary = _parse_dmn_metadata(dmn_xml)
+    except ET.ParseError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid DMN XML: {e}")
+
+    _dynamic_models[summary.id] = {
+        "summary": summary,
+        "dmn_xml": dmn_xml,
+    }
+
+    logger.info("Deployed decision model: %s (%s)", summary.name, summary.id)
+    return summary.model_dump(mode="json")
+
+
 @app.get("/api/v1/decisions/models")
 def list_decision_models():
-    return [
-        {k: v for k, v in model.items() if k != "kogito_path"}
-        for model in DECISION_MODELS.values()
-    ]
+    return [m["summary"].model_dump(mode="json") for m in _dynamic_models.values()]
 
 
-@app.post("/api/v1/decisions/models", status_code=501)
-def deploy_decision_model():
-    raise HTTPException(
-        status_code=501,
-        detail="Dynamic DMN deployment not implemented. Models are currently baked into the Kogito container.",
-    )
+@app.get("/api/v1/decisions/models/{model_id}")
+def get_decision_model(model_id: str):
+    model = _dynamic_models.get(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+    result = model["summary"].model_dump(mode="json")
+    result["dmn_xml"] = model["dmn_xml"]
+    return result
+
+
+@app.delete("/api/v1/decisions/models/{model_id}", status_code=204)
+def remove_decision_model(model_id: str):
+    if model_id not in _dynamic_models:
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+    del _dynamic_models[model_id]
+    logger.info("Removed decision model: %s", model_id)
 
 
 @app.post("/api/v1/decisions/evaluate/{model_id}")
 async def evaluate_decision(model_id: str, request: Request):
-    model = DECISION_MODELS.get(model_id)
+    model = _dynamic_models.get(model_id)
     if not model:
         raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
 
     inputs = await request.json()
     try:
-        r = requests.post(
-            f"{KOGITO_URL}/{model['kogito_path']}", json=inputs, timeout=10,
-        )
-        r.raise_for_status()
-        return r.json()
+        result = _evaluate_jit(model["dmn_xml"], inputs)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Decision evaluation failed: {e}")
-
-
-@app.delete("/api/v1/decisions/models/{model_id}", status_code=501)
-def remove_decision_model(model_id: str):
-    raise HTTPException(status_code=501, detail="Not implemented")
 
 
 # --- Knowledge (stubs) ---
