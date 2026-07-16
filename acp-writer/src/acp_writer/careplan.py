@@ -58,12 +58,19 @@ def extract_patient_data(bundle: dict) -> dict:
             for coding in r.get("code", {}).get("coding", []):
                 if coding.get("code") == LOINC_BP_PANEL:
                     for component in r.get("component", []):
-                        comp_code = component["code"]["coding"][0]["code"]
+                        comp_code = (
+                            component.get("code", {})
+                            .get("coding", [{}])[0]
+                            .get("code")
+                        )
                         if comp_code == LOINC_SYSTOLIC:
-                            systolic_bp = component["valueQuantity"]["value"]
+                            quantity = component.get("valueQuantity", {})
+                            systolic_bp = quantity.get("value")
 
     if patient_id is None:
         raise ValueError("No Patient resource found in bundle")
+    if systolic_bp is None:
+        raise ValueError("No blood pressure Observation found in bundle")
 
     logger.info(
         "Patient %s (%s): systolic=%s, diabetes=%s, kidney=%s",
@@ -81,27 +88,35 @@ def extract_patient_data(bundle: dict) -> dict:
 
 def invoke_decisions(kogito_url: str, patient_data: dict) -> dict:
     """Call Kogito DMN endpoints and return combined decision outputs."""
-    treatment = requests.post(
+    session = requests.Session()
+
+    r = session.post(
         f"{kogito_url}/Treatment%20Recommendation",
         json={
             "Systolic BP": patient_data["systolic_bp"],
             "Has Diabetes": patient_data["has_diabetes"],
             "Has Kidney Disease": patient_data["has_kidney_disease"],
         },
-    ).json()
+        timeout=10,
+    )
+    r.raise_for_status()
+    treatment = r.json()
 
     action = treatment["Treatment Recommendation"]["Action"]
 
-    monitoring = requests.post(
+    r = session.post(
         f"{kogito_url}/Monitoring%20Plan",
         json={
             "Treatment Action": action,
             "Has Kidney Disease": patient_data["has_kidney_disease"],
         },
-    ).json()
+        timeout=10,
+    )
+    r.raise_for_status()
+    monitoring = r.json()
 
     result = {
-        "action": treatment["Treatment Recommendation"]["Action"],
+        "action": action,
         "medication": treatment["Treatment Recommendation"]["Medication"],
         "dose": treatment["Treatment Recommendation"]["Dose"],
         "follow_up_weeks": treatment["Treatment Recommendation"]["Follow Up Weeks"],

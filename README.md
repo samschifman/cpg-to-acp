@@ -93,12 +93,28 @@ The system has four application components connected by standards-based contract
      -d @mock-EHR/data/patient-bundle-lifestyle.json
    ```
 
-4. **Generate a care plan:**
+4. **Generate a care plan (via API):**
+   ```bash
+   podman-compose up -d acp-writer   # or: docker compose up -d acp-writer
+   curl -sf http://localhost:8082/health/ready && echo "ACP Writer ready"
+
+   # Medication path (hypertension + diabetes)
+   curl -X POST http://localhost:8082/api/v1/careplans \
+     -H "Content-Type: application/fhir+json" \
+     -d @mock-EHR/data/patient-bundle-medication.json
+
+   # Lifestyle-only path
+   curl -X POST http://localhost:8082/api/v1/careplans \
+     -H "Content-Type: application/fhir+json" \
+     -d @mock-EHR/data/patient-bundle-lifestyle.json
+   ```
+
+   Or via CLI:
    ```bash
    cd acp-writer
    python3 -m venv .venv && source .venv/bin/activate && pip install -e .
-   acp-writer patient-1   # Medication path (hypertension + diabetes)
-   acp-writer patient-2   # Lifestyle-only path
+   acp-writer ../mock-EHR/data/patient-bundle-medication.json
+   acp-writer ../mock-EHR/data/patient-bundle-lifestyle.json
    ```
 
 5. **Tear down:**

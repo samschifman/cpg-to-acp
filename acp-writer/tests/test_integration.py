@@ -132,6 +132,39 @@ class TestCarePlanGeneration:
         )
         assert r.status_code == 400
 
+    def test_no_bp_observation(self):
+        bundle = {
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": [
+                {"resource": {"resourceType": "Patient", "id": "test-patient"}},
+                {
+                    "resource": {
+                        "resourceType": "Condition",
+                        "code": {"coding": [{"code": "59621000"}]},
+                        "subject": {"reference": "Patient/test-patient"},
+                    },
+                },
+            ],
+        }
+        r = client.post("/api/v1/careplans", json=bundle)
+        assert r.status_code == 400
+        assert "blood pressure" in r.json()["detail"].lower()
+
+
+class TestCarePlanStubs:
+    def test_list_careplans_not_implemented(self):
+        r = client.get("/api/v1/careplans")
+        assert r.status_code == 501
+
+    def test_get_careplan_not_implemented(self):
+        r = client.get("/api/v1/careplans/some-id")
+        assert r.status_code == 501
+
+    def test_update_status_not_implemented(self):
+        r = client.put("/api/v1/careplans/some-id/status", json={"status": "approved"})
+        assert r.status_code == 501
+
 
 class TestKnowledgeStubs:
     def test_ingest_not_implemented(self):

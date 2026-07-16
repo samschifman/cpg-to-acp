@@ -1,5 +1,6 @@
 """Parse a CPG PDF into structured Markdown using Docling."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def parse_pdf(input_path: Path, output_dir: Path) -> Path:
     logger.info("Wrote Markdown: %s", md_path)
 
     json_path = output_dir / f"{stem}.json"
-    json_path.write_text(result.document.export_to_dict().__str__())
+    json_path.write_text(json.dumps(result.document.export_to_dict(), indent=2))
     logger.info("Wrote JSON: %s", json_path)
 
     return md_path

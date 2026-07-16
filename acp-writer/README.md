@@ -48,16 +48,16 @@ Each REST endpoint has a corresponding MCP tool definition for agent framework i
 | `get_careplan` | `GET /api/v1/careplans/{id}` | Retrieve a generated care plan |
 | `approve_careplan` | `PUT /api/v1/careplans/{id}/status` | Approve or reject a care plan |
 
-## Phase 1 CLI (temporary)
+## CLI
 
-The Phase 1 CLI is a stopgap that will be replaced by the REST API implementation.
+The CLI reads a FHIR Bundle from a file and generates a CarePlan. It requires Kogito running on :8081.
 
 ```bash
 cd acp-writer
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-acp-writer patient-1   # Requires HAPI FHIR on :8080 and Kogito on :8081
+acp-writer ../mock-EHR/data/patient-bundle-medication.json   # Requires Kogito on :8081
 ```
 
 ### Phase 1 Shortcuts
