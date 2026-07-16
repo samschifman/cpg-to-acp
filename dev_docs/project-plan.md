@@ -1,4 +1,4 @@
-# CPG-to-ACP Project Plan v2
+# CPG-to-ACP Project Plan
 
 ## Goal
 
