@@ -57,70 +57,93 @@ The system has four application components connected by standards-based contract
 - **Human-in-the-loop.** Clinicians review and approve DMN tables (extraction) and care plans (composition). The system proposes; clinicians approve.
 - **Pluggable architecture.** The platform is the constant; document parsers, decision engines, agent frameworks, vector stores, and automation runtimes are all swappable.
 
-## Getting Started (Phase 1)
+## Getting Started
+
+This walks through the full pipeline: CPG PDF → parse → extract DMN → deploy decisions → generate care plan.
 
 ### Prerequisites
 
 - [Podman](https://podman.io/) (preferred) or Docker with compose support
+- Python 3.11+
 - Google Cloud credentials with access to Claude on Vertex AI (for LLM-driven extraction)
 
-### Quick Start
+### 1. Configure credentials
 
-1. **Configure credentials:**
-   ```bash
-   cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
-   # Edit .env with your Vertex AI project ID and location
-   # Ensure GCP Application Default Credentials are set up:
-   gcloud auth application-default login
-   ```
+```bash
+cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
+# Edit .env with your Vertex AI project ID and location
+# Ensure GCP Application Default Credentials are set up:
+gcloud auth application-default login
+```
 
-2. **Start services:**
-   ```bash
-   podman-compose up -d hapi-fhir kogito litellm   # or: docker compose up -d ...
-   ```
+### 2. Start infrastructure services
 
-3. **Wait for services to be ready, then load patient data:**
-   ```bash
-   curl -sf http://localhost:8080/fhir/metadata > /dev/null && echo "FHIR ready"
-   curl -sf http://localhost:8081/q/health/ready > /dev/null && echo "Kogito ready"
+```bash
+podman-compose up -d kogito litellm acp-writer   # or: docker compose up -d ...
+# Wait for services
+curl -sf http://localhost:8081/q/health/ready > /dev/null && echo "Kogito ready"
+curl -sf http://localhost:8082/health/ready > /dev/null && echo "ACP Writer ready"
+```
 
-   curl -X POST http://localhost:8080/fhir \
-     -H "Content-Type: application/fhir+json" \
-     -d @mock-EHR/data/patient-bundle-medication.json
+### 3. Parse a CPG with Docling
 
-   curl -X POST http://localhost:8080/fhir \
-     -H "Content-Type: application/fhir+json" \
-     -d @mock-EHR/data/patient-bundle-lifestyle.json
-   ```
+```bash
+cd cpg-ingester
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e . -e ../shared
 
-4. **Generate a care plan (via API):**
-   ```bash
-   podman-compose up -d acp-writer   # or: docker compose up -d acp-writer
-   curl -sf http://localhost:8082/health/ready && echo "ACP Writer ready"
+# Parse the synthetic hypertension CPG
+cpg-parse data/synthetic-hypertension-cpg.pdf -o output
+# Produces: output/synthetic-hypertension-cpg.md
+```
 
-   # Medication path (hypertension + diabetes)
-   curl -X POST http://localhost:8082/api/v1/careplans \
-     -H "Content-Type: application/fhir+json" \
-     -d @mock-EHR/data/patient-bundle-medication.json
+### 4. Extract DMN decision tables and deploy to acp-writer
 
-   # Lifestyle-only path
-   curl -X POST http://localhost:8082/api/v1/careplans \
-     -H "Content-Type: application/fhir+json" \
-     -d @mock-EHR/data/patient-bundle-lifestyle.json
-   ```
+```bash
+# Extract DMN from the parsed CPG using the LLM, then deploy to acp-writer
+cpg-extract-dmn output/synthetic-hypertension-cpg.md -o output \
+  --deploy --acp-writer-url http://localhost:8082
 
-   Or via CLI:
-   ```bash
-   cd acp-writer
-   python3 -m venv .venv && source .venv/bin/activate && pip install -e .
-   acp-writer ../mock-EHR/data/patient-bundle-medication.json
-   acp-writer ../mock-EHR/data/patient-bundle-lifestyle.json
-   ```
+# Or extract and deploy as separate steps:
+cpg-extract-dmn output/synthetic-hypertension-cpg.md -o output
+cpg-deploy-dmn output/decision-table-1.dmn output/decision-table-2.dmn \
+  --acp-writer-url http://localhost:8082
+```
 
-5. **Tear down:**
-   ```bash
-   podman-compose down   # or: docker compose down
-   ```
+Verify the models are deployed:
+```bash
+curl -sf http://localhost:8082/api/v1/decisions/models | python3 -m json.tool
+```
+
+### 5. Generate a care plan
+
+Post patient data (FHIR Bundle) to the acp-writer API:
+```bash
+# Patient with hypertension + diabetes → medication path
+curl -X POST http://localhost:8082/api/v1/careplans \
+  -H "Content-Type: application/fhir+json" \
+  -d @mock-EHR/data/patient-bundle-medication.json | python3 -m json.tool
+
+# Patient with mild hypertension only → lifestyle path
+curl -X POST http://localhost:8082/api/v1/careplans \
+  -H "Content-Type: application/fhir+json" \
+  -d @mock-EHR/data/patient-bundle-lifestyle.json | python3 -m json.tool
+```
+
+### 6. Tear down
+
+```bash
+podman-compose down   # or: docker compose down
+```
+
+### What each step exercises
+
+| Step | Component | Red Hat AI tech |
+|---|---|---|
+| Parse CPG | cpg-ingester | Docling |
+| Extract DMN | cpg-ingester | LLM via LiteLLM (Opus 4.6 on Vertex AI) |
+| Deploy DMN | cpg-ingester → acp-writer API | — |
+| Generate CarePlan | acp-writer → decision-service (JIT) | Drools/Kogito |
 
 ## Open Questions
 
