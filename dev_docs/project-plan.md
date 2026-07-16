@@ -1,8 +1,10 @@
 # CPG-to-ACP Project Plan
 
+> **Note:** This plan is directional. Phases, priorities, and technology choices are subject to change as the project evolves and as the Red Hat AI platform matures. Phase ordering beyond Phase 3 may be adjusted based on priorities and dependencies.
+
 ## Goal
 
-Demonstrate Clinical Practice Guidelines to Actionable Care Plans on OpenShift with Red Hat AI components — especially OpenShell — as quickly as possible. Enable parallel development across areas with cross-cutting milestones.
+Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
 ## Current State (Phase 1 Complete)
 
@@ -18,21 +20,20 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 
 ### Phase 2 — OpenShift + OpenShell + Platform Foundation
 
-**Goal:** Get the system running on OpenShift with OpenShell sandboxing. Demo Red Hat AI governance from the start.
+**Goal:** Get the system running on OpenShift with OpenShell sandboxing and governed inference.
 
-**Why OpenShell first:** OpenShell can sandbox the existing services without requiring a full multi-agent architecture. The fastest path to an OpenShell demo is deploying the current acp-writer + decision-service in an OpenShell sandbox on OpenShift.
+OpenShell can sandbox the existing services without requiring a full multi-agent architecture. Deploying the current acp-writer + decision-service in an OpenShell sandbox on OpenShift establishes the governance pattern early.
 
-#### All Areas
+#### Work Items
 
-| Area | Work | Red Hat AI Tech |
+| Area | Work | Technology |
 |---|---|---|
 | **platform** | Deploy all services to OpenShift (Helm/Kustomize per component) | OpenShift |
 | **platform** | Replace LiteLLM with MaaS for inference routing | MaaS |
 | **platform** | Wrap acp-writer in OpenShell sandbox with per-binary network policies | OpenShell |
-| **platform** | Add vLLM for self-hosted inference behind MaaS (alongside frontier models) | vLLM |
 | **platform** | Add MLflow tracing across the pipeline | MLflow |
-| **platform** | **Spike:** Agent framework evaluation — compare Kagenti, LangGraph, CrewAI, Rookery, [fips-agents](https://github.com/fips-agents) for multi-agent orchestration within cpg-ingester and acp-writer. Must align with OpenShell. | — |
-| **platform** | **Spike:** Investigate Praxis as future replacement for MaaS/LiteLLM (expected Red Hat AI 3.6, Nov 2026) | — |
+| **platform** | **Spike:** Agent framework evaluation — compare LangGraph, CrewAI, Rookery, and other options for multi-agent orchestration within cpg-ingester and acp-writer. Must align with OpenShell. | — |
+| **platform** | **Spike:** Investigate Praxis as future inference gateway | — |
 | **cpg-ingester** | Transition from synthetic to real CPG (VA/DoD guideline) | Docling |
 | **cpg-ingester** | Enhance Docling usage: capture diagrams, images, multi-column layouts | Docling |
 | **acp-writer** | Implement MCP tool interfaces for FHIR and DMN access | MCP |
@@ -50,9 +51,11 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 
 ---
 
-### Phase 3 — Multi-Agent + Knowledge + Enhanced Extraction
+### Phase 3 — Multi-Agent + Knowledge + Minimal UI
 
-**Goal:** Build the multi-agent architecture for both cpg-ingester and acp-writer. Add the recommendation/vector store pipeline. Make care plans clinically meaningful.
+**Goal:** Build the multi-agent architecture for both cpg-ingester and acp-writer. Add the recommendation/vector store pipeline. Introduce minimal UIs for upload and approval workflows.
+
+Care plans in this phase include narrative activities based on process/recommendations from the CPG. BPMN generation is deferred to Phase 4.
 
 #### cpg-ingester
 
@@ -63,7 +66,7 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 | Add DMN writing agent — produces high-quality DMN with validation | Replace single-prompt extraction |
 | Add recommendation extraction agent — extracts process/recommendations for vector store | Contract format TBD |
 | Incorporate AutoRAG for retrieval optimization (if it makes sense) | AutoRAG |
-| Wire agents together using selected orchestration approach | Kagenti / framework from spike |
+| Wire agents together using selected orchestration approach | Framework from Phase 2 spike |
 
 #### acp-writer
 
@@ -71,57 +74,81 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 |---|---|
 | Establish vector store for recommendations | Pluggable (Milvus, pgvector) |
 | Enhance care plan composition agent — uses DMN + retrieved recommendations | Replace hardcoded mapping |
+| Generate CarePlan with narrative activities from process/recommendations | Activities reference CPG source |
 | Add FHIR CarePlan expert agent — correct codes, AI Transparency on FHIR IG compliance | Research: HL7 AIToF IG |
-| Add BPMN writing agent — writes BPMN for process/recommendations | — |
 | **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input |
-| Include BPMN in DocumentReferences linked to CarePlan activities via extension | FHIR extension design |
 | Write CarePlan + associated resources back to HAPI FHIR server | — |
 | Accept patient data as IPS instead of raw Bundle | Replace Phase 1 shortcut |
 
-#### automation
+#### Minimal UIs
 
-| Work | Notes |
-|---|---|
-| Implement stub automation service that accepts BPMN from acp-writer | Receives BPMN over API |
-| Define the BPMN contract in shared/ | — |
+| Component | Work | Notes |
+|---|---|---|
+| **cpg-ingester** | Upload CPG (PDF) and review/approve extracted decisions and recommendations | Simple workflow: upload → review → approve → push to acp-writer |
+| **acp-writer** | Review and approve a generated care plan | Simple workflow: submit patient data → review CarePlan → approve |
+
+These are functional but minimal — interactive editing, side-by-side CPG comparison, and BPMN visualization come in later phases.
 
 #### platform
 
 | Work | Notes |
 |---|---|
-| Deploy agents via Kagenti on OpenShift (if selected) | Kagenti |
 | OpenShell policies per agent (network, filesystem, credential scoping) | OpenShell |
 | MCP Gateway for governed tool access | MCP Gateway |
 
 #### Exit Criteria
 
 - cpg-ingester is a multi-agent pipeline that extracts both DMN and recommendations
-- acp-writer produces clinically meaningful CarePlans with recommendations
+- acp-writer produces CarePlans with recommendation-backed narrative activities
 - Vector store operational with recommendation retrieval
-- BPMN generated for automatable activities
-- Automation service receives BPMN
-- Agent identity and sandboxing via OpenShell/Kagenti
+- Minimal UIs allow upload, review, and approval for both ingestion and care plan generation
+- Agent sandboxing via OpenShell
 
 ---
 
-### Phase 4 — Governance + Safety + Evaluation
+### Phase 4 — BPMN + Automation
 
-**Goal:** Add the governance stack that differentiates Red Hat AI. Quality gates, guardrails, evaluation.
+**Goal:** Add BPMN generation to make care plans actionable. Connect acp-writer to the automation service.
 
-#### All Areas
+> **Note:** This phase may be reordered relative to Phase 5 depending on project priorities. If governance and evaluation are more urgent, Phase 5 can proceed first.
 
-| Area | Work | Red Hat AI Tech |
+#### Work Items
+
+| Area | Work | Notes |
+|---|---|---|
+| **acp-writer** | Add BPMN writing agent — writes BPMN for process/recommendations | — |
+| **acp-writer** | Include BPMN in DocumentReferences linked to CarePlan activities via extension | FHIR extension design |
+| **acp-writer** | Publish BPMN to automation service on care plan approval | — |
+| **automation** | Implement automation service that accepts BPMN from acp-writer | Receives BPMN over API |
+| **shared** | Define the BPMN contract in shared/ | — |
+| **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer |
+
+#### Exit Criteria
+
+- acp-writer generates BPMN for automatable activities
+- Automation service receives and stores BPMN
+- BPMN visible in the care plan review UI
+
+---
+
+### Phase 5 — Governance + Safety + Evaluation
+
+**Goal:** Quality gates, guardrails, and evaluation pipelines.
+
+#### Work Items
+
+| Area | Work | Technology |
 |---|---|---|
 | **platform** | NeMo Guardrails on agent I/O — healthcare-specific rules | NeMo Guardrails |
 | **platform** | EvalHub — golden test sets per CPG, extraction fidelity scorers, plan quality scorers | EvalHub |
 | **platform** | EvalHub gates that block deployment of degraded models/pipelines | EvalHub |
 | **platform** | Garak red-teaming for healthcare-specific adversarial scenarios | Garak |
 | **platform** | Agent identity via SPIFFE/SPIRE | SPIFFE/SPIRE |
-| **platform** | Migrate from MaaS to Praxis (if available — expected Red Hat AI 3.6) | Praxis |
+| **platform** | Migrate inference gateway to Praxis (if available) | Praxis |
+| **platform** | **Evaluate:** Using smaller self-hosted models (via vLLM) instead of frontier models for cost and latency | vLLM |
 | **cpg-ingester** | Validation pipeline: compare extracted DMN against golden test cases | — |
 | **acp-writer** | Validate CarePlan output against AI Transparency on FHIR IG | — |
 | **acp-writer** | CarePlan quality scoring (automated + clinician review) | — |
-| **automation** | Add BPMN execution engine or BPMN-to-Ansible converter | Ansible/SonataFlow |
 
 #### Exit Criteria
 
@@ -129,35 +156,30 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 - EvalHub gates preventing degraded deployments
 - Three audit trails: MLflow (tracing), OpenShell (sandbox), automation (execution)
 - AI Transparency on FHIR compliance
-- Praxis migration (if timeline allows)
+- Self-hosted model evaluation complete
 
 ---
 
-### Phase 5 — UIs + Scale + Demo-Ready
+### Phase 6 — Full UIs + Scale + Demo-Ready
 
-**Goal:** Full user interfaces, multiple CPGs, polished demo for customers and field teams.
+**Goal:** Full user interfaces, multiple CPGs, polished demo.
 
-#### cpg-ingester UI
+#### cpg-ingester UI (enhanced)
 
 | Work | Notes |
 |---|---|
-| Upload CPG (PDF) | File upload interface |
-| Confirm identified decisions and process/recommendations | Review + edit |
-| Review DMN after conversion | Side-by-side with CPG source |
+| Review DMN after conversion — side-by-side with CPG source | Visual comparison |
 | Review recommendations before push to acp-writer | — |
 | Interactive editing at each step | — |
-| Push approved bundle (DMN + recommendations) to acp-writer | — |
+| Reference back to CPG source for verification | — |
 
-#### acp-writer UI
+#### acp-writer UI (enhanced)
 
 | Work | Notes |
 |---|---|
 | Launchable via SMART on FHIR inside supporting EHR | SMART App Launch |
 | Pull patient data as IPS from FHIR server for patient in context | — |
 | Allow user to add notes about current situation | Free text input |
-| Send all data to acp-writer server | API call |
-| Review resulting care plan | CarePlan visualization |
-| Visualize activity BPMN within care plan | BPMN renderer |
 | Interactive editing of care plan | — |
 | Approve → publish to FHIR server + automation service | — |
 
@@ -176,36 +198,41 @@ The walking skeleton is operational: synthetic CPG → Docling parsing → LLM D
 | Expand to 3-5 real CPGs (VA/DoD) | — |
 | Multi-plan merging when multiple CPGs apply | Conflict detection |
 | Conflict resolution with clinician input | — |
-| AI Gateway for token rate limiting and cost showback | AI Gateway |
+
+#### automation (enhanced)
+
+| Work | Notes |
+|---|---|
+| Add BPMN execution engine or BPMN-to-Ansible converter | Ansible/SonataFlow |
 
 #### Exit Criteria
 
-- Demo-ready system exercising 12+ Red Hat AI platform capabilities
 - Full UIs for both cpg-ingester and acp-writer
 - Mock-EHR launches acp-writer via SMART on FHIR
 - 3-5 CPGs with multi-plan merging
-- Presentation-ready materials
+- Presentation-ready
 
 ---
 
-## Red Hat AI Technology Adoption Timeline
+## Technology Adoption Timeline
 
 | Phase | Technologies Added |
 |---|---|
 | Phase 1 (complete) | Docling, LiteLLM (local), Drools/Kogito |
-| Phase 2 | OpenShift, OpenShell, MaaS, vLLM, MLflow, MCP |
-| Phase 3 | AutoRAG, Kagenti, MCP Gateway, vector store |
-| Phase 4 | NeMo Guardrails, EvalHub, Garak, SPIFFE/SPIRE, Praxis |
-| Phase 5 | AI Gateway, SMART on FHIR |
+| Phase 2 | OpenShift, OpenShell, MaaS, MLflow, MCP |
+| Phase 3 | AutoRAG, MCP Gateway, vector store |
+| Phase 4 | — (BPMN generation, no new platform tech) |
+| Phase 5 | NeMo Guardrails, EvalHub, Garak, SPIFFE/SPIRE, vLLM, Praxis |
+| Phase 6 | SMART on FHIR |
 
 ## Parallel Development Tracks
 
 Each area can advance semi-independently within a phase. Cross-cutting dependencies are noted in the phase tables. The key synchronization points are:
 
 1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3
-2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS, Kagenti
+2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS
 3. **Vector store + recommendation contract (Phase 3)** — blocks recommendation-backed care plans
-4. **BPMN contract in shared/ (Phase 3)** — blocks automation service integration
+4. **BPMN contract in shared/ (Phase 4)** — blocks automation service integration
 
 Within each phase, a contributor can pick up any work item in their area without blocking others, as long as the phase's prerequisites are met.
 
@@ -213,10 +240,11 @@ Within each phase, a contributor can pick up any work item in their area without
 
 | Item | Phase | Notes |
 |---|---|---|
-| Agent framework evaluation | 2 | Compare Kagenti, LangGraph, CrewAI, Rookery, fips-agents |
-| Praxis investigation | 2 | Red Hat AI 3.6 (Nov 2026). Successor to OGX/LlamaStack as AI gateway. Will replace MaaS when available. |
+| Agent framework evaluation | 2 | Compare LangGraph, CrewAI, Rookery, and other options for multi-agent orchestration |
+| Praxis investigation | 2 | Emerging inference gateway. Investigate fit and timeline for adoption. |
 | Effective FHIR CarePlan goals | 3 | Research what makes clinically meaningful goals — clinical + FHIR standard input needed |
 | AI Transparency on FHIR IG | 3 | HL7 STU1 ballot. Defines how to tag FHIR resources generated/influenced by AI |
 | Recommendation contract format | 3 | No established standard (unlike DMN/BPMN/FHIR). Design needed. |
-| BPMN-to-Ansible conversion | 4 | Feasibility and approach |
-| SMART-EHR-Launcher (CSIRO) | 5 | Open-source EHR simulator for SMART app launch — evaluate for mock-EHR |
+| Self-hosted models vs. frontier | 5 | Evaluate using smaller models (via vLLM) for cost, latency, and data locality |
+| BPMN-to-Ansible conversion | 6 | Feasibility and approach |
+| SMART-EHR-Launcher (CSIRO) | 6 | Open-source EHR simulator for SMART app launch — evaluate for mock-EHR |
