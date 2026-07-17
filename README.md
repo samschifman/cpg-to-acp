@@ -59,6 +59,26 @@ The system has four application components connected by standards-based contract
 - **Human-in-the-loop.** Clinicians review and approve DMN tables (extraction) and care plans (composition). The system proposes; clinicians approve.
 - **Pluggable architecture.** The platform is the constant; document parsers, decision engines, agent frameworks, vector stores, and automation runtimes are all swappable.
 
+## Introduction Videos
+
+Here is a playlist of videos that introduce the project. The purpose is to provide a high-level understanding of the parts and concepts in the project, not an in-depth exploration of the subjects.
+
+[Full playlist](https://www.youtube.com/playlist?list=PLBrn0oRf1lNM)
+
+Individual Videos:
+- [CPG to ACP Intro Part 1: overview](https://youtu.be/bP39Nwj0WUQ) - a general overview of the goals and parts of the project
+- [CPG to ACP Intro Part 2: CPG](https://youtu.be/-pfzh3IQH18) - a short introduction to Clinical Practice Guidelines
+- [CPG to ACP Intro Part 3: DMN](https://youtu.be/H6Z3my6Lv5Q) - a short introduction to Decision Model and Notation
+- [CPG to ACP Intro Part 4: Recommendations](https://youtu.be/h2ekn2hdnfo) - a short introduction to modeling recommendations
+- [CPG to ACP Intro Part 5: FHIR](https://youtu.be/LuFMUkjXaOY) - a short introduction to Fast Healthcare Interoperability Resources
+- [CPG to ACP Intro Part 6: Care Plan](https://youtu.be/-7EwXg68jMA) - a short introduction to care plans
+- [CPG to ACP Intro Part 7: BPMN](https://youtu.be/rotr4CHi794) - a short introduction to Business Process Model and Notation
+- [CPG to ACP Intro Part 8: UI](https://youtu.be/CKAtb7Ibbz4) - a brief overview of the user interfaces needed
+- [CPG to ACP Intro Part 9: Future](https://youtu.be/vcVf6HB4zy8) - a brief look at future directions for the project
+- [CPG to ACP Intro Part 10: Code](https://youtu.be/iU2ok5_p5r8) - a brief overview of the project structure
+
+> **WARNING:** These videos were shot at a point in time; the project may have changed since then. Please refer to the GitHub repository for the latest.
+
 ## Getting Started
 
 This walks through the full pipeline: CPG PDF → parse → extract DMN → deploy decisions → generate care plan.
