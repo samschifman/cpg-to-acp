@@ -17,9 +17,8 @@ resources:
 service:
   port: 4000
 
-vertexAi:
-  project: ""
-  location: us-east5
+openai:
+  apiKey: ""
 
 litellm:
   masterKey: ""

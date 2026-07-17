@@ -87,15 +87,13 @@ This walks through the full pipeline: CPG PDF → parse → extract DMN → depl
 
 - [Podman](https://podman.io/) (preferred) or Docker with compose support
 - Python 3.11+
-- Google Cloud credentials with access to Claude on Vertex AI (for LLM-driven extraction)
+- OpenAI API key (for LLM-driven extraction)
 
 ### 1. Configure credentials
 
 ```bash
 cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
-# Edit .env with your Vertex AI project ID and location
-# Ensure GCP Application Default Credentials are set up:
-gcloud auth application-default login
+# Edit .env with your OpenAI API key
 ```
 
 ### 2. Start infrastructure services

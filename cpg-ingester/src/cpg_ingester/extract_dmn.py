@@ -55,7 +55,7 @@ def extract_dmn(cpg_markdown: str, client: OpenAI, model: str) -> list[str]:
 @click.argument("input_markdown", type=click.Path(exists=True, path_type=Path))
 @click.option("--output-dir", "-o", type=click.Path(path_type=Path), default=Path("output"))
 @click.option("--litellm-url", default="http://localhost:4000", help="LiteLLM proxy URL.")
-@click.option("--model", default="opus", help="Model name configured in LiteLLM.")
+@click.option("--model", default="default", help="Model name configured in LiteLLM.")
 @click.option("--api-key", default="sk-change-me", help="LiteLLM master key.")
 @click.option("--deploy", is_flag=True, help="Push extracted DMN to acp-writer after writing.")
 @click.option("--acp-writer-url", default="http://localhost:8082", help="ACP Writer URL (used with --deploy).")
