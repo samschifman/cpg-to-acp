@@ -7,11 +7,18 @@ RUN apt-get update && \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-COPY src/ src/
+COPY shared/ /app/shared/
+RUN pip install --no-cache-dir /app/shared/
+
+COPY cpg-ingester/pyproject.toml .
+COPY cpg-ingester/src/ src/
 
 RUN pip install --no-cache-dir .
 
-COPY data/ data/
+COPY cpg-ingester/data/ data/
+
+RUN chmod -R g=u /app
+
+USER 1001
 
 ENTRYPOINT ["cpg-parse"]

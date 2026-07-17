@@ -1,5 +1,8 @@
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 COPY load-data.sh /load-data.sh
+RUN chmod g=u /load-data.sh
+
+USER 1001
 
 ENTRYPOINT ["/load-data.sh"]

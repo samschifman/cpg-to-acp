@@ -11,9 +11,15 @@ RUN mvn package -DskipTests -B
 
 FROM registry.access.redhat.com/ubi9/openjdk-17-runtime:latest
 
+USER root
+
 WORKDIR /app
 
 COPY --from=build /build/target/quarkus-app/ /app/
+
+RUN chmod -R g=u /app
+
+USER 185
 
 EXPOSE 8081
 
