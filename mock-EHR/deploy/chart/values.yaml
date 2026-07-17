@@ -1,0 +1,19 @@
+hapiFhir:
+  image: hapiproject/hapi:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  service:
+    port: 8080
+
+loader:
+  image:
+    registry: image-registry.openshift-image-registry.svc:5000
+    namespace: sschifma-cpg-to-acp
+    name: fhir-loader
+    tag: phase2

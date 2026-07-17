@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-fhir-loader
+  labels:
+    app.kubernetes.io/name: fhir-loader
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: cpg-to-acp
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fhir-loader
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fhir-loader
+          image: "{{ .Values.loader.image.registry }}/{{ .Values.loader.image.namespace }}/{{ .Values.loader.image.name }}:{{ .Values.loader.image.tag }}"
+          env:
+            - name: FHIR_BASE_URL
+              value: "http://{{ .Release.Name }}-hapi-fhir:{{ .Values.hapiFhir.service.port }}/fhir"

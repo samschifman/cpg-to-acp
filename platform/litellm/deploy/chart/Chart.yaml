@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cpg-litellm
+description: LiteLLM inference proxy for CPG-to-ACP (Phase 1 — replaced by MaaS in Phase 2+)
+version: 0.1.0
+appVersion: "0.1.0"

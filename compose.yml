@@ -15,10 +15,8 @@ services:
 
   fhir-loader:
     build:
-      context: ./mock-EHR/deploy
-      dockerfile: Dockerfile.loader
-    volumes:
-      - ./mock-EHR/data:/data:ro
+      context: ./mock-EHR
+      dockerfile: deploy/Dockerfile.loader
     environment:
       - FHIR_BASE_URL=http://hapi-fhir:8080/fhir
     depends_on:
