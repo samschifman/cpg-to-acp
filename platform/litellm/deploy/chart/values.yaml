@@ -20,9 +20,5 @@ service:
 openai:
   apiKey: ""
 
-vertexAi:
-  project: ""
-  location: us-east5
-
 litellm:
   masterKey: ""

@@ -14,18 +14,11 @@ On OpenShift AI, these are typically platform capabilities that are configured r
 
 ## LiteLLM (Phase 1)
 
-LiteLLM provides a unified OpenAI-compatible endpoint that proxies requests to one or more LLM providers. Two models are pre-configured:
-
-| Model name | Provider | Notes |
-|---|---|---|
-| `default` | OpenAI (GPT-5.6) | Requires `OPENAI_API_KEY` |
-| `claude` | Claude Opus 4.6 via Vertex AI | Requires `VERTEX_PROJECT`, `VERTEX_LOCATION`, and GCP Application Default Credentials |
-
-The `default` model is used by cpg-ingester unless overridden with `--model`. In Phase 2, MaaS replaces LiteLLM on OpenShift — application code should not need to change since both expose the same OpenAI-compatible API.
+LiteLLM provides a unified OpenAI-compatible endpoint that proxies requests to an LLM provider. The default configuration uses OpenAI (GPT-5.6). In Phase 2, MaaS replaces LiteLLM on OpenShift — application code should not need to change since both expose the same OpenAI-compatible API.
 
 ### Setup
 
-1. Copy `.env.example` to `.env` and configure at least one provider:
+1. Copy `.env.example` to `.env` and add your OpenAI API key:
    ```bash
    cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
    ```
@@ -40,15 +33,44 @@ The `default` model is used by cpg-ingester unless overridden with `--model`. In
 ### Test
 
 ```bash
-# OpenAI (default)
 curl http://localhost:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -d '{"model": "default", "messages": [{"role": "user", "content": "Hello"}]}'
-
-# Claude (requires Vertex AI credentials)
-curl http://localhost:4000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -d '{"model": "claude", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
+
+### Switching to Claude on Vertex AI
+
+LiteLLM crashes at startup if any configured model has missing credentials, so both providers cannot be in the config simultaneously unless both are configured. To switch to Claude:
+
+1. Edit `platform/litellm/deploy/config.yaml` — replace the model entry:
+   ```yaml
+   model_list:
+     - model_name: default
+       litellm_params:
+         model: vertex_ai/claude-opus-4-6
+         vertex_project: os.environ/VERTEX_PROJECT
+         vertex_location: os.environ/VERTEX_LOCATION
+
+   general_settings:
+     master_key: os.environ/LITELLM_MASTER_KEY
+   ```
+
+2. Update `platform/litellm/deploy/.env`:
+   ```
+   VERTEX_PROJECT=your-gcp-project-id
+   VERTEX_LOCATION=us-east5
+   LITELLM_MASTER_KEY=sk-change-me
+   ```
+
+3. Set up GCP credentials and add the volume mount to `compose.yml` under the `litellm` service:
+   ```yaml
+   volumes:
+     - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro
+   environment:
+     - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+   ```
+
+4. Rebuild: `podman-compose build litellm`
+
+The cpg-ingester CLI uses whichever model is named `default` in the LiteLLM config — no code change needed when switching providers.
