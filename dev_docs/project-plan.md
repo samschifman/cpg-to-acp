@@ -6,11 +6,13 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 2 Complete)
+## Current State (Phase 3.0 Complete)
 
 The system runs on OpenShift with Red Hat AI platform capabilities. The full pipeline (synthetic CPG → Docling → LLM DMN extraction → deploy to acp-writer → JIT Kogito evaluation → FHIR CarePlan) works both locally via podman-compose and on OpenShift via Helm charts. MaaS routes inference to OpenAI GPT-5.6. MLflow tracing is instrumented across both components. MCP servers expose decision and FHIR tools. Agent framework evaluated (LangGraph recommended). Praxis investigated (too early, Phase 5 target).
 
-**What works:** end-to-end pipeline on OpenShift with one synthetic CPG, two patients, deterministic care plans, MLflow tracing, MaaS inference routing, MCP tool interfaces, NetworkPolicies for service isolation.
+The recommendation contract between cpg-ingester and acp-writer is defined (was TBD). Contract version 1.0 covers: recommendations with normalized certainty grades, cross-references, provenance tracking, and CPG metadata. 42 real CPGs from 7 organizations have been analyzed to inform the contract design (see `dev_docs/cpg-analysis.md`). Phase 3.1 (cpg-ingester) and Phase 3.2 (acp-writer) can now proceed independently.
+
+**What works:** end-to-end pipeline on OpenShift, recommendation contracts defined, all component boundaries closed, test fixtures for independent development.
 
 **What doesn't exist yet:** multi-agent orchestration, vector store, recommendation extraction, UIs, real CPGs, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance.
 
@@ -61,20 +63,24 @@ Phase 3 is split into sub-phases that can advance independently. Phase 3.0 estab
 
 ---
 
-#### Phase 3.0 — Contracts and Shared Infrastructure
+#### Phase 3.0 — Contracts and Shared Infrastructure (complete)
 
 **Goal:** Define the recommendation contract (the last undefined boundary between cpg-ingester and acp-writer) and establish cross-cutting infrastructure so the two tracks can work independently.
 
 | Area | Work | Notes |
 |---|---|---|
-| **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | This is the TBD contract from AGENTS.md. Design must cover: source CPG reference, section/context, recommendation text, strength/grade metadata, and any structured content (dosing, timing). |
-| **shared** | Define knowledge ingestion API contract — the REST/MCP interface acp-writer exposes for receiving recommendations | Extends the existing 501 stubs (`POST /api/v1/knowledge/documents`, `POST /api/v1/knowledge/search`) |
+| **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | `cpg_contracts.recommendations`: `Recommendation`, `RecommendationBundle`, `CertaintyGrade`, `CrossReference`, 6 validated enums. Contract version 1.0. See `dev_docs/contract-proposal-ingester-writer.md`. |
+| **shared** | Define CPG metadata contract — guideline-level information | `cpg_contracts.guidelines`: `CPGMetadata`, `GradingSystem`. Registered once per CPG; all artifacts reference by `cpg_id`. |
+| **shared** | Define knowledge ingestion API contract — the REST/MCP interface acp-writer exposes for receiving recommendations | OpenAPI v0.2.0: guidelines CRUD, recommendation ingestion (single + batch), search with type/strength filters. MCP tools updated. |
+| **shared** | Refine decision model contract | `DecisionCategory` enum, `description`/`codes` on variables, `modifies` list for subpopulation overrides. |
+| **research** | CPG structural analysis | Analyzed 42 CPGs from 7 organizations. See `dev_docs/cpg-analysis.md`. |
 
 ##### Exit Criteria
 
-- Recommendation contract defined in `shared/` with Pydantic models
-- Knowledge ingestion API contract defined (OpenAPI + MCP tool schema)
-- Both cpg-ingester and acp-writer teams can implement against the contract independently
+- [x] Recommendation contract defined in `shared/` with Pydantic models
+- [x] Knowledge ingestion API contract defined (OpenAPI + MCP tool schema)
+- [x] Both cpg-ingester and acp-writer teams can implement against the contract independently
+- [x] Test fixtures available for both tracks (`shared/tests/fixtures/sample-recommendations.json`)
 
 ---
 
@@ -302,7 +308,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 |---|---|---|
 | Phase 1 | Complete | Docling, LiteLLM (local), Drools/Kogito |
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
-| Phase 3.0 | Not started | — (contract definitions only) |
+| Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Not started | LangGraph (cpg-ingester agents), AutoRAG |
 | Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
 | Phase 3.3 | Not started | — (integration and governance) |
