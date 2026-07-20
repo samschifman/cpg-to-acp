@@ -33,11 +33,11 @@ The sections beyond the main recommendations contain content critical for both e
 
 **Recommendation detail evolves through the document in a clear pattern:**
 
-1. **Front matter (pages 1-10):** Algorithm flowcharts + recommendation summary table with one-line statements
-2. **Early body (pages 10-30):** Screening, diagnosis, risk assessment with moderate-length discussions
-3. **Mid body (pages 30-70):** Pharmacotherapy recommendations with extensive evidence narratives — clinical decision complexity peaks here. Drug selection requires evaluating ~10 patient factors simultaneously.
-4. **Later body (pages 60-100):** Subpopulation-specific modifier recommendations that layer on top of the general pathway. Later recommendations explicitly reference earlier ones.
-5. **Appendices (pages 80+):** Pharmacotherapy reference tables, abbreviations, methodology, references
+1. **Front matter (~first 10%):** Algorithm flowcharts + recommendation summary table with one-line statements
+2. **Early body (~10-25%):** Screening, diagnosis, risk assessment with moderate-length discussions
+3. **Mid body (~25-55%):** Pharmacotherapy recommendations with extensive evidence narratives — clinical decision complexity peaks here. Drug selection requires evaluating ~10 patient factors simultaneously.
+4. **Later body (~45-75%):** Subpopulation-specific modifier recommendations that layer on top of the general pathway. Later recommendations explicitly reference earlier ones.
+5. **Appendices (~last 25%):** Pharmacotherapy reference tables, abbreviations, methodology, references
 
 **Recommendation interdependence increases toward the end.** Early recommendations are relatively standalone; later ones are patches, overrides, or extensions of earlier ones. An extraction system treating each recommendation as independent will miss these dependency relationships.
 
