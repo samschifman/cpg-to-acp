@@ -1,10 +1,86 @@
 """Recommendation Extractor — extracts recommendations per section batch."""
 
+import json
 import logging
+
+import mlflow
+from langchain_openai import ChatOpenAI
+
+from cpg_ingester.nodes.structure_analyzer import _parse_llm_json
+from cpg_ingester.output import write_artifact
+from cpg_ingester.prompts.rec_extractor import (
+    REC_EXTRACTOR_SYSTEM,
+    REC_EXTRACTOR_USER,
+)
 
 logger = logging.getLogger(__name__)
 
 
+def _get_llm(state: dict) -> ChatOpenAI:
+    return ChatOpenAI(
+        base_url=f"{state.get('litellm_url', 'http://localhost:4000')}/v1",
+        api_key=state.get("llm_api_key", "sk-change-me"),
+        model=state.get("llm_model", "default"),
+        temperature=0,
+    )
+
+
+@mlflow.trace(name="rec_extractor")
 def rec_extractor(state: dict) -> dict:
-    logger.info("rec_extractor: stub")
-    return state
+    """Extract recommendations for a section batch."""
+    items = state.get("items", [])
+    source_pages = state.get("source_pages", "")
+    grading_definitions = state.get("grading_definitions", "")
+    abbreviations = state.get("abbreviations", {})
+    output_dir = state.get("output_dir", "output")
+    schema_errors = state.get("schema_errors", [])
+    semantic_discrepancies = state.get("semantic_discrepancies", [])
+
+    if not items:
+        return {"recommendations": [], "schema_errors": [], "semantic_discrepancies": []}
+
+    item_specs = json.dumps(items, indent=2, default=str)
+    abbr_str = "\n".join(f"- {k}: {v}" for k, v in abbreviations.items()) if abbreviations else "(none)"
+
+    feedback = ""
+    if schema_errors:
+        feedback = "PREVIOUS ATTEMPT HAD SCHEMA ERRORS — fix these:\n" + "\n".join(f"- {e}" for e in schema_errors)
+    elif semantic_discrepancies:
+        feedback = "PREVIOUS ATTEMPT HAD SEMANTIC ISSUES — fix these:\n" + "\n".join(f"- {d}" for d in semantic_discrepancies)
+
+    llm = _get_llm(state)
+
+    response = llm.invoke([
+        {"role": "system", "content": REC_EXTRACTOR_SYSTEM},
+        {"role": "user", "content": REC_EXTRACTOR_USER.format(
+            item_specs=item_specs,
+            grading_definitions=grading_definitions or "(not specified)",
+            abbreviations=abbr_str,
+            source_pages=source_pages,
+            feedback=feedback,
+        )},
+    ])
+
+    try:
+        result = _parse_llm_json(response.content)
+    except (json.JSONDecodeError, ValueError):
+        logger.error("Failed to parse recommendation extractor response")
+        return {"recommendations": [], "schema_errors": ["LLM response was not valid JSON"], "semantic_discrepancies": []}
+
+    recommendations = result.get("recommendations", [])
+
+    section = items[0].get("section", "unknown") if items else "unknown"
+    write_artifact(output_dir, f"recommendations-{section}.json", recommendations)
+
+    review_count = state.get("review_count", 0)
+    if schema_errors or semantic_discrepancies:
+        review_count += 1
+
+    logger.info("Extracted %d recommendations for section %s", len(recommendations), section)
+
+    return {
+        "recommendations": recommendations,
+        "schema_errors": [],
+        "semantic_discrepancies": [],
+        "review_count": review_count,
+    }
