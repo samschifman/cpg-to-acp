@@ -1,7 +1,7 @@
 # Contract Proposal: cpg-ingester ↔ acp-writer
 
 **Date:** 2026-07-20
-**Status:** Proposal for review
+**Status:** Approved — design decisions resolved, ready for implementation
 **Context:** Phase 3.0 gate — these contracts must be defined before Phase 3.1 (cpg-ingester) and Phase 3.2 (acp-writer) can proceed independently.
 
 ---
@@ -87,7 +87,7 @@ class DecisionModelSummary(BaseModel):
     deployed_at: datetime | None = None
     source_cpg: str | None = None        # cpg_id reference
     category: str | None = None          # "treatment", "screening", "monitoring", "risk-assessment"
-    modifies: str | None = None          # id of another model this overrides for a subpopulation
+    modifies: list[str] | None = None     # ids of models this overrides for a subpopulation
 ```
 
 ### Refinements from the CPG analysis
@@ -98,7 +98,7 @@ class DecisionModelSummary(BaseModel):
 
 3. **`category` on DecisionModelSummary** — the CPG analysis identified distinct decision types (treatment selection, screening criteria, monitoring schedules, risk stratification). acp-writer needs to know what kind of decision this is to place it correctly in the care plan.
 
-4. **`modifies` on DecisionModelSummary** — the CPG analysis found that subpopulation recommendations are patches/overrides of general recommendations. A CKD-specific treatment decision *modifies* the general treatment decision. This relationship must be explicit so acp-writer can apply the right override chain for a patient's condition profile.
+4. **`modifies` on DecisionModelSummary** — the CPG analysis found that subpopulation recommendations are patches/overrides of general recommendations. A CKD-specific treatment decision *modifies* the general treatment decision — and may also modify the general monitoring decision. This is a list because a single subpopulation model can override multiple base models. The relationship must be explicit so acp-writer can apply the right override chain for a patient's condition profile.
 
 **API endpoint:** `POST /api/v1/decisions/models` (existing) — accepts DMN XML, returns `DecisionModelSummary`
 
@@ -142,6 +142,7 @@ class RecommendationType(str, Enum):
 class CertaintyGrade(BaseModel):
     strength: RecommendationStrength
     evidence_quality: EvidenceQuality
+    grading_system: GradingSystem | None = None  # may differ from CPG-level if multiple systems used
     original_grade: str | None = None  # e.g., "1A", "Strong for, moderate certainty"
 
 class CrossReference(BaseModel):
@@ -151,7 +152,7 @@ class CrossReference(BaseModel):
     description: str | None = None
 
 class Recommendation(BaseModel):
-    id: str                            # unique within the source CPG
+    id: str                            # globally unique (GUID)
     source_cpg: str                    # cpg_id reference
     section: str | None = None         # section reference within the CPG (e.g., "3.4", "Rec 12")
     title: str
@@ -301,14 +302,14 @@ shared/src/cpg_contracts/
 
 ---
 
-## Open questions for review
+## Design decisions (resolved)
 
-1. **Should `Recommendation.content` support structured content (lists, sub-sections) or is plain text sufficient?** The CPG analysis found lifestyle modifications are often bulleted lists. Options: (a) plain text with markdown formatting, (b) a `content_items: list[str]` for bulleted content alongside the main `content` string.
+1. **`Recommendation.content` is plain text or markdown.** No structured sub-fields. Markdown formatting (bullet lists, headers) is preserved from extraction. The structured metadata fields (`recommendation_type`, `certainty`, `cross_references`) provide the machine-readable dimensions.
 
-2. **Should `CrossReference.target_id` reference recommendations by their `id` within a CPG, or by a globally unique identifier?** If a recommendation references a decision model, the target_id needs to work across both namespaces.
+2. **All `id` fields are globally unique (GUIDs).** `Recommendation.id`, `DecisionModelSummary.id`, `CrossReference.target_id` — all use GUIDs. This avoids namespace collisions when recommendations reference decision models or recommendations from other CPGs.
 
-3. **Should the `modifies` relationship on `DecisionModelSummary` be a single reference or a list?** A CKD-specific AND frailty-specific model might modify the same base model.
+3. **`DecisionModelSummary.modifies` is a list.** A model can modify multiple base models (e.g., a CKD-specific model that overrides both the general treatment model and the general monitoring model).
 
-4. **Should `CertaintyGrade` include the grading system identifier, or is that always inherited from `CPGMetadata`?** Some CPGs use GRADE-CERQual alongside traditional GRADE for different types of evidence within the same guideline.
+4. **`CertaintyGrade` includes `grading_system`.** Some CPGs use multiple evidence assessment methods within the same guideline (e.g., GRADE for quantitative evidence plus GRADE-CERQual for qualitative findings). The system identifier travels with each recommendation rather than being inherited solely from `CPGMetadata`.
 
-5. **Do we need a separate `Contraindication` type, or is `recommendation_type: "contraindication"` with `cross_references` sufficient?** Contraindications are "don't do X when Y" — they cross-reference a treatment recommendation and negate it under specific conditions.
+5. **Contraindications are a recommendation type**, not a separate contract type. `recommendation_type: "contraindication"` with `cross_references` linking to the treatment recommendation being negated. The `relationship: "modifies"` on the cross-reference makes the override relationship explicit.
