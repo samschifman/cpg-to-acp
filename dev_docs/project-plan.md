@@ -94,6 +94,7 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 | Add DMN writing agent — produces high-quality DMN with validation | Replaces single-prompt extraction; validates against golden test cases |
 | Add recommendation extraction agent — extracts process/recommendations in the shared contract format | Outputs recommendation contract objects |
 | Add push step — sends DMN and recommendations to acp-writer via API/MCP | Extends existing `cpg-deploy-dmn` to also push recommendations |
+| Create mock acp-writer receiver — captures DMN and recommendation artifacts to files for review | Lightweight stub that implements the contract API and writes received artifacts to a local directory. Enables testing cpg-ingester end-to-end without a running acp-writer. |
 | Incorporate AutoRAG for retrieval optimization (if it makes sense) | AutoRAG |
 | Minimal UI: upload CPG (PDF), review/approve extracted decisions and recommendations | Simple workflow: upload → review → approve → push to acp-writer |
 
