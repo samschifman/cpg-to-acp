@@ -1,6 +1,7 @@
 """Integration tests for the cpg-ingester pipeline."""
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -9,6 +10,11 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from cpg_ingester.output import write_artifact
 from cpg_ingester.pipeline import build_pipeline
+
+requires_llm = pytest.mark.skipif(
+    not os.environ.get("LITELLM_URL"),
+    reason="Requires LITELLM_URL env var (running LiteLLM instance)",
+)
 
 
 def test_pipeline_builds():
@@ -33,6 +39,7 @@ SYNTHETIC_CPG = Path(__file__).parent.parent / "data" / "synthetic-hypertension-
 
 
 @pytest.mark.skipif(not SYNTHETIC_CPG.exists(), reason="Synthetic CPG PDF not found")
+@requires_llm
 def test_pipeline_runs_with_synthetic_cpg():
     graph = build_pipeline()
     checkpointer = MemorySaver()
