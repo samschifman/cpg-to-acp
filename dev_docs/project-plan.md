@@ -57,52 +57,92 @@ OpenShell can sandbox the existing services without requiring a full multi-agent
 
 Care plans in this phase include narrative activities based on process/recommendations from the CPG. BPMN generation is deferred to Phase 4.
 
-#### cpg-ingester
+Phase 3 is split into sub-phases that can advance independently. Phase 3.0 establishes the shared contracts that both sides depend on. After that, Phase 3.1 (cpg-ingester) and Phase 3.2 (acp-writer) can proceed in parallel — neither blocks the other.
+
+---
+
+#### Phase 3.0 — Contracts and Shared Infrastructure
+
+**Goal:** Define the recommendation contract (the last undefined boundary between cpg-ingester and acp-writer) and establish cross-cutting infrastructure so the two tracks can work independently.
+
+| Area | Work | Notes |
+|---|---|---|
+| **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | This is the TBD contract from AGENTS.md. Design must cover: source CPG reference, section/context, recommendation text, strength/grade metadata, and any structured content (dosing, timing). |
+| **shared** | Define knowledge ingestion API contract — the REST/MCP interface acp-writer exposes for receiving recommendations | Extends the existing 501 stubs (`POST /api/v1/knowledge/documents`, `POST /api/v1/knowledge/search`) |
+| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | OpenShell |
+| **platform** | MCP Gateway for governed tool access | MCP Gateway |
+
+##### Exit Criteria
+
+- Recommendation contract defined in `shared/` with Pydantic models
+- Knowledge ingestion API contract defined (OpenAPI + MCP tool schema)
+- Both cpg-ingester and acp-writer teams can implement against the contract independently
+
+---
+
+#### Phase 3.1 — cpg-ingester Multi-Agent Pipeline
+
+**Goal:** Replace the single-prompt DMN extraction with a multi-agent pipeline that extracts both DMN decision tables and narrative recommendations from CPGs.
+
+Can proceed independently after Phase 3.0 contracts are defined. Does not depend on acp-writer's vector store being operational — cpg-ingester outputs recommendations in the contract format and pushes them via the API. If acp-writer's knowledge endpoint isn't ready, cpg-ingester can validate output against the contract schema without a live endpoint.
 
 | Work | Notes |
 |---|---|
-| Add filtering agent — identifies relevant vs. irrelevant CPG sections | Uses selected agent framework |
-| Add decision identification agent — clearly identifies decisions vs. process/recommendations | — |
-| Add DMN writing agent — produces high-quality DMN with validation | Replace single-prompt extraction |
-| Add recommendation extraction agent — extracts process/recommendations for vector store | Contract format TBD |
+| Wire agents together using LangGraph (StateGraph) | Framework selected in Phase 2 spike |
+| Add filtering agent — identifies relevant vs. irrelevant CPG sections | First node in the graph |
+| Add decision identification agent — classifies content as decisions vs. process/recommendations | Splits the pipeline into two tracks |
+| Add DMN writing agent — produces high-quality DMN with validation | Replaces single-prompt extraction; validates against golden test cases |
+| Add recommendation extraction agent — extracts process/recommendations in the shared contract format | Outputs recommendation contract objects |
+| Add push step — sends DMN and recommendations to acp-writer via API/MCP | Extends existing `cpg-deploy-dmn` to also push recommendations |
 | Incorporate AutoRAG for retrieval optimization (if it makes sense) | AutoRAG |
-| Wire agents together using selected orchestration approach | Framework from Phase 2 spike |
+| Minimal UI: upload CPG (PDF), review/approve extracted decisions and recommendations | Simple workflow: upload → review → approve → push to acp-writer |
 
-#### acp-writer
+##### Exit Criteria
+
+- cpg-ingester is a multi-agent pipeline (LangGraph StateGraph with 4+ nodes)
+- Produces both DMN and recommendations in the shared contract format
+- DMN validated against golden test cases
+- Recommendations validated against the shared contract schema
+- Minimal upload/review UI functional
+- All agents traced in MLflow
+
+---
+
+#### Phase 3.2 — acp-writer Multi-Agent Composition
+
+**Goal:** Replace the hardcoded care plan composition with a multi-agent system that uses DMN decisions, retrieved recommendations, and FHIR expertise to produce clinically complete care plans.
+
+Can proceed independently after Phase 3.0 contracts are defined. Does not depend on cpg-ingester's multi-agent pipeline — acp-writer can be developed and tested using hand-crafted recommendation data that conforms to the shared contract.
 
 | Work | Notes |
 |---|---|
-| Establish vector store for recommendations | Pluggable (Milvus, pgvector) |
-| Enhance care plan composition agent — uses DMN + retrieved recommendations | Replace hardcoded mapping |
-| Generate CarePlan with narrative activities from process/recommendations | Activities reference CPG source |
+| Implement knowledge ingestion endpoint — accepts recommendations per the shared contract | Replace the 501 stubs with working implementation |
+| Establish vector store for recommendations | Pluggable (Milvus, pgvector); internal to acp-writer per AGENTS.md |
+| Enhance care plan composition agent — uses DMN + retrieved recommendations | Replace hardcoded mapping with LangGraph-based composition |
+| Generate CarePlan with narrative activities from process/recommendations | Activities reference CPG source material |
 | Add FHIR CarePlan expert agent — correct codes, AI Transparency on FHIR IG compliance | Research: HL7 AIToF IG |
 | **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input |
 | Write CarePlan + associated resources back to HAPI FHIR server | — |
 | Accept patient data as IPS instead of raw Bundle | Replace Phase 1 shortcut |
+| Minimal UI: review and approve a generated care plan | Simple workflow: submit patient data → review CarePlan → approve |
 
-#### Minimal UIs
+##### Exit Criteria
 
-| Component | Work | Notes |
-|---|---|---|
-| **cpg-ingester** | Upload CPG (PDF) and review/approve extracted decisions and recommendations | Simple workflow: upload → review → approve → push to acp-writer |
-| **acp-writer** | Review and approve a generated care plan | Simple workflow: submit patient data → review CarePlan → approve |
-
-These are functional but minimal — interactive editing, side-by-side CPG comparison, and BPMN visualization come in later phases.
-
-#### platform
-
-| Work | Notes |
-|---|---|
-| OpenShell policies per agent (network, filesystem, credential scoping) | OpenShell |
-| MCP Gateway for governed tool access | MCP Gateway |
-
-#### Exit Criteria
-
-- cpg-ingester is a multi-agent pipeline that extracts both DMN and recommendations
 - acp-writer produces CarePlans with recommendation-backed narrative activities
 - Vector store operational with recommendation retrieval
+- Knowledge ingestion endpoint accepts and indexes recommendations
+- Care plan composition uses both DMN decisions and retrieved recommendations
+- Minimal review/approval UI functional
+- All agents traced in MLflow
+
+---
+
+#### Phase 3 Overall Exit Criteria
+
+All sub-phase exit criteria met, plus:
+
+- End-to-end: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both
 - Minimal UIs allow upload, review, and approval for both ingestion and care plan generation
-- Agent sandboxing via OpenShell
 
 ---
 
@@ -246,7 +286,9 @@ These are functional but minimal — interactive editing, side-by-side CPG compa
 |---|---|
 | Phase 1 (complete) | Docling, LiteLLM (local), Drools/Kogito |
 | Phase 2 | OpenShift, OpenShell, MaaS, MLflow, MCP |
-| Phase 3 | AutoRAG, MCP Gateway, vector store |
+| Phase 3.0 | — (contract definitions only) |
+| Phase 3.1 | LangGraph (cpg-ingester agents), AutoRAG |
+| Phase 3.2 | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
 | Phase 4 | — (BPMN generation, no new platform tech) |
 | Phase 5 | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
 | Phase 6 | Keycloak, SPIFFE/SPIRE |
@@ -256,13 +298,13 @@ These are functional but minimal — interactive editing, side-by-side CPG compa
 
 Each area can advance semi-independently within a phase. Cross-cutting dependencies are noted in the phase tables. The key synchronization points are:
 
-1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3
+1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3. Decision: LangGraph (see `dev_docs/spike-agent-framework.md`).
 2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS
-3. **Vector store + recommendation contract (Phase 3)** — blocks recommendation-backed care plans
+3. **Recommendation contract (Phase 3.0)** — blocks both Phase 3.1 and Phase 3.2. This is the single gate before cpg-ingester and acp-writer can advance independently.
 4. **BPMN contract in shared/ (Phase 4)** — blocks automation service integration
 5. **Keycloak + OIDC (Phase 6)** — blocks SMART on FHIR launch in Phase 7
 
-Within each phase, a contributor can pick up any work item in their area without blocking others, as long as the phase's prerequisites are met.
+Within Phase 3, the cpg-ingester track (3.1) and acp-writer track (3.2) are designed to advance independently after the shared contracts (3.0) are defined. Neither blocks the other — cpg-ingester validates recommendations against the contract schema, acp-writer tests against hand-crafted recommendation data.
 
 ## Backlog — Phase-Independent Tasks
 
