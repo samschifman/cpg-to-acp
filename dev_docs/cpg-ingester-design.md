@@ -238,11 +238,11 @@ One subgraph instance per decision item in the manifest. Each runs independently
 - Reference examples from the cpg-to-bpm skill's error pattern library (worked examples of correct DMN, common mistakes with fixes)
 - The abbreviation lookup dictionary
 
-The Creator produces DMN 1.3 XML targeting Drools/Kogito (not Trisotech — no proprietary extensions).
+The Creator produces DMN 1.4 XML targeting Drools/Kogito (not Trisotech — no proprietary extensions). We target DMN 1.4 because it is the latest version officially supported by Drools/Kogito at conformance level 3. The namespace URL (`https://www.omg.org/spec/DMN/20191111/MODEL/`) is the same across 1.3 and 1.4.
 
 **DMN Syntax Validator** — deterministic, no LLM:
 - XML well-formedness (`lxml.etree.parse`)
-- DMN 1.3 XSD schema validation
+- DMN 1.4 XSD schema validation
 - FEEL expression syntax checks (regex for common patterns)
 - Hit policy present and valid
 - Every input column has a type reference

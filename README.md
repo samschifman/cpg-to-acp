@@ -179,9 +179,13 @@ NAMESPACE=sschifma-cpg-to-acp ./deploy/install.sh
 
 On OpenShift, MaaS replaces LiteLLM for governed inference routing, and MLflow tracing is provided by the RHOAI-managed MLflow instance. See `platform/README.md` for details.
 
-## Open Questions
+## Standards Versions
 
-- **Recommendation contract format.** The contract between `cpg-ingester` and `acp-writer` for non-computable recommendations has no established standard (unlike DMN for decisions, BPMN for processes, and FHIR for clinical data). Defining this interface is an open design question.
+| Standard | Version | Notes |
+|---|---|---|
+| **DMN** | 1.4 | Latest version supported by Drools/Kogito at conformance level 3. Namespace: `https://www.omg.org/spec/DMN/20191111/MODEL/`. Upgrade to 1.5 when Drools/Kogito formally adds support. |
+| **FHIR** | R4 | Via HAPI FHIR server |
+| **BPMN** | 2.0 | Phase 4 |
 
 ## License
 

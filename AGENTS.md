@@ -74,7 +74,7 @@ Producers must not assume a specific consumer runtime. Consumers are pluggable b
 Key technologies referenced in this project (all subject to change):
 
 - **Document parsing:** Docling
-- **Decision engine:** Drools / Kogito (Apache KIE), DMN format
+- **Decision engine:** Drools / Kogito (Apache KIE), DMN 1.4 (latest supported at conformance level 3; upgrade to 1.5 when Drools adds support)
 - **FHIR server:** HAPI FHIR
 - **Agent framework:** LangGraph (see `dev_docs/spike-agent-framework.md`)
 - **Observability:** MLflow (tracing, experiment tracking)

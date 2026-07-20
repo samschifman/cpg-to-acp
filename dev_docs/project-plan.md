@@ -339,6 +339,7 @@ Work that can be picked up at any time, independent of the current phase. These 
 | MaaS with Vertex AI (Claude) | platform | Configure MaaS ExternalModel to route to Claude on Vertex AI. Requires a GCP service account key (not ADC user credentials) with the Vertex AI User role, and `oauth2` auth type on the ExternalProvider. OpenAI routing is already working; this adds Claude as a second provider option on-cluster. |
 | Enhance tracing in MLflow | all      | Make sure that the use of MLflow is optimized and that traces are useful. |
 | FEEL expression validator | cpg-ingester | Replace regex-based FEEL checks with a proper validator. Best option: expose a validation endpoint from the Kogito runtime (already running in acp-writer, Apache 2.0). No mature license-compatible Python FEEL parser exists. |
+| Upgrade DMN to 1.5 | cpg-ingester | Currently targeting DMN 1.4 (latest supported by Drools/Kogito at conformance level 3). DMN 1.5 (Aug 2024) adds useful FEEL functions (`context put`, `now()`, `today()`). Upgrade when Drools/Kogito formally supports 1.5. Watch [Drools releases](https://github.com/apache/incubator-kie-drools/releases). |
 
 ---
 
