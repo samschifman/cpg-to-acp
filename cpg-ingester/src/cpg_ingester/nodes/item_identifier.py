@@ -1,10 +1,173 @@
 """Item Identifier — identifies decisions and recommendations, pre-assigns GUIDs, classifies tiers."""
 
+import json
 import logging
+import uuid
+
+import mlflow
+from langchain_openai import ChatOpenAI
+
+from cpg_ingester.nodes.structure_analyzer import _parse_llm_json
+from cpg_ingester.output import write_artifact
+from cpg_ingester.prompts.item_identifier import (
+    ITEM_IDENTIFIER_SYSTEM,
+    ITEM_IDENTIFIER_USER,
+)
 
 logger = logging.getLogger(__name__)
 
+VALID_CATEGORIES = {"treatment", "screening", "monitoring", "risk-assessment", "diagnostic"}
+VALID_REC_TYPES = {
+    "treatment", "diagnostic", "monitoring", "lifestyle", "educational",
+    "referral", "screening", "contraindication", "process",
+}
+VALID_STRENGTHS = {
+    "strong-for", "conditional-for", "consensus", "no-recommendation",
+    "conditional-against", "strong-against",
+}
+VALID_EVIDENCE = {"high", "moderate", "low", "very-low", "ungraded"}
+VALID_HIT_POLICIES = {"UNIQUE", "FIRST", "COLLECT", "ANY", "PRIORITY", "RULE ORDER"}
 
+
+def _assign_guids(manifest: list[dict]) -> list[dict]:
+    """Assign GUIDs to all items and resolve cross-reference names to GUIDs."""
+    name_to_guid = {}
+    for item in manifest:
+        guid = str(uuid.uuid4())
+        item["id"] = guid
+        name = item.get("name") or item.get("title", "")
+        name_to_guid[name] = guid
+
+    for item in manifest:
+        raw_refs = item.get("cross_references", []) or []
+        resolved = []
+        for ref in raw_refs:
+            if isinstance(ref, str) and ref in name_to_guid:
+                resolved.append(name_to_guid[ref])
+            elif isinstance(ref, str):
+                resolved.append(ref)
+        item["cross_references"] = resolved
+
+        modifies_name = item.get("modifies")
+        if modifies_name and modifies_name in name_to_guid:
+            item["modifies"] = name_to_guid[modifies_name]
+
+    return manifest
+
+
+def _validate_decision(item: dict) -> list[str]:
+    """Validate a decision item and return a list of issues."""
+    issues = []
+    if not item.get("name"):
+        issues.append("Decision missing 'name'")
+    if item.get("category") and item["category"] not in VALID_CATEGORIES:
+        issues.append(f"Invalid category: {item['category']}")
+    if item.get("hit_policy") and item["hit_policy"] not in VALID_HIT_POLICIES:
+        issues.append(f"Invalid hit_policy: {item['hit_policy']}")
+    if not item.get("inputs"):
+        issues.append("Decision has no inputs")
+    return issues
+
+
+def _validate_recommendation(item: dict) -> list[str]:
+    """Validate a recommendation item and return a list of issues."""
+    issues = []
+    if not item.get("title"):
+        issues.append("Recommendation missing 'title'")
+    if item.get("recommendation_type") and item["recommendation_type"] not in VALID_REC_TYPES:
+        issues.append(f"Invalid recommendation_type: {item['recommendation_type']}")
+    if item.get("certainty_strength") and item["certainty_strength"] not in VALID_STRENGTHS:
+        issues.append(f"Invalid certainty_strength: {item['certainty_strength']}")
+    if item.get("certainty_evidence") and item["certainty_evidence"] not in VALID_EVIDENCE:
+        issues.append(f"Invalid certainty_evidence: {item['certainty_evidence']}")
+    return issues
+
+
+def _get_llm(state: dict) -> ChatOpenAI:
+    return ChatOpenAI(
+        base_url=f"{state.get('litellm_url', 'http://localhost:4000')}/v1",
+        api_key=state.get("llm_api_key", "sk-change-me"),
+        model=state.get("llm_model", "default"),
+        temperature=0,
+    )
+
+
+@mlflow.trace(name="item_identifier")
 def item_identifier(state: dict) -> dict:
-    logger.info("item_identifier: stub")
-    return state
+    """Identify all decisions and recommendations in the CPG."""
+    markdown = state.get("markdown", "")
+    section_map = state.get("section_map", [])
+    abbreviations = state.get("abbreviations", {})
+    output_dir = state.get("output_dir", "output")
+    feedback = state.get("classification_review_feedback", "")
+
+    llm = _get_llm(state)
+
+    section_map_str = "\n".join(
+        f"- [{s['classification']}] Page {s.get('page_start', '?')}: \"{s['heading']}\""
+        for s in section_map
+    )
+    abbr_str = "\n".join(f"- {k}: {v}" for k, v in abbreviations.items()) if abbreviations else "(none extracted)"
+
+    content = markdown
+    if feedback:
+        content = f"REVIEWER FEEDBACK FROM PREVIOUS ITERATION — address these issues:\n{feedback}\n\n---\n\n{content}"
+
+    response = llm.invoke([
+        {"role": "system", "content": ITEM_IDENTIFIER_SYSTEM},
+        {"role": "user", "content": ITEM_IDENTIFIER_USER.format(
+            section_map=section_map_str,
+            abbreviations=abbr_str,
+            content=content,
+        )},
+    ])
+
+    try:
+        result = _parse_llm_json(response.content)
+    except (json.JSONDecodeError, ValueError):
+        logger.error("Failed to parse item identifier response")
+        return {"item_manifest": []}
+
+    decisions = result.get("decisions", [])
+    recommendations = result.get("recommendations", [])
+
+    validation_issues = []
+    for d in decisions:
+        d["type"] = "decision"
+        issues = _validate_decision(d)
+        if issues:
+            validation_issues.extend(issues)
+            logger.warning("Decision '%s' has issues: %s", d.get("name"), issues)
+
+    for r in recommendations:
+        r["type"] = "recommendation"
+        issues = _validate_recommendation(r)
+        if issues:
+            validation_issues.extend(issues)
+            logger.warning("Recommendation '%s' has issues: %s", r.get("title"), issues)
+
+    manifest = decisions + recommendations
+    manifest = _assign_guids(manifest)
+
+    for item in manifest:
+        section_heading = item.get("section", "")
+        matching = [s for s in section_map if section_heading in s.get("heading", "")]
+        if matching:
+            item["source_pages"] = f"pages {matching[0].get('page_start', '?')}-{matching[0].get('page_end', '?')}"
+
+    write_artifact(output_dir, "manifest.json", manifest)
+
+    logger.info(
+        "Item identification complete: %d decisions, %d recommendations, %d validation issues",
+        len(decisions), len(recommendations), len(validation_issues),
+    )
+
+    review_count = state.get("classification_review_count", 0)
+    if feedback:
+        review_count += 1
+
+    return {
+        "item_manifest": manifest,
+        "classification_review_count": review_count,
+        "classification_review_feedback": "",
+    }
