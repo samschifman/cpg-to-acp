@@ -99,10 +99,11 @@ cp platform/litellm/deploy/.env.example platform/litellm/deploy/.env
 ### 2. Start infrastructure services
 
 ```bash
-podman-compose up -d kogito litellm acp-writer   # or: docker compose up -d ...
-# Wait for services
+podman-compose up -d   # or: docker compose up -d
+# Wait for services (includes MLflow on port 5000)
 curl -sf http://localhost:8081/q/health/ready > /dev/null && echo "Kogito ready"
 curl -sf http://localhost:8082/health/ready > /dev/null && echo "ACP Writer ready"
+curl -sf http://localhost:5000/health > /dev/null && echo "MLflow ready"
 ```
 
 ### 3. Parse a CPG with Docling
@@ -161,9 +162,22 @@ podman-compose down   # or: docker compose down
 | Step | Component | Red Hat AI tech |
 |---|---|---|
 | Parse CPG | cpg-ingester | Docling |
-| Extract DMN | cpg-ingester | LLM via LiteLLM (Opus 4.6 on Vertex AI) |
+| Extract DMN | cpg-ingester | LLM via LiteLLM (OpenAI GPT-5.6 or Claude) |
 | Deploy DMN | cpg-ingester → acp-writer API | — |
 | Generate CarePlan | acp-writer → decision-service (JIT) | Drools/Kogito |
+
+All pipeline steps are traced in [MLflow](http://localhost:5000) when running locally.
+
+## OpenShift Deployment
+
+The system runs on OpenShift with Red Hat AI platform capabilities. Each component has its own Helm chart under `deploy/chart/`.
+
+```bash
+# Deploy all components (requires oc login and a target namespace)
+NAMESPACE=sschifma-cpg-to-acp ./deploy/install.sh
+```
+
+On OpenShift, MaaS replaces LiteLLM for governed inference routing, and MLflow tracing is provided by the RHOAI-managed MLflow instance. See `platform/README.md` for details.
 
 ## Open Questions
 
