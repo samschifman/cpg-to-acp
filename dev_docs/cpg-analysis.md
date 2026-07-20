@@ -1,13 +1,13 @@
 # Clinical Practice Guideline Analysis: Structure and Extraction Insights
 
-**Date:** 2026-07-20
-**Purpose:** Inform the design of cpg-ingester (extraction) and acp-writer (care plan generation) based on analysis of 42 real-world CPGs from 7 healthcare organizations, covering hypertension, diabetes, obesity, heart failure, CKD, pain management, mental health, and acute coronary syndromes.
+**Date:** 2026-07-20 (validated 2026-07-20)
+**Purpose:** Inform the design of cpg-ingester (extraction) and acp-writer (care plan generation) based on analysis of 42 real-world CPGs from 7 healthcare organizations, covering hypertension, diabetes, obesity, heart failure, CKD, pain management, mental health, and acute coronary syndromes. Validated against 6 additional CPGs (mental health, obesity, emergency medicine, pain) not in the original sample.
 
 > This document describes patterns observed across CPGs generically. No specific organizations or documents are named.
 
 ---
 
-## 1. Document Structure
+## 1. Document Structure and Format Archetypes
 
 CPGs follow a remarkably consistent high-level skeleton despite originating from very different organizations:
 
@@ -19,6 +19,19 @@ CPGs follow a remarkably consistent high-level skeleton despite originating from
 - **Research gaps:** Areas where evidence is insufficient
 - **Implementation guidance:** Quality measures, performance metrics, workflow integration
 - **References and appendices:** Evidence tables, GRADE assessments, search strategies, drug tables, patient-facing content
+
+### Guideline format archetypes
+
+The linear skeleton above applies to one archetype but not all. CPGs fall into four distinct format archetypes, each requiring a different parsing strategy:
+
+| Archetype | Structure | Example characteristics |
+|---|---|---|
+| **Institutional standalone** | Linear, appendix-heavy | Single-column, branded, generous spacing. Follows the full skeleton. Most parser-friendly. |
+| **Journal article** | Abstract-first, compact | Two-column, recommendations early, evidence as the body, minimal appendices. Supplement-dependent — detailed evidence tables often published separately. |
+| **Multi-module intervention guide** | Hub-and-spoke, module-templated | Master routing chart dispatches to condition-specific modules. Each module follows an identical internal template (overview → assessment → management → follow-up). Requires module-aware parsing. |
+| **Focused clinical policy** | Single-question, evidence-table-heavy | Addresses one clinical question with exhaustive evidence review. Heavy on comparative effectiveness narrative, lower computability. |
+
+**Implication for cpg-ingester:** The extraction pipeline needs to detect the archetype early (from front matter and layout) and select the appropriate parsing strategy. A module-based guide needs module boundary detection; a journal article needs two-column layout handling.
 
 ### What lives in the back half
 
@@ -95,6 +108,11 @@ The extraction system needs a **normalized certainty schema** that maps all grad
 }
 ```
 
+Additional metadata dimensions identified through validation:
+- **"No recommendation"** is a distinct output type — formal "no recommendation for or against" statements need explicit capture, distinct from silence (no mention) and from conditional recommendations.
+- **Recommendation provenance** — some guidelines track each recommendation's lifecycle status (Reviewed/Amended/New-added/Not-changed) relative to prior versions. Critical for version-aware extraction.
+- **"Remarks" sections** — structured bulleted implementation context attached to individual recommendations, sitting between the recommendation and its evidence discussion.
+
 This metadata must travel with every extracted recommendation.
 
 ---
@@ -138,8 +156,12 @@ Content falls into three tiers:
 | Acute coronary syndromes | ~35% | Risk scores, time windows, but complex branching |
 | Heart failure | ~30% | Staging, LVEF classification, extensive nuance |
 | Low back pain | ~30% | Red flags highly computable; treatment is shared decision-making |
+| Obesity | ~25-35% | BMI/waist thresholds, staging, surgical candidacy, medication-weight tables |
 | Acute pain | ~20% | Comparative effectiveness but few hard rules |
+| Emergency medicine (focused) | ~15-20% | Single-question format, evidence-table-heavy, lower computability |
 | Mental health | ~10-15% | Qualitative assessments, psychosocial interventions |
+
+Note: computability varies significantly within a domain depending on guideline scope — a comprehensive institutional guideline has more Tier 1 content than a focused single-question clinical policy on the same topic.
 
 **Implication:** Start with hypertension and diabetes for highest-yield DMN extraction. Use mental health guidelines primarily as vector store content.
 
@@ -156,6 +178,8 @@ Three forms observed:
    - Step-escalation: Step 1 → Step 2 → Step 3
 
 3. **Tabular decision aids** — Treatment selection matrices, dosing tables, classification tables. Sidebar lookup tables (condition × red flags → evaluation) are already near-DMN format.
+
+4. **Patient consent/shared-decision-making gates** — Flowcharts include "Patient agrees" / "Patient declines" branches that are not clinical decision points but shared-decision-making gates. These require BPMN human-task modeling distinct from clinical decision diamonds.
 
 **Critical finding:** Most decision logic is embedded in prose, not formal structures. Even when flowchart algorithms exist, the detailed conditions and exceptions live in the recommendation text. Algorithms are high-level visual summaries, not complete executable specifications.
 
@@ -288,6 +312,9 @@ Five distinct temporal patterns identified:
 5. **Handle flowcharts and tables** as first-class extraction targets — sidebar lookup tables are near-DMN format.
 6. **Classify content by type** during extraction: treatment, diagnostic, monitoring, lifestyle, educational, referral.
 7. **Ambiguity flagging:** When "consider" appears without a threshold, flag for human review.
+8. **Detect the format archetype** (institutional, journal article, multi-module, focused policy) early and select the appropriate parsing strategy.
+9. **Parse grading definitions and glossaries first** — each CPG re-defines its grading vocabulary inline. Glossaries contain computable classification thresholds.
+10. **Support incremental re-extraction** for living guidelines that receive continuous updates rather than periodic version releases.
 
 ### For acp-writer
 
