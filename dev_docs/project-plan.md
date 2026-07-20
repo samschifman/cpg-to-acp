@@ -84,7 +84,7 @@ Phase 3 is split into sub-phases that can advance independently. Phase 3.0 estab
 
 ---
 
-#### Phase 3.1 — cpg-ingester Multi-Agent Pipeline
+#### Phase 3.1 — cpg-ingester Multi-Agent Pipeline (in progress)
 
 **Goal:** Replace the single-prompt DMN extraction with a multi-agent pipeline that extracts both DMN decision tables and narrative recommendations from CPGs.
 
@@ -310,7 +310,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 1 | Complete | Docling, LiteLLM (local), Drools/Kogito |
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
-| Phase 3.1 | Not started | LangGraph (cpg-ingester agents), AutoRAG |
+| Phase 3.1 | In progress | LangGraph (cpg-ingester agents) |
 | Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
 | Phase 3.3 | Not started | — (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |

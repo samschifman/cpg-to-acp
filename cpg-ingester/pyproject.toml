@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cpg-ingester"
-version = "0.1.0"
-description = "Parse CPGs and extract DMN decision logic"
+version = "0.2.0"
+description = "Multi-agent pipeline: parse CPGs, extract DMN decision logic and recommendations"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
@@ -15,12 +15,20 @@ dependencies = [
     "requests>=2.31",
     "cpg-contracts",
     "mlflow>=2.15",
+    "langgraph>=0.4",
+    "langchain-openai>=0.3",
+    "langchain-mcp-adapters>=0.3",
+    "lxml>=5.0",
 ]
 
 [project.scripts]
 cpg-parse = "cpg_ingester.parse:main"
 cpg-extract-dmn = "cpg_ingester.extract_dmn:main"
 cpg-deploy-dmn = "cpg_ingester.deploy:main"
+cpg-ingest = "cpg_ingester.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
