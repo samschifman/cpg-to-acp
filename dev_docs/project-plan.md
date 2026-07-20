@@ -18,7 +18,7 @@ The system runs on OpenShift with Red Hat AI platform capabilities. The full pip
 
 ## Phases
 
-### Phase 2 — OpenShift + OpenShell + Platform Foundation ✅
+### Phase 2 — OpenShift + OpenShell + Platform Foundation
 
 **Goal:** Get the system running on OpenShift with OpenShell sandboxing and governed inference.
 
@@ -298,17 +298,18 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 
 ## Technology Adoption Timeline
 
-| Phase | Technologies Added |
-|---|---|
-| Phase 1 ✅ | Docling, LiteLLM (local), Drools/Kogito |
-| Phase 2 ✅ | OpenShift, OpenShell, MaaS, MLflow, MCP |
-| Phase 3.0 | — (contract definitions only) |
-| Phase 3.1 | LangGraph (cpg-ingester agents), AutoRAG |
-| Phase 3.2 | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
-| Phase 4 | — (BPMN generation, no new platform tech) |
-| Phase 5 | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
-| Phase 6 | Keycloak, SPIFFE/SPIRE |
-| Phase 7 | SMART on FHIR |
+| Phase | Status | Technologies Added |
+|---|---|---|
+| Phase 1 | Complete | Docling, LiteLLM (local), Drools/Kogito |
+| Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
+| Phase 3.0 | Not started | — (contract definitions only) |
+| Phase 3.1 | Not started | LangGraph (cpg-ingester agents), AutoRAG |
+| Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
+| Phase 3.3 | Not started | — (integration and governance) |
+| Phase 4 | Not started | — (BPMN generation, no new platform tech) |
+| Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
+| Phase 6 | Not started | Keycloak, SPIFFE/SPIRE |
+| Phase 7 | Not started | SMART on FHIR |
 
 ## Parallel Development Tracks
 
