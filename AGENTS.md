@@ -61,7 +61,7 @@ Producers must not assume a specific consumer runtime. Consumers are pluggable b
 ### Observability
 - All new functions that perform meaningful work (API calls, LLM invocations, data transformations, external service calls) must be traced with `@mlflow.trace`. This is not optional.
 - `acp-writer` uses `mlflow.fastapi.autolog()` for automatic endpoint tracing.
-- `cpg-ingester` uses `mlflow.openai.autolog()` for automatic LLM call tracing.
+- `cpg-ingester` uses `mlflow.langchain.autolog()` for automatic LangGraph/LLM call tracing.
 - Set `MLFLOW_TRACKING_URI` in environment configuration for both local (compose.yml) and OpenShift (Helm chart) deployments.
 - See `platform/mlflow/README.md` for the full tracing inventory.
 

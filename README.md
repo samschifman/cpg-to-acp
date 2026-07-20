@@ -16,7 +16,7 @@ The system has four application components connected by standards-based contract
       ▼
 ┌─────────────┐   DMN    ┌─────────────┐   FHIR CarePlan   ┌──────────┐
 │ cpg-ingester │ ───────► │  acp-writer  │ ────────────────► │ mock-EHR │
-│              │  Recs*   │              │                   └──────────┘
+│              │  Recs    │              │                   └──────────┘
 │              │ ───────► │  (Drools /   │   BPMN
 └─────────────┘          │   Kogito)    │ ────────────────► ┌────────────┐
                          └─────────────┘                   │ automation  │
@@ -24,11 +24,9 @@ The system has four application components connected by standards-based contract
                                │
                           Patient Data
                            (FHIR IPS)
-
-  * Contract format TBD — see Open Questions
 ```
 
-**Standards as contracts:** DMN is the interface between `cpg-ingester` and `acp-writer` for decision logic. FHIR is the interface for patient data and care plans. BPMN is the interface between `acp-writer` and `automation`. Each component is pluggable behind its standard — swap the runtime without changing the producer. The contract for recommendations (cpg-ingester to acp-writer's vector store) is an open question — no established standard exists for this boundary.
+**Standards as contracts:** DMN is the interface between `cpg-ingester` and `acp-writer` for decision logic. FHIR is the interface for patient data and care plans. BPMN is the interface between `acp-writer` and `automation`. Each component is pluggable behind its standard — swap the runtime without changing the producer. Recommendations use a custom contract defined in `shared/cpg_contracts/` (`Recommendation`, `RecommendationBundle`) — no established standard exists for this boundary, so we defined one with normalized certainty grades, cross-references, and source provenance.
 
 ## Components
 

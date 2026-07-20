@@ -1,11 +1,11 @@
 # Clinical Practice Guideline Ingester
 
-Parses CPG documents and extracts computable decision logic as DMN decision tables. In Phase 2, also extracts non-computable recommendations for the acp-writer's vector store.
+Parses CPG documents and extracts both computable decision logic (DMN) and narrative recommendations for the acp-writer.
 
 ## Two Outputs
 
 1. **DMN decision tables** — Computable logic extracted from clinical decision algorithms, delivered to acp-writer's Drools/Kogito decision service.
-2. **Recommendations** (Phase 2) — Non-computable narrative content for RAG retrieval. Contract format TBD.
+2. **Recommendations** — Non-computable narrative content for RAG retrieval. Contract defined in `shared/cpg_contracts/` (`Recommendation`, `RecommendationBundle`).
 
 ## Phase 1 Capabilities
 
