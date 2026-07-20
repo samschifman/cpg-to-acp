@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import click
+import mlflow
 import requests
 
 from cpg_contracts import DecisionModelSummary
@@ -11,6 +12,7 @@ from cpg_contracts import DecisionModelSummary
 logger = logging.getLogger(__name__)
 
 
+@mlflow.trace(name="deploy_dmn")
 def deploy_dmn(dmn_path: Path, acp_writer_url: str) -> DecisionModelSummary:
     """POST a DMN file to the acp-writer decisions API."""
     dmn_xml = dmn_path.read_text()

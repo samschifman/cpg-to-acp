@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cpg-decision-service
+description: Drools/Kogito DMN decision engine for CPG-to-ACP
+version: 0.1.0
+appVersion: "0.1.0"

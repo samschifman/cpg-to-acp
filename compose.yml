@@ -15,10 +15,8 @@ services:
 
   fhir-loader:
     build:
-      context: ./mock-EHR/deploy
-      dockerfile: Dockerfile.loader
-    volumes:
-      - ./mock-EHR/data:/data:ro
+      context: ./mock-EHR
+      dockerfile: deploy/Dockerfile.loader
     environment:
       - FHIR_BASE_URL=http://hapi-fhir:8080/fhir
     depends_on:
@@ -45,10 +43,17 @@ services:
       - "4000:4000"
     env_file:
       - ./platform/litellm/deploy/.env
-    volumes:
-      - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro
-    environment:
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.21.3
+    ports:
+      - "5000:5000"
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   acp-writer:
     build:
@@ -59,8 +64,11 @@ services:
     depends_on:
       kogito:
         condition: service_healthy
+      mlflow:
+        condition: service_healthy
     environment:
       - KOGITO_URL=http://kogito:8081
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8082/health"]
       interval: 5s

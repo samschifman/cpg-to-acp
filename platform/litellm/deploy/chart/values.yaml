@@ -1,0 +1,24 @@
+image:
+  registry: image-registry.openshift-image-registry.svc:5000
+  namespace: sschifma-cpg-to-acp
+  name: litellm
+  tag: phase2
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  port: 4000
+
+openai:
+  apiKey: ""
+
+litellm:
+  masterKey: ""

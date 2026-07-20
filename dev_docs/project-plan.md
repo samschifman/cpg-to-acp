@@ -143,7 +143,6 @@ These are functional but minimal — interactive editing, side-by-side CPG compa
 | **platform** | EvalHub — golden test sets per CPG, extraction fidelity scorers, plan quality scorers | EvalHub |
 | **platform** | EvalHub gates that block deployment of degraded models/pipelines | EvalHub |
 | **platform** | Garak red-teaming for healthcare-specific adversarial scenarios | Garak |
-| **platform** | Agent identity via SPIFFE/SPIRE | SPIFFE/SPIRE |
 | **platform** | Migrate inference gateway to Praxis (if available) | Praxis |
 | **platform** | **Evaluate:** Using smaller self-hosted models (via vLLM) instead of frontier models for cost and latency | vLLM |
 | **cpg-ingester** | Validation pipeline: compare extracted DMN against golden test cases | — |
@@ -160,7 +159,34 @@ These are functional but minimal — interactive editing, side-by-side CPG compa
 
 ---
 
-### Phase 6 — Full UIs + Scale + Demo-Ready
+### Phase 6 — Identity, Auth & Access Control
+
+**Goal:** Establish user authentication, role-based access control, and agent credential scoping so that every action — human or agent — is tied to an authenticated identity with appropriate permissions.
+
+#### Work Items
+
+| Area | Work | Technology |
+|---|---|---|
+| **platform** | Deploy Keycloak on OpenShift, configure OIDC provider | Keycloak |
+| **platform** | Define roles (clinician, admin, reviewer) and map to permissions | Keycloak RBAC |
+| **platform** | Agent identity via SPIFFE/SPIRE | SPIFFE/SPIRE |
+| **platform** | OpenShell credential scoping — agents run with user-scoped tokens, not shared service accounts | OpenShell + Keycloak |
+| **platform** | Audit trail linking actions to authenticated identities | MLflow + OpenShell |
+| **acp-writer** | Integrate OIDC auth into UI and API | — |
+| **cpg-ingester** | Integrate OIDC auth into UI and API | — |
+| **mock-EHR** | Configure HAPI FHIR for token-based access | — |
+
+#### Exit Criteria
+
+- Keycloak running on OpenShift with OIDC configured
+- At least three roles (clinician, admin, reviewer) with distinct permissions
+- Agent credentials scoped per-user via OpenShell + SPIFFE/SPIRE
+- All UIs require authentication; APIs enforce token-based access
+- Audit trail links every action to an authenticated identity
+
+---
+
+### Phase 7 — Full UIs + Scale + Demo-Ready
 
 **Goal:** Full user interfaces, multiple CPGs, polished demo.
 
@@ -222,8 +248,9 @@ These are functional but minimal — interactive editing, side-by-side CPG compa
 | Phase 2 | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3 | AutoRAG, MCP Gateway, vector store |
 | Phase 4 | — (BPMN generation, no new platform tech) |
-| Phase 5 | NeMo Guardrails, EvalHub, Garak, SPIFFE/SPIRE, vLLM, Praxis |
-| Phase 6 | SMART on FHIR |
+| Phase 5 | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
+| Phase 6 | Keycloak, SPIFFE/SPIRE |
+| Phase 7 | SMART on FHIR |
 
 ## Parallel Development Tracks
 
@@ -233,8 +260,20 @@ Each area can advance semi-independently within a phase. Cross-cutting dependenc
 2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS
 3. **Vector store + recommendation contract (Phase 3)** — blocks recommendation-backed care plans
 4. **BPMN contract in shared/ (Phase 4)** — blocks automation service integration
+5. **Keycloak + OIDC (Phase 6)** — blocks SMART on FHIR launch in Phase 7
 
 Within each phase, a contributor can pick up any work item in their area without blocking others, as long as the phase's prerequisites are met.
+
+## Backlog — Phase-Independent Tasks
+
+Work that can be picked up at any time, independent of the current phase. These items improve the project but don't block other work.
+
+| Item | Area     | Notes |
+|---|----------|---|
+| MaaS with Vertex AI (Claude) | platform | Configure MaaS ExternalModel to route to Claude on Vertex AI. Requires a GCP service account key (not ADC user credentials) with the Vertex AI User role, and `oauth2` auth type on the ExternalProvider. OpenAI routing is already working; this adds Claude as a second provider option on-cluster. |
+| Enhance tracing in MLflow | all      | Make sure that the use of MLflow is optimized and that traces are useful. |
+
+---
 
 ## Open Spikes and Research Items
 
@@ -246,5 +285,5 @@ Within each phase, a contributor can pick up any work item in their area without
 | AI Transparency on FHIR IG | 3 | HL7 STU1 ballot. Defines how to tag FHIR resources generated/influenced by AI |
 | Recommendation contract format | 3 | No established standard (unlike DMN/BPMN/FHIR). Design needed. |
 | Self-hosted models vs. frontier | 5 | Evaluate using smaller models (via vLLM) for cost, latency, and data locality |
-| BPMN-to-Ansible conversion | 6 | Feasibility and approach |
-| SMART-EHR-Launcher (CSIRO) | 6 | Open-source EHR simulator for SMART app launch — evaluate for mock-EHR |
+| BPMN-to-Ansible conversion | 7 | Feasibility and approach |
+| SMART-EHR-Launcher (CSIRO) | 7 | Open-source EHR simulator for SMART app launch — evaluate for mock-EHR |

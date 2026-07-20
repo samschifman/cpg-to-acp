@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cpg-mock-ehr
+description: HAPI FHIR server and test data loader for CPG-to-ACP
+version: 0.1.0
+appVersion: "0.1.0"

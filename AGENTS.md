@@ -58,6 +58,13 @@ Producers must not assume a specific consumer runtime. Consumers are pluggable b
 - Keep components independent. Avoid adding cross-component dependencies unless the contract goes through `shared/`.
 - Prefer standard interfaces (MCP, REST, FHIR, DMN, BPMN) over proprietary integrations.
 
+### Observability
+- All new functions that perform meaningful work (API calls, LLM invocations, data transformations, external service calls) must be traced with `@mlflow.trace`. This is not optional.
+- `acp-writer` uses `mlflow.fastapi.autolog()` for automatic endpoint tracing.
+- `cpg-ingester` uses `mlflow.openai.autolog()` for automatic LLM call tracing.
+- Set `MLFLOW_TRACKING_URI` in environment configuration for both local (compose.yml) and OpenShift (Helm chart) deployments.
+- See `platform/mlflow/README.md` for the full tracing inventory.
+
 ### Documentation
 - `dev_docs/` contains point-in-time design documents. They may not reflect current state — always verify against the code.
 - Each component has its own README describing its purpose, setup, and usage.
@@ -70,6 +77,7 @@ Key technologies referenced in this project (all subject to change):
 - **Decision engine:** Drools / Kogito (Apache KIE), DMN format
 - **FHIR server:** HAPI FHIR
 - **Agent framework:** TBD / OpenShell
+- **Observability:** MLflow (tracing, experiment tracking)
 - **LLM inference:** vLLM, MaaS
 - **Process automation:** Pluggable (Ansible, SonataFlow, BPMN engine)
 - **Vector store:** Pluggable (Milvus, pgvector, etc.)
