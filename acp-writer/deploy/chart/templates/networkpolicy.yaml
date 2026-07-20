@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-acp-writer
+  labels:
+    app.kubernetes.io/name: acp-writer
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: cpg-to-acp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: acp-writer
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: decision-service
+      ports:
+        - port: 8081
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hapi-fhir
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
