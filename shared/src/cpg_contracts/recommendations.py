@@ -60,6 +60,18 @@ class CrossReferenceRelationship(str, Enum):
     OTHER = "other"
 
 
+class SourceLocation(BaseModel):
+    """Where in the source CPG document this item was extracted from.
+
+    Populated from Docling ProvenanceItem data during ingestion.
+    """
+
+    page_start: int
+    page_end: int | None = None
+    bbox: list[float] | None = None
+    source_text: str | None = None
+
+
 class CertaintyGrade(BaseModel):
     """Normalized certainty across grading systems.
 
@@ -92,6 +104,7 @@ class Recommendation(BaseModel):
     cross_references: list[CrossReference] | None = None
     provenance: RecommendationProvenance | None = None
     evidence_review_date: date | None = None
+    source_location: SourceLocation | None = None
 
 
 class RecommendationSummary(BaseModel):

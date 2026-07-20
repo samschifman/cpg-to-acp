@@ -28,7 +28,13 @@
         "rationale": null,
         "cross_references": null,
         "provenance": "reviewed",
-        "evidence_review_date": null
+        "evidence_review_date": null,
+        "source_location": {
+          "page_start": 12,
+          "page_end": 13,
+          "bbox": [108.0, 273.0, 504.0, 176.8],
+          "source_text": "All patients presenting with elevated blood pressure should undergo the following assessment..."
+        }
       },
       {
         "id": "2f92ee26-8061-415c-8843-04714c0574d7",
@@ -48,7 +54,13 @@
         "rationale": null,
         "cross_references": null,
         "provenance": "reviewed",
-        "evidence_review_date": null
+        "evidence_review_date": null,
+        "source_location": {
+          "page_start": 15,
+          "page_end": null,
+          "bbox": null,
+          "source_text": "Patients with Stage 2 hypertension (SBP >= 140) should begin pharmacological therapy regardless of comorbidity status."
+        }
       },
       {
         "id": "be02560d-523f-4713-84bd-0a4e2e69cd97",

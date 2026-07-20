@@ -9,6 +9,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from cpg_contracts.recommendations import SourceLocation
+
 
 class DecisionCategory(str, Enum):
     TREATMENT = "treatment"
@@ -34,6 +36,7 @@ class DecisionModelSummary(BaseModel):
     source_cpg: str | None = None
     category: DecisionCategory | None = None
     modifies: list[str] | None = None
+    source_location: SourceLocation | None = None
 
 
 class DecisionEvaluationRequest(BaseModel):

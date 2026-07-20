@@ -21,6 +21,7 @@ from cpg_contracts.recommendations import (
     RecommendationStrength,
     RecommendationSummary,
     RecommendationType,
+    SourceLocation,
 )
 from cpg_contracts.search import (
     RecommendationSearchRequest,
@@ -51,6 +52,7 @@ __all__ = [
     "RecommendationStrength",
     "RecommendationSummary",
     "RecommendationType",
+    "SourceLocation",
     # Search
     "RecommendationSearchRequest",
     "RecommendationSearchResponse",

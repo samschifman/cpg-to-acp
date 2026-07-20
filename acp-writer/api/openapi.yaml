@@ -543,6 +543,8 @@ components:
           type: array
           items:
             type: string
+        source_location:
+          $ref: "#/components/schemas/SourceLocation"
 
     DecisionModelDetail:
       allOf:
@@ -608,6 +610,8 @@ components:
         evidence_review_date:
           type: string
           format: date
+        source_location:
+          $ref: "#/components/schemas/SourceLocation"
 
     RecommendationSummary:
       type: object
@@ -653,6 +657,28 @@ components:
           enum: [GRADE, COR-LOE, GRADE-COR-hybrid, simplified, verb-implied, ungraded]
         original_grade:
           type: string
+
+    SourceLocation:
+      type: object
+      required: [page_start]
+      description: Where in the source CPG document this item was extracted from
+      properties:
+        page_start:
+          type: integer
+          description: 1-indexed page number
+        page_end:
+          type: integer
+          description: End page for multi-page spans
+        bbox:
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+          description: "Bounding box [left, top, right, bottom] from Docling"
+        source_text:
+          type: string
+          description: Brief verbatim excerpt from the source document
 
     CrossReference:
       type: object
