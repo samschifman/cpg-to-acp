@@ -184,6 +184,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **automation** | Implement automation service that accepts BPMN from acp-writer | Receives BPMN over API |
 | **shared** | Define the BPMN contract in shared/ | — |
 | **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer |
+| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
 
 #### Exit Criteria
 

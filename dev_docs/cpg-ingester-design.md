@@ -467,6 +467,25 @@ Syntax validation and assembly are deterministic (zero LLM tokens).
 
 10. **Docling provenance flows through the manifest.** SourceLocation mappings are created in the Structure Analyzer and attached to items in the manifest. They flow through generation and are finalized in assembly. No separate "provenance extraction" step is needed.
 
+## Deployment Model
+
+Phase 3.1 deploys cpg-ingester as a **single pod** running the entire LangGraph pipeline in-process. All agents share one process and one OpenShell sandbox policy. This is the simplest deployment model and sufficient for initial development.
+
+A future phase (Phase 4) should split cpg-ingester into **pod-per-security-profile**, where agents are grouped by their access requirements:
+
+| Pod Group | Agents | OpenShell Policy |
+|---|---|---|
+| **Ingestion** | Docling, Structure Analyzer | Filesystem + ML inference, no external network |
+| **LLM Analysis** | Filter, Identifier, Reviewer, Metadata, Creators, Semantic Reviewers | LLM (MaaS) egress only — no acp-writer, no patient data |
+| **Validators** | Syntax Validator, Schema Validator, Assembly | No network access at all |
+| **Delivery** | Delivery Agent | acp-writer API egress only — no LLM access |
+
+An **orchestrator pod** would run the LangGraph `StateGraph` and dispatch work to agent pods via REST/MCP. The orchestrator itself has no LLM or acp-writer access — it only talks to agent pods.
+
+This demonstrates OpenShell's fine-grained security model: the DMN Creator can call the LLM but cannot touch patient data or the care plan API; the Delivery Agent can push to acp-writer but cannot call the LLM; deterministic validators have zero network access.
+
+The LangGraph graph topology remains the same in both models — nodes either call local functions (single pod) or remote endpoints (multi-pod). The refactor is mechanical, not architectural.
+
 ## Relationship to Existing Code
 
 The current cpg-ingester has three files (`parse.py`, `extract_dmn.py`, `deploy.py`) that implement a minimal single-shot pipeline. This design replaces them:
