@@ -7,11 +7,14 @@ import os
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
+import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from cpg_contracts import DecisionModelSummary, DecisionVariable
 from acp_writer.careplan import build_careplan, extract_patient_data
+
+mlflow.fastapi.autolog()
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,7 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
     )
 
 
+@mlflow.trace(span_type="TOOL", name="evaluate_jit_dmn")
 def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     """Evaluate DMN via the JIT endpoint on the decision-service."""
     dmn_b64 = base64.b64encode(dmn_xml.encode()).decode()
@@ -82,6 +86,7 @@ def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     return r.json()
 
 
+@mlflow.trace(name="invoke_decisions")
 def invoke_decisions_dynamic(patient_data: dict) -> dict:
     """Invoke decisions using dynamically deployed models.
 

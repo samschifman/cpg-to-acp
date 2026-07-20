@@ -1,0 +1,39 @@
+# MLflow
+
+MLflow provides end-to-end tracing and observability across the CPG-to-ACP pipeline.
+
+## Deployment
+
+| Environment | How MLflow runs |
+|---|---|
+| **Local dev** | Container in `compose.yml` (`ghcr.io/mlflow/mlflow`) on port 5000 |
+| **OpenShift** | Managed by RHOAI MLflow Operator — no deployment needed from this project |
+
+## Configuration
+
+Set `MLFLOW_TRACKING_URI` to point your services at the MLflow server:
+
+| Environment | Value |
+|---|---|
+| Local (compose) | `http://mlflow:5000` (set automatically in compose.yml) |
+| OpenShift | The MLflow Route URL (set in Helm chart values) |
+| CLI tools | `export MLFLOW_TRACKING_URI=http://localhost:5000` |
+
+## What's traced
+
+### acp-writer (FastAPI service)
+- All API endpoints via FastAPI auto-instrumentation
+- `extract_patient_data` — FHIR Bundle parsing
+- `invoke_decisions` / `invoke_decisions_dynamic` — DMN decision evaluation
+- `evaluate_jit_dmn` — individual JIT decision engine calls
+- `build_careplan` — FHIR CarePlan construction
+
+### cpg-ingester (CLI tools)
+- `parse_cpg_pdf` — Docling PDF parsing
+- `extract_dmn` — LLM-driven DMN extraction (OpenAI SDK calls auto-captured)
+- `deploy_dmn` — DMN deployment to acp-writer
+
+## Viewing traces
+
+- **Local:** http://localhost:5000
+- **OpenShift:** Access via the MLflow Route in the RHOAI dashboard

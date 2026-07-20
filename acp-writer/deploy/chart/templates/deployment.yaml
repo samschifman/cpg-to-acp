@@ -30,6 +30,8 @@ spec:
           env:
             - name: KOGITO_URL
               value: {{ .Values.decisionService.url | quote }}
+            - name: MLFLOW_TRACKING_URI
+              value: {{ .Values.mlflow.trackingUri | quote }}
           readinessProbe:
             httpGet:
               path: /health/ready

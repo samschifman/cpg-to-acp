@@ -4,7 +4,10 @@ import logging
 from pathlib import Path
 
 import click
+import mlflow
 from openai import OpenAI
+
+mlflow.openai.autolog()
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ Guideline content:
 """
 
 
+@mlflow.trace(name="extract_dmn")
 def extract_dmn(cpg_markdown: str, client: OpenAI, model: str) -> list[str]:
     """Send parsed CPG to LLM and return a list of DMN XML strings."""
     response = client.chat.completions.create(

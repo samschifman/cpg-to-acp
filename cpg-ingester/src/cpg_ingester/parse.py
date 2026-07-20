@@ -5,11 +5,13 @@ import logging
 from pathlib import Path
 
 import click
+import mlflow
 from docling.document_converter import DocumentConverter
 
 logger = logging.getLogger(__name__)
 
 
+@mlflow.trace(name="parse_cpg_pdf")
 def parse_pdf(input_path: Path, output_dir: Path) -> Path:
     """Parse a PDF file and write Markdown + JSON outputs.
 

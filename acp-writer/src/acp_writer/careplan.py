@@ -10,6 +10,7 @@ decision tables. It does not generalize to other CPGs.
 import logging
 import uuid
 
+import mlflow
 import requests
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ LOINC_BP_PANEL = "85354-9"
 LOINC_SYSTOLIC = "8480-6"
 
 
+@mlflow.trace(name="extract_patient_data")
 def extract_patient_data(bundle: dict) -> dict:
     """Extract DMN inputs from a FHIR Bundle.
 
@@ -86,6 +88,7 @@ def extract_patient_data(bundle: dict) -> dict:
     }
 
 
+@mlflow.trace(name="invoke_decisions")
 def invoke_decisions(kogito_url: str, patient_data: dict) -> dict:
     """Call Kogito DMN endpoints and return combined decision outputs."""
     session = requests.Session()
@@ -127,6 +130,7 @@ def invoke_decisions(kogito_url: str, patient_data: dict) -> dict:
     return result
 
 
+@mlflow.trace(name="build_careplan")
 def build_careplan(patient_id: str, decisions: dict) -> dict:
     """Build a FHIR CarePlan Bundle from DMN decision outputs."""
     entries = []
