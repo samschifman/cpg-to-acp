@@ -13,6 +13,7 @@
 3. **Computable criteria belong in DMN, not recommendations.** Population applicability criteria (age ranges, diagnosis codes, lab thresholds) are decision inputs. Only non-computable scope notes travel with recommendations.
 4. **Metadata is not optional.** A recommendation without certainty, source, and type metadata is unusable for care plan generation.
 5. **The contracts must support independent testing.** cpg-ingester validates output against contract schemas. acp-writer tests against hand-crafted fixture data.
+6. **Contracts are versioned from the start.** Top-level ingestion payloads carry a `contract_version` field. New optional fields do not require a version bump. New required fields or breaking changes do.
 
 ---
 
@@ -49,7 +50,10 @@ class GuidelineArchetype(str, Enum):
     MULTI_MODULE = "multi-module"
     FOCUSED_POLICY = "focused-policy"
 
+CONTRACT_VERSION = "1.0"
+
 class CPGMetadata(BaseModel):
+    contract_version: str = CONTRACT_VERSION
     cpg_id: str                          # e.g., "SYN-HTN-2026-001"
     title: str
     version: str | None = None
@@ -64,7 +68,11 @@ class CPGMetadata(BaseModel):
 
 **Why this exists separately from recommendations:** A single CPG produces many decision models and many recommendations. The guideline-level metadata (grading system, archetype, scope) applies to all of them and should not be duplicated on every artifact.
 
-**API endpoint:** `POST /api/v1/guidelines` → registers a CPG, returns `cpg_id`
+**API endpoints:**
+- `POST /api/v1/guidelines` → register a CPG, returns `cpg_id`
+- `GET /api/v1/guidelines` → list all registered guidelines
+- `GET /api/v1/guidelines/{cpg_id}` → retrieve a single guideline
+- `DELETE /api/v1/guidelines/{cpg_id}` → remove a guideline and cascade-delete its associated recommendations and decision models
 
 ---
 
@@ -73,6 +81,13 @@ class CPGMetadata(BaseModel):
 The DMN boundary already works. The contract types exist in `shared/cpg_contracts/decisions.py`. Proposed refinements based on the CPG analysis:
 
 ```python
+class DecisionCategory(str, Enum):
+    TREATMENT = "treatment"
+    SCREENING = "screening"
+    MONITORING = "monitoring"
+    RISK_ASSESSMENT = "risk-assessment"
+    DIAGNOSTIC = "diagnostic"
+
 class DecisionVariable(BaseModel):
     name: str
     type: str                            # "string", "number", "boolean"
@@ -80,14 +95,14 @@ class DecisionVariable(BaseModel):
     codes: list[str] | None = None       # SNOMED/LOINC codes for this variable
 
 class DecisionModelSummary(BaseModel):
-    id: str
+    id: str                              # globally unique (GUID), assigned by cpg-ingester
     name: str
     inputs: list[DecisionVariable]
     outputs: list[DecisionVariable]
     deployed_at: datetime | None = None
     source_cpg: str | None = None        # cpg_id reference
-    category: str | None = None          # "treatment", "screening", "monitoring", "risk-assessment"
-    modifies: list[str] | None = None     # ids of models this overrides for a subpopulation
+    category: DecisionCategory | None = None
+    modifies: list[str] | None = None    # ids of models this overrides for a subpopulation
 ```
 
 ### Refinements from the CPG analysis
@@ -142,29 +157,43 @@ class RecommendationType(str, Enum):
 class CertaintyGrade(BaseModel):
     strength: RecommendationStrength
     evidence_quality: EvidenceQuality
-    grading_system: GradingSystem | None = None  # may differ from CPG-level if multiple systems used
+    grading_system: GradingSystem | None = None  # if None, inherit from CPGMetadata
     original_grade: str | None = None  # e.g., "1A", "Strong for, moderate certainty"
 
+class CrossReferenceRelationship(str, Enum):
+    PREREQUISITE = "prerequisite"       # target must be satisfied before this applies
+    ALTERNATIVE = "alternative"         # target is an alternative to this
+    CONFLICTS_WITH = "conflicts-with"   # target and this give conflicting guidance
+    MODIFIES = "modifies"               # this overrides/patches the target
+    RELATED = "related"                 # informational link
+    SUPERSEDES = "supersedes"           # this replaces the target
+    OTHER = "other"                     # escape hatch — use description for context
+
 class CrossReference(BaseModel):
-    target_id: str                     # id of the referenced recommendation or decision model
-    relationship: str                  # "prerequisite", "alternative", "conflicts-with",
-                                       # "modifies", "related", "supersedes"
+    target_id: str                     # GUID of the referenced recommendation or decision model
+    relationship: CrossReferenceRelationship
     description: str | None = None
+
+class RecommendationProvenance(str, Enum):
+    REVIEWED = "reviewed"              # evidence reviewed, recommendation unchanged
+    NEW_ADDED = "new-added"            # new recommendation in this version
+    AMENDED = "amended"                # recommendation changed based on new evidence
+    NOT_CHANGED = "not-changed"        # not reviewed in this update cycle
+    REMOVED = "removed"                # recommendation withdrawn
 
 class Recommendation(BaseModel):
     id: str                            # globally unique (GUID)
     source_cpg: str                    # cpg_id reference
     section: str | None = None         # section reference within the CPG (e.g., "3.4", "Rec 12")
     title: str
-    content: str                       # the recommendation text
+    content: str                       # the recommendation text (plain text or markdown)
     recommendation_type: RecommendationType
     certainty: CertaintyGrade | None = None
     scope_notes: str | None = None     # non-computable applicability caveats
     remarks: list[str] | None = None   # structured implementation context bullets
     rationale: str | None = None       # why this recommendation was made
-    cross_references: list[CrossReference] | None = None
-    provenance: str | None = None      # lifecycle status: "reviewed", "new-added",
-                                       # "amended", "not-changed"
+    cross_references: list[CrossReference] | None = None  # best-effort; acp-writer also uses semantic search
+    provenance: RecommendationProvenance | None = None
     evidence_review_date: date | None = None  # when the evidence for THIS recommendation
                                                # was last reviewed (may differ from CPG date)
 ```
@@ -173,6 +202,7 @@ class Recommendation(BaseModel):
 
 ```python
 class RecommendationBundle(BaseModel):
+    contract_version: str = CONTRACT_VERSION
     source_cpg: str                    # cpg_id reference
     recommendations: list[Recommendation]
 ```
@@ -193,7 +223,8 @@ class RecommendationBundle(BaseModel):
 - `POST /api/v1/knowledge/recommendations` → ingest a single recommendation
 - `POST /api/v1/knowledge/recommendations/batch` → ingest a `RecommendationBundle`
 - `GET /api/v1/knowledge/recommendations?source_cpg=...` → list by CPG
-- `POST /api/v1/knowledge/search` → semantic search (unchanged)
+- `GET /api/v1/knowledge/recommendations/{id}` → retrieve full recommendation by GUID
+- `POST /api/v1/knowledge/search` → semantic search (returns `RecommendationSummary`, not full objects)
 
 ---
 
@@ -207,18 +238,27 @@ class RecommendationSearchRequest(BaseModel):
     top_k: int = 5
     source_cpg: str | None = None         # scope to a specific CPG
     recommendation_type: RecommendationType | None = None  # filter by type
-    min_strength: RecommendationStrength | None = None     # floor for strength
+    strength_in: list[RecommendationStrength] | None = None  # only return these strengths
+
+class RecommendationSummary(BaseModel):
+    id: str
+    title: str
+    source_cpg: str
+    recommendation_type: RecommendationType
+    certainty: CertaintyGrade | None = None
 
 class RecommendationSearchResult(BaseModel):
-    recommendation: Recommendation        # full recommendation with metadata
-    score: float                          # similarity score
-    excerpt: str | None = None            # highlighted matching text
+    recommendation: RecommendationSummary  # summary for scanning; full details via GET by id
+    score: float                           # similarity score
+    excerpt: str | None = None             # highlighted matching text
 
 class RecommendationSearchResponse(BaseModel):
     results: list[RecommendationSearchResult]
 ```
 
-**Why type and strength filters:** acp-writer composes care plans by type — it needs treatment recommendations separately from lifestyle recommendations. And a care plan that only surfaces strong recommendations for a first pass, with conditional recommendations available on expansion, needs strength filtering.
+**Why type and strength filters:** acp-writer composes care plans by type — it needs treatment recommendations separately from lifestyle recommendations. The `strength_in` filter takes an explicit list of strength values (e.g., `["strong-for", "conditional-for"]`) rather than a `min_strength` floor, because strength values mix direction and intensity — `strong-against` is not weaker than `conditional-for`, it's a different direction.
+
+**Why summaries in search results:** Search results return `RecommendationSummary` (id, title, source_cpg, type, certainty) rather than full `Recommendation` objects. Full details including content, remarks, rationale, and cross-references are retrieved via `GET /api/v1/knowledge/recommendations/{id}` once the caller decides which results to inspect.
 
 ---
 
@@ -269,10 +309,10 @@ A `CPGMetadata` is the parent. It has many `DecisionModel`s and many `Recommenda
 | What | Change | Reason |
 |---|---|---|
 | `DecisionVariable` | Add `description`, `codes` | Clinical context and FHIR mapping |
-| `DecisionModelSummary` | Add `category`, `modifies` | Decision type classification and subpopulation override chain |
+| `DecisionModelSummary` | Add `category` (enum), `modifies` (list), use GUID `id` | Decision type classification, subpopulation override chain, cross-referenceable IDs |
 | `KnowledgeDocument` (OpenAPI) | Replace with `Recommendation` | Structured metadata instead of freeform `metadata: {}` |
 | `KnowledgeSearchRequest` | Replace with `RecommendationSearchRequest` | Type and strength filtering |
-| `KnowledgeSearchResponse` | Replace with `RecommendationSearchResponse` | Full recommendation in results |
+| `KnowledgeSearchResponse` | Replace with `RecommendationSearchResponse` | Summary objects in results, not full recommendations |
 | AGENTS.md | Change "Recommendations: TBD" to the contract name | Close the open boundary |
 
 ### What stays the same
@@ -290,11 +330,13 @@ A `CPGMetadata` is the parent. It has many `DecisionModel`s and many `Recommenda
 
 ```
 shared/src/cpg_contracts/
-├── __init__.py          # re-exports all types
-├── decisions.py         # DecisionVariable, DecisionModelSummary,
+├── __init__.py          # re-exports all types, defines CONTRACT_VERSION
+├── decisions.py         # DecisionVariable, DecisionModelSummary, DecisionCategory,
 │                        # DecisionEvaluationRequest/Response (refined)
-├── recommendations.py   # NEW: Recommendation, RecommendationBundle,
-│                        # CertaintyGrade, CrossReference, enums
+├── recommendations.py   # NEW: Recommendation, RecommendationBundle, RecommendationSummary,
+│                        # CertaintyGrade, CrossReference, CrossReferenceRelationship,
+│                        # RecommendationProvenance, RecommendationStrength,
+│                        # EvidenceQuality, RecommendationType enums
 ├── guidelines.py        # NEW: CPGMetadata, GradingSystem, GuidelineArchetype
 ├── search.py            # NEW: RecommendationSearchRequest/Response/Result
 └── fhir.py              # PatientSummary (unchanged — different boundary)
@@ -306,10 +348,18 @@ shared/src/cpg_contracts/
 
 1. **`Recommendation.content` is plain text or markdown.** No structured sub-fields. Markdown formatting (bullet lists, headers) is preserved from extraction. The structured metadata fields (`recommendation_type`, `certainty`, `cross_references`) provide the machine-readable dimensions.
 
-2. **All `id` fields are globally unique (GUIDs).** `Recommendation.id`, `DecisionModelSummary.id`, `CrossReference.target_id` — all use GUIDs. This avoids namespace collisions when recommendations reference decision models or recommendations from other CPGs.
+2. **All `id` fields are globally unique (GUIDs).** `Recommendation.id`, `DecisionModelSummary.id`, `CrossReference.target_id` — all use GUIDs. cpg-ingester generates IDs at extraction time; acp-writer preserves them as-is (does not derive or overwrite). This avoids namespace collisions and ensures cross-references remain valid. Note: the existing `api.py` code that derives IDs from DMN model names must be updated to accept the incoming ID.
 
 3. **`DecisionModelSummary.modifies` is a list.** A model can modify multiple base models (e.g., a CKD-specific model that overrides both the general treatment model and the general monitoring model).
 
-4. **`CertaintyGrade` includes `grading_system`.** Some CPGs use multiple evidence assessment methods within the same guideline (e.g., GRADE for quantitative evidence plus GRADE-CERQual for qualitative findings). The system identifier travels with each recommendation rather than being inherited solely from `CPGMetadata`.
+4. **`CertaintyGrade` includes `grading_system`.** Some CPGs use multiple evidence assessment methods within the same guideline (e.g., GRADE for quantitative evidence plus GRADE-CERQual for qualitative findings). The system identifier travels with each recommendation rather than being inherited solely from `CPGMetadata`. If `grading_system` is None, inherit from `CPGMetadata.grading_system`.
 
 5. **Contraindications are a recommendation type**, not a separate contract type. `recommendation_type: "contraindication"` with `cross_references` linking to the treatment recommendation being negated. The `relationship: "modifies"` on the cross-reference makes the override relationship explicit.
+
+6. **Contracts are versioned.** `CPGMetadata` and `RecommendationBundle` carry a `contract_version` field (default `CONTRACT_VERSION = "1.0"`). Versioning policy: adding optional fields = no version bump; adding required fields or removing/renaming fields = version bump. acp-writer should validate `contract_version` on ingestion and reject payloads from incompatible versions.
+
+7. **All enum-typed fields use validated enums, not free strings.** `CrossReference.relationship`, `Recommendation.provenance`, `DecisionModelSummary.category`, `RecommendationStrength`, `EvidenceQuality`, `RecommendationType` — all are `str, Enum` subclasses. This ensures validation at serialization boundaries and prevents drift between producer and consumer.
+
+8. **Search returns summaries, not full objects.** `RecommendationSearchResult` contains a `RecommendationSummary` (id, title, source_cpg, type, certainty). Full recommendation details retrieved via `GET /api/v1/knowledge/recommendations/{id}`. This keeps search payloads small.
+
+9. **`cross_references` is best-effort.** cpg-ingester populates cross-references where it can reliably detect them, but completeness is not guaranteed. acp-writer should also use semantic search to discover related recommendations.
