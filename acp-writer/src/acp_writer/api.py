@@ -14,7 +14,10 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from cpg_contracts import DecisionModelSummary, DecisionVariable
 from acp_writer.careplan import build_careplan, extract_patient_data
 
-mlflow.fastapi.autolog()
+try:
+    mlflow.fastapi.autolog()
+except AttributeError:
+    pass
 
 logger = logging.getLogger(__name__)
 

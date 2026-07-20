@@ -25,7 +25,7 @@ These are hard rules. Do not violate them.
 
 ### Component Ownership
 
-- **`cpg-ingester`** has two outputs: (1) DMN decision tables for computable logic, and (2) recommendations and other non-computable content destined for a vector store in `acp-writer`. It must not be coupled to the decision engine runtime or vector store implementation. It interacts with downstream services only through API/MCP. **Open issue:** The contract format for the recommendation/vector-store output is TBD — there is no established standard equivalent to DMN, BPMN, or FHIR for this boundary.
+- **`cpg-ingester`** has two outputs: (1) DMN decision tables for computable logic, and (2) recommendations and other non-computable content destined for a vector store in `acp-writer`. It must not be coupled to the decision engine runtime or vector store implementation. It interacts with downstream services only through API/MCP. The recommendation contract is defined in `shared/cpg_contracts/recommendations.py` — see `dev_docs/contract-proposal-ingester-writer.md` for the full design rationale.
 - **`acp-writer`** owns the Drools/Kogito decision engine runtime and the vector store. Both are internal implementation details of `acp-writer` — they are not platform services. It deploys and executes DMN. It produces two outputs: FHIR CarePlans (to the FHIR server) and BPMN (to automation). The API contract is defined in `acp-writer/api/openapi.yaml` (REST) and `acp-writer/api/mcp-tools.json` (MCP tools). Callers provide patient data directly — acp-writer does not query FHIR servers.
 - **`automation`** is a downstream runtime service that executes BPMN process definitions. It does not orchestrate other services.
 - **`mock-EHR`** is development/test infrastructure. It is not application logic.
@@ -39,7 +39,7 @@ Each component boundary uses a standards-based contract:
 | Boundary | Standard | Producer | Consumer |
 |---|---|---|---|
 | Decision logic | **DMN** | cpg-ingester | acp-writer |
-| Recommendations | **TBD** | cpg-ingester | acp-writer (vector store) |
+| Recommendations | **cpg-contracts** (`Recommendation`, `RecommendationBundle`) | cpg-ingester | acp-writer (vector store) |
 | Patient data | **FHIR** (IPS) | mock-EHR | acp-writer |
 | Care plans | **FHIR** (CarePlan) | acp-writer | mock-EHR |
 | Process automation | **BPMN** | acp-writer | automation |
@@ -76,7 +76,7 @@ Key technologies referenced in this project (all subject to change):
 - **Document parsing:** Docling
 - **Decision engine:** Drools / Kogito (Apache KIE), DMN format
 - **FHIR server:** HAPI FHIR
-- **Agent framework:** TBD / OpenShell
+- **Agent framework:** LangGraph (see `dev_docs/spike-agent-framework.md`)
 - **Observability:** MLflow (tracing, experiment tracking)
 - **LLM inference:** vLLM, MaaS
 - **Process automation:** Pluggable (Ansible, SonataFlow, BPMN engine)

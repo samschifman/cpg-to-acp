@@ -1,0 +1,238 @@
+{
+  "metadata": {
+    "contract_version": "1.0",
+    "cpg_id": "SYN-HTN-2026-001",
+    "title": "Clinical Practice Guideline: Initial Management of Hypertension in Adults",
+    "version": "1.0",
+    "publication_date": "2026-07-01",
+    "evidence_review_date": "2026-06-01",
+    "issuing_body": "Synthetic Guidelines Collaborative",
+    "grading_system": "GRADE",
+    "scope": "Adults (age 18+) with a new diagnosis of essential hypertension",
+    "supersedes": null
+  },
+  "recommendation_bundle": {
+    "contract_version": "1.0",
+    "source_cpg": "SYN-HTN-2026-001",
+    "recommendations": [
+      {
+        "id": "a125021d-bb89-4288-96c8-519608f5e208",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.1",
+        "title": "Patient Assessment",
+        "content": "All patients presenting with elevated blood pressure should undergo the following assessment:\n1. Confirm blood pressure reading with at least two measurements on separate occasions\n2. Review current medication list, including over-the-counter medications\n3. Assess for the presence of type 2 diabetes mellitus\n4. Assess for the presence of chronic kidney disease\n5. Obtain baseline laboratory studies including a basic metabolic panel",
+        "recommendation_type": "process",
+        "certainty": null,
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "2f92ee26-8061-415c-8843-04714c0574d7",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.2",
+        "title": "Treatment Decision Principles \u2014 Stage 2 Hypertension",
+        "content": "Patients with Stage 2 hypertension (SBP >= 140) should begin pharmacological therapy regardless of comorbidity status.",
+        "recommendation_type": "treatment",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "high",
+          "grading_system": null,
+          "original_grade": "Strong recommendation, high-certainty evidence"
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "be02560d-523f-4713-84bd-0a4e2e69cd97",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.2",
+        "title": "Treatment Decision Principles \u2014 Stage 1 with Comorbidities",
+        "content": "Patients with Stage 1 hypertension (SBP 130-139) AND diabetes or chronic kidney disease should begin pharmacological therapy due to elevated cardiovascular risk.",
+        "recommendation_type": "treatment",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "moderate",
+          "grading_system": null,
+          "original_grade": "Strong recommendation, moderate-certainty evidence"
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "cbe017e0-8199-4d89-b724-f12597b51781",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.2",
+        "title": "Treatment Decision Principles \u2014 Stage 1 without Comorbidities",
+        "content": "Patients with Stage 1 hypertension without high-risk comorbidities should attempt lifestyle modification for 8 weeks before reassessment.",
+        "recommendation_type": "lifestyle",
+        "certainty": {
+          "strength": "conditional-for",
+          "evidence_quality": "moderate",
+          "grading_system": null,
+          "original_grade": null
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "11340b80-999f-417e-911e-ff04744ee712",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.2",
+        "title": "First-Line Medication \u2014 Lisinopril",
+        "content": "Lisinopril (an ACE inhibitor) is recommended as the first-line agent due to its well-established efficacy, renal protective effects, and favorable side effect profile.",
+        "recommendation_type": "treatment",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "high",
+          "grading_system": null,
+          "original_grade": null
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": "Multiple meta-analyses confirm that ACE inhibitors reduce cardiovascular mortality and slow the progression of diabetic nephropathy and chronic kidney disease.",
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "e659a479-f2ba-49b6-9be8-f371d298d999",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.3",
+        "title": "Monitoring \u2014 ACE Inhibitor Therapy",
+        "content": "All patients starting ACE inhibitor therapy require a Basic Metabolic Panel (BMP) to monitor renal function and electrolytes.",
+        "recommendation_type": "monitoring",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "high",
+          "grading_system": null,
+          "original_grade": null
+        },
+        "scope_notes": null,
+        "remarks": [
+          "Patients with chronic kidney disease require earlier laboratory follow-up (2 weeks) due to higher risk of ACE inhibitor-related changes in renal function.",
+          "Patients on lifestyle modification alone do not require routine laboratory monitoring beyond standard preventive care."
+        ],
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "db162cec-b474-4e64-a814-e03ff8bbb512",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.4",
+        "title": "Lifestyle Modification \u2014 Dietary Changes",
+        "content": "Adopt the DASH (Dietary Approaches to Stop Hypertension) diet, which emphasizes fruits, vegetables, whole grains, and low-fat dairy products while limiting saturated fat and sodium intake to less than 2,300 mg per day.",
+        "recommendation_type": "lifestyle",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "high",
+          "grading_system": null,
+          "original_grade": null
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "1e8370f9-310c-45f4-b90a-b864b9ccf3c9",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.4",
+        "title": "Lifestyle Modification \u2014 Physical Activity",
+        "content": "Engage in at least 150 minutes per week of moderate-intensity aerobic exercise, such as brisk walking, or 75 minutes per week of vigorous-intensity aerobic exercise.",
+        "recommendation_type": "lifestyle",
+        "certainty": {
+          "strength": "strong-for",
+          "evidence_quality": "high",
+          "grading_system": null,
+          "original_grade": null
+        },
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "c93f68ed-63e9-44b6-871b-e6b02b6099d6",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.4",
+        "title": "Lifestyle Modification \u2014 Weight Management",
+        "content": "Achieve and maintain a healthy body weight (BMI 18.5-24.9 kg/m2). Even modest weight loss of 5-10% can significantly reduce blood pressure.",
+        "recommendation_type": "lifestyle",
+        "certainty": null,
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "f014c719-130a-45bb-89c6-8b124e6d7a06",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "3.4",
+        "title": "Lifestyle Modification \u2014 Smoking Cessation",
+        "content": "If applicable, provide smoking cessation counseling and resources.",
+        "recommendation_type": "lifestyle",
+        "certainty": null,
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "3b3540a8-6f35-4dbd-944e-020d3dc30c2a",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "5.1",
+        "title": "Clinical Workflow Integration",
+        "content": "This guideline is designed to be implemented through clinical decision support systems integrated into the electronic health record. Automated alerts should notify clinicians when a patient meets criteria for pharmacological intervention based on blood pressure readings and documented comorbidities.",
+        "recommendation_type": "process",
+        "certainty": null,
+        "scope_notes": "Implementation guidance \u2014 not a clinical recommendation. Describes how the guideline should be operationalized in health systems.",
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      },
+      {
+        "id": "8fa4adef-02ab-4414-8bca-3f2dba9678a4",
+        "source_cpg": "SYN-HTN-2026-001",
+        "section": "5.3",
+        "title": "Quality Measures",
+        "content": "The following quality measures are recommended for monitoring guideline adherence:\n- Percentage of patients with hypertension who have a blood pressure reading documented within the past 12 months\n- Percentage of patients meeting treatment initiation criteria who received appropriate pharmacological therapy within 30 days\n- Percentage of patients on ACE inhibitor therapy who received follow-up laboratory monitoring within the recommended timeframe",
+        "recommendation_type": "process",
+        "certainty": null,
+        "scope_notes": null,
+        "remarks": null,
+        "rationale": null,
+        "cross_references": null,
+        "provenance": "reviewed",
+        "evidence_review_date": null
+      }
+    ]
+  }
+}
