@@ -18,7 +18,7 @@ The system runs on OpenShift with Red Hat AI platform capabilities. The full pip
 
 ## Phases
 
-### Phase 2 — OpenShift + OpenShell + Platform Foundation
+### Phase 2 — OpenShift + OpenShell + Platform Foundation (complete)
 
 **Goal:** Get the system running on OpenShift with OpenShell sandboxing and governed inference.
 
