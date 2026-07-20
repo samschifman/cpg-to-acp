@@ -107,7 +107,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
         base_url=f"{state.get('litellm_url', 'http://localhost:4000')}/v1",
         api_key=state.get("llm_api_key", "sk-change-me"),
         model=state.get("llm_model", "default"),
-        temperature=0,
+
     )
 
 
