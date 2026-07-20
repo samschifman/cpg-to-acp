@@ -187,8 +187,9 @@ ui/dist/
 # Generated JSON Schema (regenerate with `make schema`)
 /build/schema/
 
-# MLflow local database
+# MLflow local artifacts (created when MLFLOW_TRACKING_URI is not set)
 mlflow.db
+mlruns/
 
 # macOS
 .DS_Store
