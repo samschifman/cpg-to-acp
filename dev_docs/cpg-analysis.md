@@ -135,7 +135,7 @@ Content falls into three tiers:
 **Tier 2 — Semi-computable (requires interpretation):**
 - Conditional recommendations with GRADE qualifiers ("We suggest..." vs "We recommend...")
 - Risk stratification requiring external calculators (Framingham, ASCVD)
-- Multi-condition branching with 3-4 simultaneous preconditions
+- Multi-condition branching with 3-4 simultaneous preconditions (these are computable population applicability criteria — they belong in DMN as gating inputs, not in the vector store)
 - Medication selection influenced by age, ethnicity, comorbidity profile
 
 **Tier 3 — Inherently narrative (vector store):**
@@ -331,7 +331,7 @@ The vector store content must carry structured metadata alongside narrative text
 
 - **Source metadata:** Guideline identifier, publication year, evidence review date
 - **Certainty metadata:** Normalized strength and evidence quality
-- **Population applicability:** Who the recommendation applies to (conditions, age, exclusions)
+- **Scope notes:** Non-computable caveats about the recommendation's applicability — study population characteristics, trial exclusion criteria, settings where evidence may not generalize. (Note: computable applicability criteria — diagnosis codes, age ranges, lab thresholds, comorbidity gates — should be extracted as DMN decision inputs, not stored as recommendation metadata.)
 - **Recommendation type:** Treatment, diagnostic, monitoring, lifestyle, educational, referral
 - **Cross-reference links:** Typed links to related recommendations
 - **Context category:** Rationale, contraindication, monitoring requirement, benefit/harm, implementation note
