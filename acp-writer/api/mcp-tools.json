@@ -1,6 +1,41 @@
 {
   "tools": [
     {
+      "name": "register_guideline",
+      "description": "Register a clinical practice guideline. Both decision models and recommendations reference this by cpg_id.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["cpg_id", "title"],
+        "properties": {
+          "cpg_id": {
+            "type": "string",
+            "description": "Unique guideline identifier (e.g., SYN-HTN-2026-001)"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "publication_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "grading_system": {
+            "type": "string",
+            "enum": ["GRADE", "COR-LOE", "GRADE-COR-hybrid", "simplified", "verb-implied", "ungraded"]
+          },
+          "scope": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/guidelines"
+      }
+    },
+    {
       "name": "deploy_decision_model",
       "description": "Deploy a DMN decision model to the care plan writer's internal decision engine. The model becomes available for care plan generation and direct evaluation.",
       "inputSchema": {
@@ -33,7 +68,7 @@
     },
     {
       "name": "evaluate_decision",
-      "description": "Evaluate a deployed DMN decision model with test inputs and return the decision output. Useful for validating extracted DMN before committing.",
+      "description": "Evaluate a deployed DMN decision model with test inputs and return the decision output.",
       "inputSchema": {
         "type": "object",
         "required": ["model_id", "inputs"],
@@ -45,7 +80,7 @@
           "inputs": {
             "type": "object",
             "additionalProperties": true,
-            "description": "DMN input values keyed by input data name (e.g., {\"Systolic BP\": 142, \"Has Diabetes\": true})"
+            "description": "DMN input values keyed by input data name"
           }
         }
       },
@@ -55,43 +90,91 @@
       }
     },
     {
-      "name": "ingest_knowledge",
-      "description": "Ingest a clinical recommendation or document chunk into the care plan writer's knowledge base for retrieval during care plan generation.",
+      "name": "ingest_recommendation",
+      "description": "Ingest a clinical recommendation into the knowledge base for retrieval during care plan generation.",
       "inputSchema": {
         "type": "object",
-        "required": ["content"],
+        "required": ["id", "source_cpg", "title", "content", "recommendation_type"],
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "Globally unique identifier (GUID)"
+          },
           "source_cpg": {
             "type": "string",
-            "description": "Identifier of the source CPG (e.g., SYN-HTN-2026-001)"
+            "description": "cpg_id of the source guideline"
           },
           "section": {
             "type": "string",
             "description": "Section reference within the CPG"
           },
           "title": {
-            "type": "string",
-            "description": "Title of the recommendation or section"
+            "type": "string"
           },
           "content": {
             "type": "string",
-            "description": "The recommendation text or document content"
+            "description": "Recommendation text (plain text or markdown)"
           },
-          "metadata": {
+          "recommendation_type": {
+            "type": "string",
+            "enum": ["treatment", "diagnostic", "monitoring", "lifestyle", "educational", "referral", "screening", "contraindication", "process"]
+          },
+          "certainty": {
             "type": "object",
-            "additionalProperties": true,
-            "description": "Flexible metadata (recommendation_strength, evidence_grade, etc.)"
+            "description": "Normalized certainty grade",
+            "properties": {
+              "strength": {
+                "type": "string",
+                "enum": ["strong-for", "conditional-for", "consensus", "no-recommendation", "conditional-against", "strong-against"]
+              },
+              "evidence_quality": {
+                "type": "string",
+                "enum": ["high", "moderate", "low", "very-low", "ungraded"]
+              },
+              "original_grade": {
+                "type": "string"
+              }
+            }
+          },
+          "remarks": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Structured implementation context bullets"
           }
         }
       },
       "annotations": {
         "rest_method": "POST",
-        "rest_path": "/api/v1/knowledge/documents"
+        "rest_path": "/api/v1/knowledge/recommendations"
       }
     },
     {
-      "name": "search_knowledge",
-      "description": "Search the knowledge base for clinical content relevant to a query. Returns ranked results with similarity scores.",
+      "name": "ingest_recommendation_batch",
+      "description": "Ingest a batch of recommendations from a single CPG.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["source_cpg", "recommendations"],
+        "properties": {
+          "source_cpg": {
+            "type": "string"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Recommendation objects (see ingest_recommendation for schema)"
+            }
+          }
+        }
+      },
+      "annotations": {
+        "rest_method": "POST",
+        "rest_path": "/api/v1/knowledge/recommendations/batch"
+      }
+    },
+    {
+      "name": "search_recommendations",
+      "description": "Search the knowledge base for clinical recommendations relevant to a query. Returns ranked summaries with similarity scores.",
       "inputSchema": {
         "type": "object",
         "required": ["query"],
@@ -107,7 +190,20 @@
           },
           "source_cpg": {
             "type": "string",
-            "description": "Optionally scope search to a specific CPG"
+            "description": "Scope search to a specific CPG"
+          },
+          "recommendation_type": {
+            "type": "string",
+            "enum": ["treatment", "diagnostic", "monitoring", "lifestyle", "educational", "referral", "screening", "contraindication", "process"],
+            "description": "Filter by recommendation type"
+          },
+          "strength_in": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["strong-for", "conditional-for", "consensus", "no-recommendation", "conditional-against", "strong-against"]
+            },
+            "description": "Only return recommendations with these strength values"
           }
         }
       },
@@ -143,8 +239,7 @@
         "required": ["careplan_id"],
         "properties": {
           "careplan_id": {
-            "type": "string",
-            "description": "ID of the care plan to retrieve"
+            "type": "string"
           }
         }
       },
@@ -155,19 +250,17 @@
     },
     {
       "name": "approve_careplan",
-      "description": "Approve or reject a generated care plan. Approval may trigger BPMN generation and dispatch to the automation service.",
+      "description": "Approve or reject a generated care plan.",
       "inputSchema": {
         "type": "object",
         "required": ["careplan_id", "status"],
         "properties": {
           "careplan_id": {
-            "type": "string",
-            "description": "ID of the care plan"
+            "type": "string"
           },
           "status": {
             "type": "string",
-            "enum": ["approved", "rejected"],
-            "description": "New status for the care plan"
+            "enum": ["approved", "rejected"]
           },
           "reason": {
             "type": "string",

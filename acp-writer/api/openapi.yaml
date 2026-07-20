@@ -9,7 +9,9 @@ info:
     Callers provide patient data directly — the acp-writer does not query FHIR
     servers. The decision engine and vector store are internal implementation
     details hidden behind this API.
-  version: 0.1.0
+
+    Contract version: 1.0
+  version: 0.2.0
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -19,6 +21,81 @@ servers:
     description: Local development
 
 paths:
+
+  # --- Guidelines ---
+
+  /api/v1/guidelines:
+    post:
+      operationId: registerGuideline
+      summary: Register a clinical practice guideline
+      description: |
+        Registers guideline-level metadata. Both decision models and
+        recommendations reference this by cpg_id.
+      tags: [guidelines]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CPGMetadata"
+      responses:
+        "201":
+          description: Guideline registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CPGMetadata"
+        "400":
+          description: Invalid metadata
+
+    get:
+      operationId: listGuidelines
+      summary: List registered guidelines
+      tags: [guidelines]
+      responses:
+        "200":
+          description: List of guidelines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CPGMetadata"
+
+  /api/v1/guidelines/{cpgId}:
+    parameters:
+      - name: cpgId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    get:
+      operationId: getGuideline
+      summary: Retrieve a registered guideline
+      tags: [guidelines]
+      responses:
+        "200":
+          description: Guideline details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CPGMetadata"
+        "404":
+          description: Guideline not found
+
+    delete:
+      operationId: removeGuideline
+      summary: Remove a guideline and all associated artifacts
+      description: |
+        Cascade-deletes all decision models and recommendations associated
+        with this guideline.
+      tags: [guidelines]
+      responses:
+        "204":
+          description: Guideline and associated artifacts removed
+        "404":
+          description: Guideline not found
 
   # --- Decision Models ---
 
@@ -132,45 +209,37 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
-                description: DMN decision results
         "404":
           description: Model not found
         "400":
           description: Invalid input data
 
-  # --- Knowledge Base ---
+  # --- Knowledge Base (Recommendations) ---
 
-  /api/v1/knowledge/documents:
+  /api/v1/knowledge/recommendations:
     post:
-      operationId: ingestDocument
-      summary: Ingest a document into the knowledge base
-      description: |
-        Stores a clinical recommendation or document chunk in the internal
-        vector store for retrieval during care plan generation.
-
-        Note: the document schema is a starting point. The recommendation
-        contract format between cpg-ingester and acp-writer is an open
-        design question.
+      operationId: ingestRecommendation
+      summary: Ingest a single recommendation
       tags: [knowledge]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/KnowledgeDocument"
+              $ref: "#/components/schemas/Recommendation"
       responses:
         "201":
-          description: Document ingested
+          description: Recommendation ingested
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/KnowledgeDocumentSummary"
+                $ref: "#/components/schemas/RecommendationSummary"
         "400":
-          description: Invalid document
+          description: Invalid recommendation
 
     get:
-      operationId: listDocuments
-      summary: List ingested documents
+      operationId: listRecommendations
+      summary: List ingested recommendations
       tags: [knowledge]
       parameters:
         - name: source_cpg
@@ -180,65 +249,80 @@ paths:
           description: Filter by source CPG identifier
       responses:
         "200":
-          description: List of documents
+          description: List of recommendations
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/KnowledgeDocumentSummary"
+                  $ref: "#/components/schemas/RecommendationSummary"
 
-  /api/v1/knowledge/documents/{documentId}:
-    parameters:
-      - name: documentId
-        in: path
-        required: true
-        schema:
-          type: string
-
-    get:
-      operationId: getDocument
-      summary: Get a document from the knowledge base
-      tags: [knowledge]
-      responses:
-        "200":
-          description: Document details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/KnowledgeDocument"
-        "404":
-          description: Document not found
-
-    delete:
-      operationId: removeDocument
-      summary: Remove a document from the knowledge base
-      tags: [knowledge]
-      responses:
-        "204":
-          description: Document removed
-        "404":
-          description: Document not found
-
-  /api/v1/knowledge/search:
+  /api/v1/knowledge/recommendations/batch:
     post:
-      operationId: searchKnowledge
-      summary: Search the knowledge base
-      description: Semantic search over ingested documents.
+      operationId: ingestRecommendationBatch
+      summary: Ingest a batch of recommendations
       tags: [knowledge]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/KnowledgeSearchRequest"
+              $ref: "#/components/schemas/RecommendationBundle"
       responses:
-        "200":
-          description: Search results
+        "201":
+          description: Recommendations ingested
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/KnowledgeSearchResponse"
+                type: object
+                properties:
+                  ingested:
+                    type: integer
+                  source_cpg:
+                    type: string
+        "400":
+          description: Invalid bundle
+
+  /api/v1/knowledge/recommendations/{recommendationId}:
+    parameters:
+      - name: recommendationId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    get:
+      operationId: getRecommendation
+      summary: Retrieve a recommendation by ID
+      tags: [knowledge]
+      responses:
+        "200":
+          description: Full recommendation with all metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recommendation"
+        "404":
+          description: Recommendation not found
+
+  /api/v1/knowledge/search:
+    post:
+      operationId: searchRecommendations
+      summary: Semantic search over recommendations
+      tags: [knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendationSearchRequest"
+      responses:
+        "200":
+          description: Search results (summaries, not full objects)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationSearchResponse"
 
   # --- Care Plans ---
 
@@ -328,9 +412,6 @@ paths:
     put:
       operationId: updateCarePlanStatus
       summary: Update care plan status
-      description: |
-        Approve or reject a care plan. In Phase 3, approval triggers BPMN
-        generation and dispatch to the automation service.
       tags: [careplans]
       parameters:
         - name: careplanId
@@ -377,7 +458,6 @@ paths:
     get:
       operationId: readinessCheck
       summary: Readiness check
-      description: Returns healthy only when all internal dependencies are available.
       tags: [health]
       responses:
         "200":
@@ -401,6 +481,41 @@ paths:
 components:
   schemas:
 
+    # --- Guidelines ---
+
+    CPGMetadata:
+      type: object
+      required: [cpg_id, title]
+      properties:
+        contract_version:
+          type: string
+          default: "1.0"
+        cpg_id:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+        publication_date:
+          type: string
+          format: date
+        evidence_review_date:
+          type: string
+          format: date
+        issuing_body:
+          type: string
+        grading_system:
+          type: string
+          enum: [GRADE, COR-LOE, GRADE-COR-hybrid, simplified, verb-implied, ungraded]
+        scope:
+          type: string
+        supersedes:
+          type: array
+          items:
+            type: string
+
+    # --- Decision Models ---
+
     DecisionModelSummary:
       type: object
       properties:
@@ -419,6 +534,15 @@ components:
         deployed_at:
           type: string
           format: date-time
+        source_cpg:
+          type: string
+        category:
+          type: string
+          enum: [treatment, screening, monitoring, risk-assessment, diagnostic]
+        modifies:
+          type: array
+          items:
+            type: string
 
     DecisionModelDetail:
       allOf:
@@ -426,9 +550,6 @@ components:
         - type: object
           properties:
             dmn_xml:
-              type: string
-              description: The original DMN XML
-            source_cpg:
               type: string
 
     DecisionVariable:
@@ -439,44 +560,116 @@ components:
         type:
           type: string
           enum: [string, number, boolean]
+        description:
+          type: string
+        codes:
+          type: array
+          items:
+            type: string
 
-    KnowledgeDocument:
+    # --- Knowledge (Recommendations) ---
+
+    Recommendation:
       type: object
-      required: [content]
+      required: [id, source_cpg, title, content, recommendation_type]
       properties:
         id:
           type: string
-          readOnly: true
+          description: Globally unique (GUID)
         source_cpg:
           type: string
-          description: Identifier of the source CPG
         section:
           type: string
-          description: Section reference within the CPG
         title:
           type: string
         content:
           type: string
-          description: The recommendation or document text
-        metadata:
-          type: object
-          additionalProperties: true
-          description: Flexible metadata (recommendation strength, evidence grade, etc.)
+          description: Recommendation text (plain text or markdown)
+        recommendation_type:
+          type: string
+          enum: [treatment, diagnostic, monitoring, lifestyle, educational, referral, screening, contraindication, process]
+        certainty:
+          $ref: "#/components/schemas/CertaintyGrade"
+        scope_notes:
+          type: string
+        remarks:
+          type: array
+          items:
+            type: string
+        rationale:
+          type: string
+        cross_references:
+          type: array
+          items:
+            $ref: "#/components/schemas/CrossReference"
+        provenance:
+          type: string
+          enum: [reviewed, new-added, amended, not-changed, removed]
+        evidence_review_date:
+          type: string
+          format: date
 
-    KnowledgeDocumentSummary:
+    RecommendationSummary:
       type: object
       properties:
         id:
           type: string
-        source_cpg:
-          type: string
         title:
           type: string
-        ingested_at:
+        source_cpg:
           type: string
-          format: date-time
+        recommendation_type:
+          type: string
+          enum: [treatment, diagnostic, monitoring, lifestyle, educational, referral, screening, contraindication, process]
+        certainty:
+          $ref: "#/components/schemas/CertaintyGrade"
 
-    KnowledgeSearchRequest:
+    RecommendationBundle:
+      type: object
+      required: [source_cpg, recommendations]
+      properties:
+        contract_version:
+          type: string
+          default: "1.0"
+        source_cpg:
+          type: string
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+
+    CertaintyGrade:
+      type: object
+      required: [strength, evidence_quality]
+      properties:
+        strength:
+          type: string
+          enum: [strong-for, conditional-for, consensus, no-recommendation, conditional-against, strong-against]
+        evidence_quality:
+          type: string
+          enum: [high, moderate, low, very-low, ungraded]
+        grading_system:
+          type: string
+          enum: [GRADE, COR-LOE, GRADE-COR-hybrid, simplified, verb-implied, ungraded]
+        original_grade:
+          type: string
+
+    CrossReference:
+      type: object
+      required: [target_id, relationship]
+      properties:
+        target_id:
+          type: string
+          description: GUID of the referenced recommendation or decision model
+        relationship:
+          type: string
+          enum: [prerequisite, alternative, conflicts-with, modifies, related, supersedes, other]
+        description:
+          type: string
+
+    # --- Search ---
+
+    RecommendationSearchRequest:
       type: object
       required: [query]
       properties:
@@ -487,22 +680,34 @@ components:
           default: 5
         source_cpg:
           type: string
-          description: Optionally scope search to a specific CPG
+        recommendation_type:
+          type: string
+          enum: [treatment, diagnostic, monitoring, lifestyle, educational, referral, screening, contraindication, process]
+        strength_in:
+          type: array
+          items:
+            type: string
+            enum: [strong-for, conditional-for, consensus, no-recommendation, conditional-against, strong-against]
 
-    KnowledgeSearchResponse:
+    RecommendationSearchResponse:
       type: object
       properties:
         results:
           type: array
           items:
-            type: object
-            properties:
-              document:
-                $ref: "#/components/schemas/KnowledgeDocumentSummary"
-              score:
-                type: number
-              excerpt:
-                type: string
+            $ref: "#/components/schemas/RecommendationSearchResult"
+
+    RecommendationSearchResult:
+      type: object
+      properties:
+        recommendation:
+          $ref: "#/components/schemas/RecommendationSummary"
+        score:
+          type: number
+        excerpt:
+          type: string
+
+    # --- Care Plans ---
 
     CarePlanSummary:
       type: object
@@ -533,7 +738,8 @@ components:
           enum: [approved, rejected]
         reason:
           type: string
-          description: Required when rejecting
+
+    # --- Health ---
 
     ServiceStatus:
       type: object
@@ -554,7 +760,7 @@ components:
             status:
               type: string
               enum: [healthy, degraded, unavailable]
-            documents_ingested:
+            recommendations_ingested:
               type: integer
 
     Error:
