@@ -31,7 +31,23 @@ The sections beyond the main recommendations contain content critical for both e
 - **Special populations** — Recommendations that modify earlier guidance for specific groups (elderly, pregnant, ethnic subgroups) appear in later sections and reference earlier recommendations.
 - **Patient-facing content** — Shared decision-making scripts, patient information sections, educational materials.
 
-**Key insight:** An extraction system that reads only the first 10-20 pages will miss the most computable content (dosing tables, monitoring schedules) and the most important context for care plan generation (contraindications, special populations).
+**Recommendation detail evolves through the document in a clear pattern:**
+
+1. **Front matter (pages 1-10):** Algorithm flowcharts + recommendation summary table with one-line statements
+2. **Early body (pages 10-30):** Screening, diagnosis, risk assessment with moderate-length discussions
+3. **Mid body (pages 30-70):** Pharmacotherapy recommendations with extensive evidence narratives — clinical decision complexity peaks here. Drug selection requires evaluating ~10 patient factors simultaneously.
+4. **Later body (pages 60-100):** Subpopulation-specific modifier recommendations that layer on top of the general pathway. Later recommendations explicitly reference earlier ones.
+5. **Appendices (pages 80+):** Pharmacotherapy reference tables, abbreviations, methodology, references
+
+**Recommendation interdependence increases toward the end.** Early recommendations are relatively standalone; later ones are patches, overrides, or extensions of earlier ones. An extraction system treating each recommendation as independent will miss these dependency relationships.
+
+**Stopping at the recommendation summary table captures less than 20% of actionable content.** The detailed discussions reveal 5-15 branching factors per recommendation that the one-liner summary does not expose.
+
+**The appendix pharmacotherapy tables are the highest-value extraction target.** Structured drug class comparisons across 8+ clinical dimensions (efficacy, safety, organ-specific effects, weight, contraindications, dosing) are essentially pre-built decision tables waiting for DMN encoding.
+
+**Abbreviation tables define the controlled vocabulary** used throughout the document. Without them, recommendation texts containing acronyms are ambiguous. These should be parsed first.
+
+**Update history/changelog sections are critical metadata** that timestamps each recommendation's evidence review date, distinguishes evidence-reviewed changes from administrative ones, and identifies removed/superseded sections.
 
 ---
 
@@ -200,6 +216,8 @@ When multiple guidelines cover the same condition, they agree on direction but d
 - **Drug class preference:** Varies by population studied and healthcare system context
 
 These are not contradictions — they reflect different patient populations and evidence bases. But when a patient has CKD AND diabetes AND is over 60, which target applies?
+
+**Subpopulation modifiers create layered decision trees.** Later CPG sections contain recommendation sets that modify the general treatment algorithm for specific patient subgroups (CKD, frailty, specific comorbidities). These are not standalone recommendations — they are patches/overrides to the base set. A patient matching multiple subpopulations needs multiple modifier sets applied in combination.
 
 **Implication:** Extracted recommendations must carry source metadata. The extraction system should not reconcile conflicts — that is a clinical decision for acp-writer and the clinician. The vector store should enable retrieval of all relevant recommendations with their respective contexts.
 
