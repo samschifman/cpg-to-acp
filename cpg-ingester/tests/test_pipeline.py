@@ -4,6 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
 from cpg_ingester.output import write_artifact
@@ -28,7 +29,11 @@ def test_pipeline_compiles_with_checkpointer():
     assert compiled is not None
 
 
-def test_pipeline_runs_with_stub_nodes():
+SYNTHETIC_CPG = Path(__file__).parent.parent / "data" / "synthetic-hypertension-cpg.pdf"
+
+
+@pytest.mark.skipif(not SYNTHETIC_CPG.exists(), reason="Synthetic CPG PDF not found")
+def test_pipeline_runs_with_synthetic_cpg():
     graph = build_pipeline()
     checkpointer = MemorySaver()
     compiled = graph.compile(checkpointer=checkpointer)
@@ -37,12 +42,13 @@ def test_pipeline_runs_with_stub_nodes():
         state = {
             "run_id": "test-001",
             "output_dir": tmpdir,
-            "pdf_path": "/tmp/fake.pdf",
+            "pdf_path": str(SYNTHETIC_CPG),
         }
         config = {"configurable": {"thread_id": "test-001"}}
         result = compiled.invoke(state, config=config)
         assert result is not None
         assert result.get("run_id") == "test-001"
+        assert len(result.get("markdown", "")) > 1000
 
 
 def test_write_artifact_json():
