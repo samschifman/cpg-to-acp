@@ -6,19 +6,19 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 1 Complete)
+## Current State (Phase 2 Complete)
 
-The walking skeleton is operational: synthetic CPG → Docling parsing → LLM DMN extraction → dynamic deployment to acp-writer → JIT evaluation via Kogito → FHIR CarePlan output. Runs locally in podman-compose. REST API + MCP tool definitions. 19 integration tests. Shared contracts in `shared/`.
+The system runs on OpenShift with Red Hat AI platform capabilities. The full pipeline (synthetic CPG → Docling → LLM DMN extraction → deploy to acp-writer → JIT Kogito evaluation → FHIR CarePlan) works both locally via podman-compose and on OpenShift via Helm charts. MaaS routes inference to OpenAI GPT-5.6. MLflow tracing is instrumented across both components. MCP servers expose decision and FHIR tools. Agent framework evaluated (LangGraph recommended). Praxis investigated (too early, Phase 5 target).
 
-**What works:** end-to-end pipeline with one synthetic CPG, two patients, deterministic care plans from DMN decision outputs.
+**What works:** end-to-end pipeline on OpenShift with one synthetic CPG, two patients, deterministic care plans, MLflow tracing, MaaS inference routing, MCP tool interfaces, NetworkPolicies for service isolation.
 
-**What doesn't exist yet:** multi-agent orchestration, vector store, recommendation extraction, UIs, OpenShift deployment, real CPGs, BPMN output, automation service, governance.
+**What doesn't exist yet:** multi-agent orchestration, vector store, recommendation extraction, UIs, real CPGs, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance.
 
 ---
 
 ## Phases
 
-### Phase 2 — OpenShift + OpenShell + Platform Foundation
+### Phase 2 — OpenShift + OpenShell + Platform Foundation ✅
 
 **Goal:** Get the system running on OpenShift with OpenShell sandboxing and governed inference.
 
@@ -300,8 +300,8 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 
 | Phase | Technologies Added |
 |---|---|
-| Phase 1 (complete) | Docling, LiteLLM (local), Drools/Kogito |
-| Phase 2 | OpenShift, OpenShell, MaaS, MLflow, MCP |
+| Phase 1 ✅ | Docling, LiteLLM (local), Drools/Kogito |
+| Phase 2 ✅ | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | — (contract definitions only) |
 | Phase 3.1 | LangGraph (cpg-ingester agents), AutoRAG |
 | Phase 3.2 | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
