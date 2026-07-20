@@ -1,12 +1,15 @@
 """CLI entrypoint for the cpg-ingester pipeline."""
 
+import json
 import logging
 import uuid
 from pathlib import Path
 
 import click
 import mlflow
+from langgraph.checkpoint.memory import MemorySaver
 
+from cpg_ingester.output import write_artifact
 from cpg_ingester.pipeline import build_pipeline
 
 try:
@@ -39,21 +42,40 @@ def main(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     graph = build_pipeline()
-    compiled = graph.compile()
+    checkpointer = MemorySaver()
+    compiled = graph.compile(checkpointer=checkpointer)
 
     initial_state = {
         "run_id": run_id,
         "output_dir": str(output_dir),
         "pdf_path": str(input_pdf),
+        "acp_writer_url": acp_writer_url,
+        "litellm_url": litellm_url,
+        "llm_model": model,
+        "llm_api_key": api_key,
     }
+
+    config = {"configurable": {"thread_id": run_id}}
 
     click.echo(f"Starting cpg-ingester pipeline (run: {run_id})")
     click.echo(f"  PDF: {input_pdf}")
     click.echo(f"  Output: {output_dir}")
+    click.echo(f"  LLM: {litellm_url} (model: {model})")
 
-    result = compiled.invoke(initial_state)
+    result = compiled.invoke(initial_state, config=config)
+
+    write_artifact(str(output_dir), "run-summary.json", {
+        "run_id": run_id,
+        "pdf_path": str(input_pdf),
+        "manifest_items": len(result.get("item_manifest", [])),
+        "dmn_results": len(result.get("dmn_results", [])),
+        "recommendations": len(result.get("recommendation_results", [])),
+        "escalated_items": len(result.get("escalated_items", [])),
+        "delivery_status": result.get("delivery_status"),
+    })
 
     click.echo(f"\nPipeline complete (run: {run_id})")
+    click.echo(f"  Artifacts written to: {output_dir}")
 
 
 if __name__ == "__main__":
