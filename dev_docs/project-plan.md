@@ -69,8 +69,6 @@ Phase 3 is split into sub-phases that can advance independently. Phase 3.0 estab
 |---|---|---|
 | **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | This is the TBD contract from AGENTS.md. Design must cover: source CPG reference, section/context, recommendation text, strength/grade metadata, and any structured content (dosing, timing). |
 | **shared** | Define knowledge ingestion API contract — the REST/MCP interface acp-writer exposes for receiving recommendations | Extends the existing 501 stubs (`POST /api/v1/knowledge/documents`, `POST /api/v1/knowledge/search`) |
-| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | OpenShell |
-| **platform** | MCP Gateway for governed tool access | MCP Gateway |
 
 ##### Exit Criteria
 
@@ -138,12 +136,29 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 ---
 
-#### Phase 3 Overall Exit Criteria
+#### Phase 3.3 — Integration, Governance, and End-to-End Testing
 
-All sub-phase exit criteria met, plus:
+**Goal:** Connect cpg-ingester and acp-writer end-to-end, apply governance (OpenShell, MCP Gateway), and validate the complete pipeline.
 
-- End-to-end: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both
-- Minimal UIs allow upload, review, and approval for both ingestion and care plan generation
+Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the independently-developed tracks are integrated and hardened.
+
+| Area | Work | Notes |
+|---|---|---|
+| **integration** | End-to-end test: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both | Verify contract compatibility, data flow, error handling |
+| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer | Contract fidelity check |
+| **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
+| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Deferred from Phase 3.0 — agents must exist before policies can be applied |
+| **platform** | MCP Gateway for governed tool access | Deferred from Phase 3.0 — tools must work before governance is layered on |
+| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases |
+
+##### Exit Criteria
+
+- End-to-end pipeline: cpg-ingester → acp-writer produces CarePlans using both DMN and recommendations
+- Pipeline runs on OpenShift with MLflow traces visible for every step
+- OpenShell agent policies applied and enforced
+- MCP Gateway governing tool access
+- Golden test cases passing
+- All Phase 3.1 and Phase 3.2 exit criteria met
 
 ---
 
