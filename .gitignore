@@ -183,6 +183,7 @@ ui/dist/
 
 # uv
 .uv/
+uv.lock
 
 # Generated JSON Schema (regenerate with `make schema`)
 /build/schema/
