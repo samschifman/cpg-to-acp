@@ -1,4 +1,4 @@
-FROM image-registry.openshift-image-registry.svc:5000/openshift/python:3.12-ubi9
+FROM registry.access.redhat.com/ubi9/python-312:latest
 WORKDIR /app
 COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
