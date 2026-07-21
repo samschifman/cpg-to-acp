@@ -40,9 +40,11 @@ def _build_dependency_graph(
 
     Uses DecisionModelSummary.modifies to determine which models
     depend on others. Returns a list of lists — each inner list
-    is a level that can run in parallel.
+    is a level that can run in parallel. Within each level,
+    preserves the original model order.
     """
     model_ids = {m["id"] for m in models}
+    model_order = {m["id"]: i for i, m in enumerate(models)}
     deps: dict[str, set[str]] = {m["id"]: set() for m in models}
 
     for model in models:
@@ -63,7 +65,8 @@ def _build_dependency_graph(
         if not level:
             logger.warning("Circular dependency detected, breaking cycle with remaining: %s", list(remaining.keys()))
             level = list(remaining.keys())
-        levels.append(sorted(level))
+        level.sort(key=lambda x: model_order.get(x, 0))
+        levels.append(level)
         resolved.update(level)
         for mid in level:
             del remaining[mid]

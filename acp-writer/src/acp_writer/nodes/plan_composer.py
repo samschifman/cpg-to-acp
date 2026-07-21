@@ -79,6 +79,32 @@ def _format_demographics(demographics: dict) -> str:
     return ", ".join(parts) if parts else "Unknown"
 
 
+def _sanitize_conflicts(brief_data: dict) -> None:
+    """Coerce LLM-produced conflicts into valid ConflictEntry format."""
+    raw_conflicts = brief_data.get("conflicts", [])
+    if not raw_conflicts:
+        return
+    cleaned = []
+    for item in raw_conflicts:
+        if isinstance(item, str):
+            cleaned.append({
+                "description": item,
+                "activity_indices": [],
+                "sources": [],
+            })
+        elif isinstance(item, dict):
+            if "activity_indices" not in item or "sources" not in item:
+                cleaned.append({
+                    "description": item.get("description", str(item)),
+                    "activity_indices": item.get("activity_indices", []),
+                    "sources": item.get("sources", item.get("recommendation_ids", [])),
+                    "resolution": item.get("resolution"),
+                })
+            else:
+                cleaned.append(item)
+    brief_data["conflicts"] = cleaned
+
+
 def _parse_brief_from_response(content: str) -> dict[str, Any]:
     """Extract JSON from LLM response, handling markdown code blocks."""
     text = content.strip()
@@ -138,6 +164,7 @@ def plan_composer(state: CarePlanComposerState) -> dict:
 
     try:
         brief_data = _parse_brief_from_response(response.content)
+        _sanitize_conflicts(brief_data)
         brief = PlanningBrief.model_validate(brief_data)
         brief_dict = brief.model_dump(mode="json")
 
