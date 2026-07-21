@@ -12,6 +12,7 @@ import logging
 from langgraph.graph import END, START, StateGraph
 
 from acp_writer.nodes.condition_scanner import condition_scanner
+from acp_writer.nodes.dmn_executor import dmn_executor
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.state import CarePlanComposerState
 
@@ -23,11 +24,6 @@ MAX_FHIR_REVIEWS = 2
 
 # --- Stub nodes ---
 # Each stub logs and passes state through. Real implementations in nodes/.
-
-
-def _dmn_executor(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] dmn_executor")
-    return {}
 
 
 def _recommendation_retriever(state: CarePlanComposerState) -> dict:
@@ -103,7 +99,7 @@ def build_pipeline() -> StateGraph:
     # Phase 1: Clinical Reasoning
     graph.add_node("condition_scanner", condition_scanner)
     graph.add_node("guideline_resolver", guideline_resolver)
-    graph.add_node("dmn_executor", _dmn_executor)
+    graph.add_node("dmn_executor", dmn_executor)
     graph.add_node("recommendation_retriever", _recommendation_retriever)
     graph.add_node("plan_composer", _plan_composer)
     graph.add_node("brief_reviewer", _brief_reviewer)
