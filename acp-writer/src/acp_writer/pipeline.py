@@ -15,9 +15,11 @@ from acp_writer.nodes.brief_reviewer import brief_reviewer
 from acp_writer.nodes.condition_scanner import condition_scanner
 from acp_writer.nodes.dmn_executor import dmn_executor
 from acp_writer.nodes.fhir_bundle_generator import fhir_bundle_generator
+from acp_writer.nodes.fhir_syntax_validator import fhir_syntax_validator
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.plan_composer import plan_composer
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
+from acp_writer.nodes.terminology_validator import terminology_validator
 from acp_writer.state import CarePlanComposerState
 
 logger = logging.getLogger(__name__)
@@ -28,16 +30,6 @@ MAX_FHIR_REVIEWS = 2
 
 # --- Stub nodes ---
 # Each stub logs and passes state through. Real implementations in nodes/.
-
-
-def _terminology_validator(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] terminology_validator")
-    return {"terminology_issues": []}
-
-
-def _fhir_syntax_validator(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] fhir_syntax_validator")
-    return {"syntax_errors": []}
 
 
 def _fhir_semantic_reviewer(state: CarePlanComposerState) -> dict:
@@ -90,8 +82,8 @@ def build_pipeline() -> StateGraph:
 
     # Phase 2: FHIR Generation
     graph.add_node("fhir_bundle_generator", fhir_bundle_generator)
-    graph.add_node("terminology_validator", _terminology_validator)
-    graph.add_node("fhir_syntax_validator", _fhir_syntax_validator)
+    graph.add_node("terminology_validator", terminology_validator)
+    graph.add_node("fhir_syntax_validator", fhir_syntax_validator)
     graph.add_node("fhir_semantic_reviewer", _fhir_semantic_reviewer)
     graph.add_node("fhir_server_writer", _fhir_server_writer)
 
