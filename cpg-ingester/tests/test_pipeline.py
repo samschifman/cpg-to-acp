@@ -47,7 +47,7 @@ def test_pipeline_has_expected_nodes():
     expected = {
         "docling_agent", "structure_analyzer", "content_filter",
         "item_identifier", "classification_reviewer", "metadata_extractor",
-        "dmn_pipeline", "rec_pipeline", "assembly", "delivery",
+        "generate", "assembly", "delivery",
     }
     assert expected.issubset(node_names), f"Missing nodes: {expected - node_names}"
 

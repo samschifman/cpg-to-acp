@@ -1,6 +1,8 @@
 """Assembly Agent — deterministic cross-reference resolution and integrity checks."""
 
+import json
 import logging
+from pathlib import Path
 
 import mlflow
 
@@ -64,22 +66,38 @@ def _check_integrity(recommendations: list[dict], dmn_results: list[dict], cpg_m
     return errors
 
 
+def _collect_from_output_dir(output_dir: str) -> tuple[list[dict], list[dict]]:
+    """Collect DMN and recommendation results from the output directory."""
+    out = Path(output_dir)
+    dmn_results = []
+    for dmn_file in sorted(out.glob("dmn/*.dmn")):
+        dmn_results.append({
+            "dmn_xml": dmn_file.read_text(),
+            "item": {"name": dmn_file.stem},
+        })
+
+    all_recs = []
+    for rec_file in sorted(out.glob("recommendations-*.json")):
+        try:
+            data = json.loads(rec_file.read_text())
+            if isinstance(data, list):
+                all_recs.extend(data)
+            elif isinstance(data, dict) and "recommendations" in data:
+                all_recs.extend(data["recommendations"])
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Failed to parse %s", rec_file)
+
+    return dmn_results, all_recs
+
+
 @mlflow.trace(name="assembly")
 def assembly(state: dict) -> dict:
     """Assemble all validated outputs from DMN and Rec tracks."""
-    dmn_results = state.get("dmn_results", []) or []
-    recommendation_results = state.get("recommendation_results", []) or []
     cpg_metadata = state.get("cpg_metadata", {})
     item_manifest = state.get("item_manifest", [])
     output_dir = state.get("output_dir", "output")
 
-    all_recs = []
-    for batch in recommendation_results:
-        if isinstance(batch, dict):
-            recs = batch.get("recommendations", [])
-            all_recs.extend(recs)
-        elif isinstance(batch, list):
-            all_recs.extend(batch)
+    dmn_results, all_recs = _collect_from_output_dir(output_dir)
 
     cpg_id = cpg_metadata.get("cpg_id", "UNKNOWN")
     for rec in all_recs:
@@ -92,12 +110,6 @@ def assembly(state: dict) -> dict:
     for item in item_manifest:
         if item.get("escalated"):
             escalated.append(item)
-    for dmn in dmn_results:
-        if isinstance(dmn, dict) and dmn.get("escalated"):
-            escalated.append(dmn)
-    for batch in recommendation_results:
-        if isinstance(batch, dict) and batch.get("escalated"):
-            escalated.append(batch)
 
     integrity_errors = _check_integrity(all_recs, dmn_results, cpg_metadata)
     if integrity_errors:

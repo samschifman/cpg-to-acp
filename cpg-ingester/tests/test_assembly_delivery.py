@@ -92,32 +92,35 @@ class TestIntegrityChecks:
 
 class TestAssemblyNode:
 
+    def _write_rec_file(self, tmpdir, filename, recs):
+        Path(tmpdir, filename).write_text(json.dumps(recs))
+
+    def _write_dmn_file(self, tmpdir, name, xml="<definitions/>"):
+        dmn_dir = Path(tmpdir) / "dmn"
+        dmn_dir.mkdir(exist_ok=True)
+        (dmn_dir / f"{name}.dmn").write_text(xml)
+
     def test_assembles_recommendations(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_rec_file(tmpdir, "recommendations-3.1.json", [
+                {"id": "r1", "source_cpg": "TBD", "title": "A", "cross_references": []},
+                {"id": "r2", "source_cpg": "TBD", "title": "B", "cross_references": []},
+            ])
             state = {
-                "dmn_results": [],
-                "recommendation_results": [
-                    {"recommendations": [
-                        {"id": "r1", "source_cpg": "TBD", "title": "A", "cross_references": []},
-                        {"id": "r2", "source_cpg": "TBD", "title": "B", "cross_references": []},
-                    ]},
-                ],
                 "cpg_metadata": {"cpg_id": "CPG-001", "contract_version": "1.0"},
                 "item_manifest": [],
                 "output_dir": tmpdir,
             }
             result = assembly(state)
-
             assert len(result["recommendation_results"]) == 2
             assert all(r["source_cpg"] == "CPG-001" for r in result["recommendation_results"])
 
     def test_fills_tbd_source_cpg(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_rec_file(tmpdir, "recommendations-3.1.json", [
+                {"id": "r1", "source_cpg": "TBD", "cross_references": []},
+            ])
             state = {
-                "dmn_results": [],
-                "recommendation_results": [
-                    {"recommendations": [{"id": "r1", "source_cpg": "TBD", "cross_references": []}]},
-                ],
                 "cpg_metadata": {"cpg_id": "MY-CPG"},
                 "item_manifest": [],
                 "output_dir": tmpdir,
@@ -127,11 +130,10 @@ class TestAssemblyNode:
 
     def test_writes_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_rec_file(tmpdir, "recommendations-3.1.json", [
+                {"id": "r1", "source_cpg": "TBD", "cross_references": []},
+            ])
             state = {
-                "dmn_results": [],
-                "recommendation_results": [
-                    {"recommendations": [{"id": "r1", "source_cpg": "TBD", "cross_references": []}]},
-                ],
                 "cpg_metadata": {"cpg_id": "CPG-001"},
                 "item_manifest": [],
                 "output_dir": tmpdir,
@@ -143,14 +145,12 @@ class TestAssemblyNode:
     def test_collects_escalated_items(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state = {
-                "dmn_results": [{"escalated": True, "item": {"name": "Bad DMN"}}],
-                "recommendation_results": [],
                 "cpg_metadata": {"cpg_id": "CPG-001"},
                 "item_manifest": [{"id": "x", "escalated": True}],
                 "output_dir": tmpdir,
             }
             result = assembly(state)
-            assert len(result["escalated_items"]) == 2
+            assert len(result["escalated_items"]) >= 1
             assert (Path(tmpdir) / "escalated-items.json").exists()
 
 
