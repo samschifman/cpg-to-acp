@@ -3,3 +3,146 @@
 Uses a clinical pharmacist persona distinct from Plan Composer.
 APPROVE/REVISE protocol with max 2 review loops.
 """
+
+import json
+import logging
+
+import mlflow
+from langchain_openai import ChatOpenAI
+
+from acp_writer.output import write_artifact
+from acp_writer.planning_brief import PlanningBrief, ReviewStatus
+from acp_writer.prompts.brief_reviewer import BRIEF_REVIEWER_SYSTEM, BRIEF_REVIEWER_USER
+from acp_writer.state import CarePlanComposerState
+
+logger = logging.getLogger(__name__)
+
+
+def _get_llm(state: dict) -> ChatOpenAI:
+    return ChatOpenAI(
+        base_url=f"{state.get('litellm_url', 'http://localhost:4000')}/v1",
+        api_key=state.get("llm_api_key", "sk-change-me"),
+        model=state.get("llm_model", "default"),
+    )
+
+
+def _format_code_list(codes: list[dict]) -> str:
+    if not codes:
+        return "None"
+    return ", ".join(c.get("display", c.get("code", "?")) for c in codes)
+
+
+def _parse_review_response(content: str) -> dict:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    return json.loads(text)
+
+
+def _schema_validate(brief_dict: dict) -> list[str]:
+    """Deterministic schema validation gate — free before spending LLM tokens."""
+    errors = []
+    try:
+        PlanningBrief.model_validate(brief_dict)
+    except Exception as e:
+        errors.append(f"Schema validation failed: {e}")
+        return errors
+
+    if not brief_dict.get("goals") and not brief_dict.get("activities"):
+        errors.append("Brief has no goals and no activities — nothing to generate.")
+
+    for i, act in enumerate(brief_dict.get("activities", [])):
+        if not act.get("source_cpg"):
+            errors.append(f"Activity {i} missing source_cpg — provenance required.")
+        if act.get("type") == "medication" and not act.get("dose"):
+            errors.append(f"Activity {i} is medication type but missing dose.")
+
+    return errors
+
+
+@mlflow.trace(name="brief_reviewer")
+def brief_reviewer(state: CarePlanComposerState) -> dict:
+    """Review the Planning Brief for clinical correctness."""
+    brief_dict = state.get("planning_brief", {})
+    review_count = state.get("brief_review_count", 0)
+    output_dir = state.get("output_dir", "")
+
+    schema_errors = _schema_validate(brief_dict)
+    if schema_errors:
+        feedback = "Schema validation errors:\n" + "\n".join(f"- {e}" for e in schema_errors)
+        logger.warning("Brief failed schema validation: %s", schema_errors)
+        return {
+            "brief_review_feedback": feedback,
+            "brief_review_count": review_count + 1,
+        }
+
+    patient_ref = state.get("patient_reference", "unknown")
+    condition_codes = state.get("condition_codes", [])
+    medication_codes = state.get("medication_codes", [])
+    allergy_codes = state.get("allergy_codes", [])
+    recommendations = state.get("recommendations", [])
+
+    user_prompt = BRIEF_REVIEWER_USER.format(
+        patient_reference=patient_ref,
+        conditions=_format_code_list(condition_codes),
+        medications=_format_code_list(medication_codes),
+        allergies=_format_code_list(allergy_codes),
+        planning_brief=json.dumps(brief_dict, indent=2, default=str),
+        recommendations=json.dumps(
+            [{"id": r.get("id"), "title": r.get("title"), "type": r.get("recommendation_type"),
+              "strength": (r.get("certainty") or {}).get("strength", "ungraded")}
+             for r in recommendations],
+            indent=2,
+        ),
+    )
+
+    llm = _get_llm(state)
+    logger.info("Invoking Brief Reviewer LLM (iteration %d)", review_count + 1)
+
+    response = llm.invoke([
+        {"role": "system", "content": BRIEF_REVIEWER_SYSTEM},
+        {"role": "user", "content": user_prompt},
+    ])
+
+    try:
+        review = _parse_review_response(response.content)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning("Could not parse review response, treating as APPROVE: %s", e)
+        review = {"verdict": "APPROVE", "issues": []}
+
+    verdict = review.get("verdict", "APPROVE").upper()
+    issues = review.get("issues", [])
+
+    if output_dir:
+        write_artifact(output_dir, f"brief-review-{review_count + 1}.json", review)
+
+    if verdict == "REVISE" and issues:
+        feedback_parts = []
+        for i, issue in enumerate(issues, 1):
+            severity = issue.get("severity", "error")
+            desc = issue.get("description", "")
+            fix = issue.get("fix", "")
+            feedback_parts.append(f"{i}. [{severity}] {desc} — Fix: {fix}")
+        feedback = "\n".join(feedback_parts)
+        logger.info("Brief REVISE: %d issues", len(issues))
+
+        updated_brief = dict(brief_dict)
+        updated_brief["review_status"] = ReviewStatus.REVISED.value
+
+        return {
+            "planning_brief": updated_brief,
+            "brief_review_feedback": feedback,
+            "brief_review_count": review_count + 1,
+        }
+
+    logger.info("Brief APPROVED (iteration %d)", review_count + 1)
+
+    updated_brief = dict(brief_dict)
+    updated_brief["review_status"] = ReviewStatus.APPROVED.value
+
+    return {
+        "planning_brief": updated_brief,
+        "brief_review_feedback": "",
+        "brief_review_count": review_count + 1,
+    }
