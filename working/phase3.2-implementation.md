@@ -572,6 +572,7 @@ Key parallelism opportunities:
 | ~~Abbreviation expansion in cpg-ingester~~ | ✅ Done. Rec Extractor prompt expanded to require ALL occurrences expanded in `content`. | Complete |
 | PatientSummary allergies field | Contract type lacks allergies — non-blocking but needed if MCP tools expose allergy queries. | Backlog |
 | Provenance CPG lineage improvement | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display. | Backlog |
+| Improve conflict resolution in care plans | Current conflict handling is placeholder detection only — LLM flags potential conflicts but they are not resolved. Needs: interactive clinician resolution UI, structured conflict types (same target/contradictory/overlapping), resolution tracking in Provenance, support for multi-CPG conflicts. | Phase 3.3+ |
 
 ### Implementation notes
 
