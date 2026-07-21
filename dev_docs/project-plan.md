@@ -6,13 +6,15 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 3.1 Complete)
+## Current State (Phase 3.2 Nearly Complete)
 
-cpg-ingester is now a multi-agent pipeline (LangGraph) with adversarial review. The pipeline extracts both DMN decision tables and structured recommendations from CPG PDFs, with deterministic syntax validation and LLM-based semantic review at every extraction stage. A minimal web UI supports upload, analysis review, and artifact browsing. All nodes traced in MLflow.
+Both cpg-ingester and acp-writer are multi-agent LangGraph pipelines with adversarial review. Phase 3.2 Steps 0–17 are complete; Step 18 (minimal UI) remains.
 
-**What works:** Full cpg-ingester pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). End-to-end verified with synthetic CPG via live LLM (154 API calls, 13 DMN decisions, 8 recommendation batches). Recommendation contracts defined. Mock receiver for testing without acp-writer.
+**What works:**
+- **cpg-ingester:** Full pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). Minimal web UI for upload and artifact browsing.
+- **acp-writer:** Full 11-node pipeline (Condition Scanner → Guideline Resolver → DMN Executor → Recommendation Retriever → Plan Composer → Brief Reviewer → FHIR Bundle Generator → Terminology Validator → FHIR Syntax Validator → FHIR Semantic Reviewer → FHIR Server Writer). Vector store with pluggable embedding model. Guidelines CRUD + recommendation ingestion endpoints. AI Transparency IG compliance (AIAST/CLINAST_AIRPT). Care plan approval workflow. 205 unit tests + 3 E2E tests.
 
-**What doesn't exist yet:** acp-writer multi-agent composition, vector store, real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
+**What doesn't exist yet:** acp-writer minimal UI (Step 18), real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
 
 ---
 
@@ -111,46 +113,47 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 ---
 
-#### Phase 3.2 — acp-writer Multi-Agent Composition
+#### Phase 3.2 — acp-writer Multi-Agent Composition (Steps 0–17 complete, Step 18 in progress)
 
 **Goal:** Replace the hardcoded care plan composition with a multi-agent system that uses DMN decisions, retrieved recommendations, and FHIR expertise to produce clinically complete care plans.
 
-Can proceed independently after Phase 3.0 contracts are defined. Does not depend on cpg-ingester's multi-agent pipeline — acp-writer can be developed and tested using hand-crafted recommendation data that conforms to the shared contract.
+**Design:** `dev_docs/acp-writer-design.md` | **Plan:** `working/phase3.2-implementation.md`
 
-| Work | Notes |
+| Work | Status |
 |---|---|
-| **Spike:** Vector store selection | Evaluate PostgreSQL+pgvector vs Milvus vs ChromaDB. See `dev_docs/acp-writer-design.md` § Vector Store Spike |
-| Implement guidelines CRUD endpoints | `POST/GET/LIST/DELETE /api/v1/guidelines` — cpg-ingester sends CPGMetadata first |
-| Implement knowledge ingestion endpoints — recommendations per shared contract | Replace 501 stubs: single ingest, batch ingest, list, get, search |
-| Establish vector store for recommendations | Embed recommendation content on ingest, semantic search with type/strength/cpg filtering |
-| Define Planning Brief as formal Pydantic schema | Contract between LLM reasoning (Phase 1) and deterministic FHIR generation (Phase 2). Carries workflow context for future BPMN. See design doc. |
-| Build LangGraph pipeline: Condition Scanner → Guideline Resolver → DMN Executor → Recommendation Retriever → Plan Composer | Phase 1 clinical reasoning. Lazy IPS extraction (condition codes first, targeted data on-demand). |
-| Build adversarial Brief Reviewer | Validates Planning Brief schema + clinical coherence (max 2 loops) |
-| Build terminology lookup tool | Multi-system API verification: SNOMED, RxNorm, LOINC, ICD-10. Reusable by Plan Composer and Terminology Validator. |
-| Build deterministic FHIR Bundle Generator | Produces CarePlan + Goal + activity resources + AI Device + AI Provenance from Planning Brief. No LLM. |
-| Build FHIR validation pipeline: Terminology Validator → Syntax Validator → Semantic Reviewer | Deterministic code checks + adversarial LLM review (max 2 loops) |
-| Implement AI Transparency on FHIR IG compliance | AIAST `meta.security` on all resources, AI-Device, AI-Provenance with full lineage. See design doc. |
-| Implement care plan approval workflow | Approve/reject with AIAST → CLINAST_AIRPT tag transition |
-| Write CarePlan bundle to HAPI FHIR server | POST transaction bundle, validate response |
-| Complete MCP server tools | Add 6 missing tools: register_guideline, ingest_recommendation, ingest_recommendation_batch, search_recommendations, get_careplan, approve_careplan |
-| Accept patient data as IPS | Condition Scanner handles IPS or raw Bundle |
-| Add conflict detection placeholder | Detect overlapping/contradictory recommendations. Full resolution deferred to Phase 3.3+. |
-| **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input needed for Plan Composer |
-| Minimal UI: review and approve a generated care plan | Submit patient data → review CarePlan → approve/reject |
+| **Spike:** Vector store selection (pgvector) | ✅ |
+| Project scaffolding + dependencies | ✅ |
+| Guidelines CRUD + recommendation ingestion + vector store | ✅ |
+| Planning Brief Pydantic schema | ✅ |
+| State schema + LangGraph pipeline skeleton (11 nodes) | ✅ |
+| Condition Scanner (deterministic FHIR traversal) | ✅ |
+| Guideline Resolver (condition → CPG scope matching) | ✅ |
+| Terminology lookup tool (SNOMED/RxNorm/LOINC/ICD-10) | ✅ |
+| IPS targeted extraction tool | ✅ |
+| DMN Executor (topological order, targeted extraction) | ✅ |
+| Recommendation Retriever (vector search) | ✅ |
+| Plan Composer (LLM → PlanningBrief) | ✅ |
+| Brief Reviewer (adversarial, clinical pharmacist) | ✅ |
+| FHIR Bundle Generator (deterministic, AI Transparency IG) | ✅ |
+| Terminology + FHIR Syntax Validators | ✅ |
+| FHIR Semantic Reviewer (adversarial LLM) | ✅ |
+| FHIR Server Writer + approval workflow (AIAST → CLINAST_AIRPT) | ✅ |
+| E2E integration tests + legacy removal + README | ✅ |
+| Minimal UI: review and approve a generated care plan | **Step 18 — next** |
 
 ##### Exit Criteria
 
-- acp-writer produces CarePlans with recommendation-backed narrative activities
-- Vector store operational with recommendation retrieval
-- Knowledge ingestion and guidelines CRUD endpoints functional
-- Care plan composition uses both DMN decisions and retrieved recommendations
-- Planning Brief validated by adversarial reviewer before FHIR generation
-- FHIR output passes terminology, syntax, and semantic validation
-- AI Transparency on FHIR IG compliant (AIAST tags, AI-Device, AI-Provenance)
-- Care plans written to HAPI FHIR server
-- Approval workflow changes AIAST → CLINAST_AIRPT
-- Minimal review/approval UI functional
-- All agents traced in MLflow
+- [x] acp-writer produces CarePlans with recommendation-backed narrative activities
+- [x] Vector store operational with recommendation retrieval
+- [x] Knowledge ingestion and guidelines CRUD endpoints functional
+- [x] Care plan composition uses both DMN decisions and retrieved recommendations
+- [x] Planning Brief validated by adversarial reviewer before FHIR generation
+- [x] FHIR output passes terminology, syntax, and semantic validation
+- [x] AI Transparency on FHIR IG compliant (AIAST tags, AI-Device, AI-Provenance)
+- [x] Care plans written to HAPI FHIR server
+- [x] Approval workflow changes AIAST → CLINAST_AIRPT
+- [ ] Minimal review/approval UI functional (Step 18)
+- [x] All agents traced in MLflow
 
 ---
 
@@ -325,7 +328,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
-| Phase 3.2 | In progress | Vector store, LangGraph (acp-writer agents) |
+| Phase 3.2 | Nearly complete (Step 18 remains) | pgvector, LangGraph (acp-writer agents), AI Transparency IG |
 | Phase 3.3 | Not started | MCP Gateway, pod-per-security-profile (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
 | Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
