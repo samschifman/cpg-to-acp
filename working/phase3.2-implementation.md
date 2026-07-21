@@ -569,7 +569,7 @@ Key parallelism opportunities:
 | Pod-per-security-profile split | Single pod in Phase 3.2. Split in Phase 3.3 with OpenShell policies. | Phase 3.3 |
 | SqliteSaver for persistent checkpointing | MemorySaver for dev. SqliteSaver when UI needs process-restart survival. | Phase 3.3 |
 | Research: effective FHIR CarePlan goals | Clinical + FHIR standard input needed for Plan Composer prompt refinement. | During Step 11 |
-| Abbreviation expansion in cpg-ingester | Refine Rec Extractor prompt to always expand abbreviations on first use. Do before Phase 3.3. | Between 3.2 and 3.3 |
+| ~~Abbreviation expansion in cpg-ingester~~ | ✅ Done. Rec Extractor prompt expanded to require ALL occurrences expanded in `content`. | Complete |
 | PatientSummary allergies field | Contract type lacks allergies — non-blocking but needed if MCP tools expose allergy queries. | Backlog |
 
 ### Implementation notes
