@@ -221,19 +221,39 @@ async def generate_careplan(request: Request):
     )
 
 
-@app.get("/api/v1/careplans", status_code=501)
-def list_careplans():
-    raise HTTPException(status_code=501, detail="Care plan persistence not implemented")
+@app.get("/api/v1/careplans")
+def list_careplans(patient: str | None = None, status: str | None = None):
+    from acp_writer.nodes.fhir_server_writer import list_care_plans
+    return list_care_plans(patient=patient, status=status)
 
 
-@app.get("/api/v1/careplans/{careplan_id}", status_code=501)
+@app.get("/api/v1/careplans/{careplan_id}")
 def get_careplan(careplan_id: str):
-    raise HTTPException(status_code=501, detail="Care plan persistence not implemented")
+    from acp_writer.nodes.fhir_server_writer import get_care_plan
+    cp = get_care_plan(careplan_id)
+    if not cp:
+        raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+    return cp
 
 
-@app.put("/api/v1/careplans/{careplan_id}/status", status_code=501)
-def update_careplan_status(careplan_id: str):
-    raise HTTPException(status_code=501, detail="Care plan approval workflow not implemented")
+@app.put("/api/v1/careplans/{careplan_id}/status")
+async def update_careplan_status(careplan_id: str, request: Request):
+    from acp_writer.nodes.fhir_server_writer import approve_care_plan, reject_care_plan
+    data = await request.json()
+    new_status = data.get("status")
+    if new_status == "active":
+        result = approve_care_plan(careplan_id, clinician=data.get("clinician"))
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+        return result
+    elif new_status == "revoked":
+        reason = data.get("reason", "No reason provided")
+        result = reject_care_plan(careplan_id, reason=reason)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+        return result
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}. Use 'active' or 'revoked'.")
 
 
 # --- Decision Models ---

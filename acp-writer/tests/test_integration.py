@@ -201,18 +201,19 @@ class TestCarePlanGeneration:
         assert "blood pressure" in r.json()["detail"].lower()
 
 
-class TestCarePlanStubs:
-    def test_list_careplans_not_implemented(self):
+class TestCarePlanEndpoints:
+    def test_list_careplans_empty(self):
         r = client.get("/api/v1/careplans")
-        assert r.status_code == 501
+        assert r.status_code == 200
+        assert r.json() == []
 
-    def test_get_careplan_not_implemented(self):
-        r = client.get("/api/v1/careplans/some-id")
-        assert r.status_code == 501
+    def test_get_careplan_not_found(self):
+        r = client.get("/api/v1/careplans/nonexistent")
+        assert r.status_code == 404
 
-    def test_update_status_not_implemented(self):
-        r = client.put("/api/v1/careplans/some-id/status", json={"status": "approved"})
-        assert r.status_code == 501
+    def test_update_status_not_found(self):
+        r = client.put("/api/v1/careplans/nonexistent/status", json={"status": "active"})
+        assert r.status_code == 404
 
 
 class TestKnowledge:

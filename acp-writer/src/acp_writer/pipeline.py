@@ -16,6 +16,7 @@ from acp_writer.nodes.condition_scanner import condition_scanner
 from acp_writer.nodes.dmn_executor import dmn_executor
 from acp_writer.nodes.fhir_bundle_generator import fhir_bundle_generator
 from acp_writer.nodes.fhir_semantic_reviewer import fhir_semantic_reviewer
+from acp_writer.nodes.fhir_server_writer import fhir_server_writer
 from acp_writer.nodes.fhir_syntax_validator import fhir_syntax_validator
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.plan_composer import plan_composer
@@ -32,10 +33,6 @@ MAX_FHIR_REVIEWS = 2
 # --- Stub nodes ---
 # Each stub logs and passes state through. Real implementations in nodes/.
 
-
-def _fhir_server_writer(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] fhir_server_writer")
-    return {"delivery_status": "skipped"}
 
 
 # --- Routing ---
@@ -81,7 +78,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("terminology_validator", terminology_validator)
     graph.add_node("fhir_syntax_validator", fhir_syntax_validator)
     graph.add_node("fhir_semantic_reviewer", fhir_semantic_reviewer)
-    graph.add_node("fhir_server_writer", _fhir_server_writer)
+    graph.add_node("fhir_server_writer", fhir_server_writer)
 
     # Phase 1 edges (sequential with brief review loop)
     graph.add_edge(START, "condition_scanner")
