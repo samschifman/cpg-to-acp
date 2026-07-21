@@ -152,9 +152,9 @@ def build_fhir_bundle(
 
     for i, activity in enumerate(brief.activities):
         uid = _uuid()
-        activity_uid_map[i] = uid
 
         if activity.type == ActivityType.MEDICATION:
+            activity_uid_map[i] = uid
             resource: dict[str, Any] = {
                 "resourceType": "MedicationRequest",
                 "id": uid,
@@ -175,6 +175,7 @@ def build_fhir_bundle(
             activity_refs.append({"reference": {"reference": _urn(uid)}})
 
         elif activity.type in (ActivityType.MONITORING, ActivityType.REFERRAL):
+            activity_uid_map[i] = uid
             resource = {
                 "resourceType": "ServiceRequest",
                 "id": uid,
@@ -286,14 +287,23 @@ def build_fhir_bundle(
         if not activity.source_recommendation_id:
             continue
         uid = activity_uid_map.get(i)
-        target_ref = _urn(uid) if uid else _urn(careplan_uid)
+        if uid:
+            prov_target: dict[str, Any] = {"reference": _urn(uid)}
+        else:
+            prov_target = {
+                "reference": _urn(careplan_uid),
+                "extension": [{
+                    "url": f"{AI_TRANSPARENCY_PROFILE}/targetPath",
+                    "valueString": f"CarePlan.activity[{i}].performedActivity",
+                }],
+            }
 
         act_prov_uid = _uuid()
         act_provenance: dict[str, Any] = {
             "resourceType": "Provenance",
             "id": act_prov_uid,
             "meta": _meta(),
-            "target": [{"reference": target_ref}],
+            "target": [prov_target],
             "recorded": now,
             "agent": [{
                 "type": {

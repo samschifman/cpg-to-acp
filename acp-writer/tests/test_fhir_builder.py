@@ -243,6 +243,33 @@ class TestAITransparency:
             assert len(entities) >= 1
             assert entities[0]["role"] == "source"
 
+    def test_inline_activity_provenance_uses_target_path(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        provs = _get_resources(bundle, "Provenance")
+        activity_provs = [p for p in provs if "AI-Provenance" not in str(p.get("meta", {}).get("profile", []))]
+        inline_provs = [
+            p for p in activity_provs
+            if any("targetPath" in str(ext.get("url", "")) for t in p.get("target", []) for ext in t.get("extension", []))
+        ]
+        assert len(inline_provs) == 1
+        target = inline_provs[0]["target"][0]
+        ext = target["extension"][0]
+        assert "targetPath" in ext["url"]
+        assert "CarePlan.activity[" in ext["valueString"]
+        assert ".performedActivity" in ext["valueString"]
+
+    def test_standalone_activity_provenance_no_target_path(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        provs = _get_resources(bundle, "Provenance")
+        activity_provs = [p for p in provs if "AI-Provenance" not in str(p.get("meta", {}).get("profile", []))]
+        standalone_provs = [
+            p for p in activity_provs
+            if not any(t.get("extension") for t in p.get("target", []))
+        ]
+        assert len(standalone_provs) == 2
+        for prov in standalone_provs:
+            assert prov["target"][0]["reference"].startswith("urn:uuid:")
+
     def test_provenance_has_cpg_source(self):
         bundle = build_fhir_bundle(_hypertension_brief())
         provs = _get_resources(bundle, "Provenance")
