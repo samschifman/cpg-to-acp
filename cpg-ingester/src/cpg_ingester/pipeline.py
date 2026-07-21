@@ -160,8 +160,8 @@ def _build_rec_subgraph() -> StateGraph:
 def _generate_all(state: CPGIngesterState) -> dict:
     """Run DMN and Rec subgraphs for each manifest item.
 
-    Results are written to the output directory by each subgraph node.
-    The assembly node reads them from disk.
+    Results are written to the output directory by each subgraph node
+    AND returned in state for distributed mode (assembly can use either).
     """
     manifest = state.get("item_manifest", [])
     if not manifest:
@@ -179,18 +179,26 @@ def _generate_all(state: CPGIngesterState) -> dict:
     dmn_graph = _build_dmn_subgraph().compile()
     rec_graph = _build_rec_subgraph().compile()
 
+    dmn_results = []
     decisions = [i for i in manifest if i.get("type") == "decision"]
     for item in decisions:
         logger.info("Generating DMN for: %s", item.get("name", "?"))
         try:
-            dmn_graph.invoke({
+            result = dmn_graph.invoke({
                 "item": item,
                 "source_pages": item.get("source_pages", ""),
                 **shared,
             })
+            if result.get("dmn_xml") and not result.get("escalated"):
+                dmn_results.append({
+                    "dmn_xml": result["dmn_xml"],
+                    "item": item,
+                    "decision_model_summary": result.get("decision_model_summary", {}),
+                })
         except Exception as e:
             logger.error("DMN generation failed for '%s': %s", item.get("name"), e)
 
+    all_recs = []
     seen_sections = set()
     recommendations = [i for i in manifest if i.get("type") == "recommendation"]
     for item in recommendations:
@@ -201,16 +209,22 @@ def _generate_all(state: CPGIngesterState) -> dict:
         section_items = [i for i in recommendations if i.get("section") == section]
         logger.info("Extracting recommendations for section: %s (%d items)", section, len(section_items))
         try:
-            rec_graph.invoke({
+            result = rec_graph.invoke({
                 "items": section_items,
                 "source_pages": item.get("source_pages", ""),
                 "grading_definitions": state.get("grading_definitions", ""),
                 **shared,
             })
+            recs = result.get("recommendations", [])
+            if recs and not result.get("escalated"):
+                all_recs.extend(recs)
         except Exception as e:
             logger.error("Rec extraction failed for section '%s': %s", section, e)
 
-    return {}
+    return {
+        "dmn_results": dmn_results,
+        "recommendation_results": all_recs,
+    }
 
 
 # --- Main pipeline ---
