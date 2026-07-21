@@ -3,7 +3,7 @@ image:
   namespace: sschifma-cpg-to-acp
 
 pods:
-  patientData:
+  patient-data:
     enabled: true
     image: acp-writer-patient-data
     tag: phase3
@@ -16,7 +16,7 @@ pods:
         cpu: 200m
         memory: 256Mi
 
-  llmReasoning:
+  llm-reasoning:
     enabled: true
     image: acp-writer-llm
     tag: phase3
@@ -32,7 +32,7 @@ pods:
         cpu: 500m
         memory: 512Mi
 
-  decisionEngine:
+  decision-engine:
     enabled: true
     image: acp-writer-decision
     tag: phase3
@@ -47,7 +47,7 @@ pods:
         cpu: 200m
         memory: 256Mi
 
-  fhirGeneration:
+  fhir-generation:
     enabled: true
     image: acp-writer-fhir-gen
     tag: phase3
@@ -60,7 +60,7 @@ pods:
         cpu: 500m
         memory: 512Mi
 
-  fhirServer:
+  fhir-server:
     enabled: true
     image: acp-writer-fhir-srv
     tag: phase3

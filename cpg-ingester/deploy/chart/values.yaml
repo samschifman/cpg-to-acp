@@ -16,7 +16,7 @@ pods:
         cpu: "1"
         memory: 1Gi
 
-  llmAnalysis:
+  llm-analysis:
     enabled: true
     image: cpg-ingester-llm
     tag: phase3

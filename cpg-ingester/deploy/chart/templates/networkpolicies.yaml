@@ -28,7 +28,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      security-profile: llmAnalysis
+      security-profile: llm-analysis
   policyTypes:
     - Egress
   egress:

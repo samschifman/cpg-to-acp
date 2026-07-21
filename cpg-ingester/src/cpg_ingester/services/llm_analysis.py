@@ -16,11 +16,12 @@ from cpg_ingester.nodes.item_identifier import item_identifier
 from cpg_ingester.nodes.classification_reviewer import classification_reviewer
 from cpg_ingester.nodes.metadata_extractor import metadata_extractor
 from cpg_ingester.nodes.structure_analyzer import structure_analyzer
-from cpg_ingester.pipeline import _generate_all, MAX_CLASSIFICATION_REVIEWS
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="cpg-ingester-llm-analysis", version="0.1.0")
+
+MAX_CLASSIFICATION_REVIEWS = 2
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
 LLM_MODEL = os.environ.get("LLM_MODEL", "default")
@@ -34,7 +35,7 @@ def health():
 
 @app.post("/api/v1/analyze")
 async def analyze(request: Request):
-    """Run the full LLM analysis phase: structure → filter → identify → review → metadata → generate."""
+    """Run the full LLM analysis phase: structure -> filter -> identify -> review -> metadata -> generate."""
     data = await request.json()
 
     with tempfile.TemporaryDirectory() as output_dir:
@@ -68,6 +69,7 @@ async def analyze(request: Request):
         updates = metadata_extractor(state)
         state.update(updates)
 
+        from cpg_ingester.pipeline import _generate_all
         updates = _generate_all(state)
         state.update(updates)
 
