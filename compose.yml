@@ -74,3 +74,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  cpg-ingester:
+    build:
+      context: .
+      dockerfile: cpg-ingester/deploy/Dockerfile
+    depends_on:
+      acp-writer:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      - ACP_WRITER_URL=http://acp-writer:8082
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    profiles:
+      - ingester
