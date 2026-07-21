@@ -11,6 +11,7 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 
+from acp_writer.nodes.condition_scanner import condition_scanner
 from acp_writer.state import CarePlanComposerState
 
 logger = logging.getLogger(__name__)
@@ -21,11 +22,6 @@ MAX_FHIR_REVIEWS = 2
 
 # --- Stub nodes ---
 # Each stub logs and passes state through. Real implementations in nodes/.
-
-
-def _condition_scanner(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] condition_scanner")
-    return {}
 
 
 def _guideline_resolver(state: CarePlanComposerState) -> dict:
@@ -109,7 +105,7 @@ def build_pipeline() -> StateGraph:
     graph = StateGraph(CarePlanComposerState)
 
     # Phase 1: Clinical Reasoning
-    graph.add_node("condition_scanner", _condition_scanner)
+    graph.add_node("condition_scanner", condition_scanner)
     graph.add_node("guideline_resolver", _guideline_resolver)
     graph.add_node("dmn_executor", _dmn_executor)
     graph.add_node("recommendation_retriever", _recommendation_retriever)
