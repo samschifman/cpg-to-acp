@@ -471,7 +471,7 @@ Syntax validation and assembly are deterministic (zero LLM tokens).
 
 Phase 3.1 deploys cpg-ingester as a **single pod** running the entire LangGraph pipeline in-process. All agents share one process and one OpenShell sandbox policy. This is the simplest deployment model and sufficient for initial development.
 
-A future phase (Phase 4) should split cpg-ingester into **pod-per-security-profile**, where agents are grouped by their access requirements:
+Phase 3.3 (Integration and Governance) splits cpg-ingester into **pod-per-security-profile**, where agents are grouped by their access requirements:
 
 | Pod Group | Agents | OpenShell Policy |
 |---|---|---|

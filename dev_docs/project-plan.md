@@ -155,7 +155,9 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **integration** | End-to-end test: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both | Verify contract compatibility, data flow, error handling |
 | **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer | Contract fidelity check |
 | **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
-| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Deferred from Phase 3.0 — agents must exist before policies can be applied |
+| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
+| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
+| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Requires pod split — policies are per-pod, not per-function within a pod |
 | **platform** | MCP Gateway for governed tool access | Deferred from Phase 3.0 — tools must work before governance is layered on |
 | **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases |
 
@@ -163,7 +165,8 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 
 - End-to-end pipeline: cpg-ingester → acp-writer produces CarePlans using both DMN and recommendations
 - Pipeline runs on OpenShift with MLflow traces visible for every step
-- OpenShell agent policies applied and enforced
+- Both cpg-ingester and acp-writer split into pod-per-security-profile
+- OpenShell agent policies applied and enforced per pod
 - MCP Gateway governing tool access
 - Golden test cases passing
 - All Phase 3.1 and Phase 3.2 exit criteria met
@@ -186,7 +189,6 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **automation** | Implement automation service that accepts BPMN from acp-writer | Receives BPMN over API |
 | **shared** | Define the BPMN contract in shared/ | — |
 | **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer |
-| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
 
 #### Exit Criteria
 

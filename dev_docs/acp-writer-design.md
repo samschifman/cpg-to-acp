@@ -406,7 +406,7 @@ Every care plan bundle includes:
 
 ## Deployment Model
 
-Phase 3.2 deploys acp-writer as a **single pod** running the entire LangGraph pipeline in-process. Per the pod deployment strategy (see `dev_docs/cpg-ingester-design.md` § Deployment Model), Phase 4 splits into pod-per-security-profile:
+Phase 3.2 deploys acp-writer as a **single pod** running the entire LangGraph pipeline in-process. Phase 3.3 (Integration and Governance) splits into pod-per-security-profile alongside OpenShell policy enforcement:
 
 | Pod Group | Components | OpenShell Policy |
 |---|---|---|
@@ -451,7 +451,7 @@ Phase 3.2 deploys acp-writer as a **single pod** running the entire LangGraph pi
 | MemorySaver for dev | Resume-on-failure for long-running pipelines |
 | Max 2 retry iterations | Same cap on review loops |
 | Explicit escalation | Unresolvable items flagged, never silently accepted |
-| Single pod now, multi-pod in Phase 4 | Pod-per-security-profile deferred |
+| Single pod now, multi-pod in Phase 3.3 | Pod-per-security-profile with OpenShell policies |
 
 ## Lessons Applied from Reference Skills
 
