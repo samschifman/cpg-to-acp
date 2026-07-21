@@ -1,0 +1,154 @@
+# Patient Data pod: no external network (patient data only, no LLM, no FHIR server)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-patient-data-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: patientData
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+# LLM Reasoning pod: LLM inference (HTTPS 443) only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-llm-reasoning-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: llmReasoning
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+
+# Decision Engine pod: Kogito runtime only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-decision-engine-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: decisionEngine
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: decision-service
+      ports:
+        - port: 8081
+          protocol: TCP
+
+# FHIR Generation pod: terminology APIs (HTTPS 443) only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-fhir-generation-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: fhirGeneration
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+
+# FHIR Server pod: HAPI FHIR server only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-fhir-server-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: fhirServer
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hapi-fhir
+      ports:
+        - port: 8080
+          protocol: TCP
+
+# UI pod: ingress open, egress to cluster services
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ui-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: ui
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {}
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP

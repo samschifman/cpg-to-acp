@@ -1,0 +1,212 @@
+apiVersion: sonataflow.org/v1alpha08
+kind: SonataFlow
+metadata:
+  name: acpwriter
+  annotations:
+    sonataflow.org/profile: dev
+    sonataflow.org/description: "ACP Writer pipeline orchestration"
+    sonataflow.org/version: "0.1.0"
+spec:
+  podTemplate:
+    container:
+      env:
+        - name: PATIENT_DATA_URL
+          value: "http://acp-writer-patient-data:8080"
+        - name: LLM_REASONING_URL
+          value: "http://acp-writer-llm:8080"
+        - name: DECISION_ENGINE_URL
+          value: "http://acp-writer-decision:8080"
+        - name: FHIR_GENERATION_URL
+          value: "http://acp-writer-fhir-gen:8080"
+        - name: FHIR_SERVER_URL
+          value: "http://acp-writer-fhir-srv:8080"
+  flow:
+    specVersion: "0.8"
+    start: ScanPatient
+    functions:
+      - name: scanpatient
+        type: custom
+        operation: rest:post:${PATIENT_DATA_URL}/api/v1/scan
+      - name: resolveguidelines
+        type: custom
+        operation: rest:post:${LLM_REASONING_URL}/api/v1/resolve
+      - name: executedmn
+        type: custom
+        operation: rest:post:${DECISION_ENGINE_URL}/api/v1/execute
+      - name: retrieverecommendations
+        type: custom
+        operation: rest:post:${LLM_REASONING_URL}/api/v1/retrieve
+      - name: composeplan
+        type: custom
+        operation: rest:post:${LLM_REASONING_URL}/api/v1/compose
+      - name: generatebundle
+        type: custom
+        operation: rest:post:${FHIR_GENERATION_URL}/api/v1/generate-bundle
+      - name: reviewfhir
+        type: custom
+        operation: rest:post:${LLM_REASONING_URL}/api/v1/review-fhir
+      - name: writefhir
+        type: custom
+        operation: rest:post:${FHIR_SERVER_URL}/api/v1/write
+    states:
+      - name: ScanPatient
+        type: operation
+        actions:
+          - name: callScan
+            functionRef:
+              refName: scanpatient
+              arguments:
+                ips_bundle: "${ .ips_bundle }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .patientData }"
+        transition: ResolveGuidelines
+
+      - name: ResolveGuidelines
+        type: operation
+        actions:
+          - name: callResolve
+            functionRef:
+              refName: resolveguidelines
+              arguments:
+                condition_codes: "${ .patientData.condition_codes }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .guidelineData }"
+        transition: ExecuteDMN
+
+      - name: ExecuteDMN
+        type: operation
+        actions:
+          - name: callExecute
+            functionRef:
+              refName: executedmn
+              arguments:
+                ips_bundle: "${ .ips_bundle }"
+                applicable_dmn_models: "${ .guidelineData.applicable_dmn_models }"
+                dmn_dependency_graph: "${ .guidelineData.dmn_dependency_graph }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .dmnData }"
+        transition: RetrieveRecommendations
+
+      - name: RetrieveRecommendations
+        type: operation
+        actions:
+          - name: callRetrieve
+            functionRef:
+              refName: retrieverecommendations
+              arguments:
+                condition_codes: "${ .patientData.condition_codes }"
+                dmn_results: "${ .dmnData.dmn_results }"
+                applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .recData }"
+        transition: ComposePlan
+
+      - name: ComposePlan
+        type: operation
+        actions:
+          - name: callCompose
+            functionRef:
+              refName: composeplan
+              arguments:
+                patient_reference: "${ .patientData.patient_reference }"
+                patient_demographics: "${ .patientData.patient_demographics }"
+                condition_codes: "${ .patientData.condition_codes }"
+                medication_codes: "${ .patientData.medication_codes }"
+                allergy_codes: "${ .patientData.allergy_codes }"
+                dmn_results: "${ .dmnData.dmn_results }"
+                recommendations: "${ .recData.recommendations }"
+                applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .composerData }"
+        transition: InitFHIRReview
+
+      - name: InitFHIRReview
+        type: inject
+        data:
+          fhirReviewCount: 0
+          maxFHIRReviews: 4
+          fhirReviewFeedback: ""
+        transition: GenerateBundle
+
+      - name: GenerateBundle
+        type: operation
+        actions:
+          - name: callGenerate
+            functionRef:
+              refName: generatebundle
+              arguments:
+                planning_brief: "${ .composerData.planning_brief }"
+                patient_demographics: "${ .patientData.patient_demographics }"
+                fhir_review_feedback: "${ .fhirReviewFeedback }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .fhirGenData }"
+        transition: ReviewFHIR
+
+      - name: ReviewFHIR
+        type: operation
+        actions:
+          - name: callReview
+            functionRef:
+              refName: reviewfhir
+              arguments:
+                fhir_bundle: "${ .fhirGenData.fhir_bundle }"
+                terminology_issues: "${ .fhirGenData.terminology_issues }"
+                syntax_errors: "${ .fhirGenData.syntax_errors }"
+                fhir_review_count: "${ .fhirReviewCount }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .fhirReviewData }"
+        transition: IncrementFHIRReview
+
+      - name: IncrementFHIRReview
+        type: inject
+        data: {}
+        stateDataFilter:
+          output: "${ . + {fhirReviewCount: (.fhirReviewCount + 1), fhirReviewFeedback: .fhirReviewData.fhir_review_feedback} }"
+        transition: CheckFHIRVerdict
+
+      - name: CheckFHIRVerdict
+        type: switch
+        dataConditions:
+          - name: Approved
+            condition: '${ (.fhirReviewData.fhir_review_feedback == "") or (.fhirReviewData.fhir_review_feedback == null) }'
+            transition: WriteFHIR
+          - name: MaxReached
+            condition: "${ .fhirReviewCount >= .maxFHIRReviews }"
+            transition: WriteFHIR
+        defaultCondition:
+          transition: GenerateBundle
+
+      - name: WriteFHIR
+        type: operation
+        actions:
+          - name: callWrite
+            functionRef:
+              refName: writefhir
+              arguments:
+                fhir_bundle: "${ .fhirGenData.fhir_bundle }"
+                patient_reference: "${ .patientData.patient_reference }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ . }"
+              toStateData: "${ .writeResult }"
+        transition: Done
+
+      - name: Done
+        type: inject
+        data:
+          status: "completed"
+        end: true

@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY shared/ /app/shared/
+RUN pip install --no-cache-dir /app/shared/
+COPY acp-writer/pyproject.toml .
+COPY acp-writer/src/ src/
+RUN pip install --no-cache-dir .
+RUN chmod -R g=u /app
+USER 1001
+EXPOSE 8080
+CMD ["uvicorn", "acp_writer.services.llm_reasoning:app", "--host", "0.0.0.0", "--port", "8080"]
