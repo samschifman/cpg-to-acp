@@ -146,10 +146,88 @@ d = json.load(open('$TMPDIR/search_results.json'))
 assert len(d.get('results', [])) > 0, f'no results returned'
 "
 
+# --- Verify: Hybrid search with filters ---
+echo ""
+echo "7. Verify hybrid search with filters"
+
+# Filter by recommendation type
+curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "blood pressure treatment", "recommendation_type": "treatment", "top_k": 5}' \
+    -o "$TMPDIR/search_type.json"
+check "Type filter: treatment returns results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_type.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no treatment results'
+for r in results:
+    assert r['recommendation']['recommendation_type'] == 'treatment', f'got {r[\"recommendation\"][\"recommendation_type\"]}'
+"
+
+# Filter by strength
+curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "hypertension management", "strength_in": ["strong-for"], "top_k": 10}' \
+    -o "$TMPDIR/search_strength.json"
+check "Strength filter: strong-for returns results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_strength.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no strong-for results'
+"
+
+# Filter by CPG
+curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "medication", "source_cpg": "SYN-HTN-2026-001", "top_k": 5}' \
+    -o "$TMPDIR/search_cpg.json"
+check "CPG filter: SYN-HTN-2026-001 returns results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_cpg.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no results for CPG filter'
+for r in results:
+    assert r['recommendation']['source_cpg'] == 'SYN-HTN-2026-001', f'wrong cpg: {r[\"recommendation\"][\"source_cpg\"]}'
+"
+
+# Non-existent CPG returns empty
+curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "anything", "source_cpg": "NONEXISTENT-CPG", "top_k": 5}' \
+    -o "$TMPDIR/search_empty_cpg.json"
+check "CPG filter: non-existent CPG returns empty" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_empty_cpg.json'))
+assert len(d.get('results', [])) == 0, 'should be empty for non-existent CPG'
+"
+
+# Lifestyle type filter
+curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "diet exercise lifestyle", "recommendation_type": "lifestyle", "top_k": 5}' \
+    -o "$TMPDIR/search_lifestyle.json"
+check "Type filter: lifestyle returns results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_lifestyle.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no lifestyle results'
+for r in results:
+    assert r['recommendation']['recommendation_type'] == 'lifestyle', f'got {r[\"recommendation\"][\"recommendation_type\"]}'
+"
+
+# Search results have excerpts
+check "Search results include excerpts" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_cpg.json'))
+results = d.get('results', [])
+has_excerpt = any(r.get('excerpt') for r in results)
+assert has_excerpt, 'no excerpts in search results'
+"
+
 # --- Care Plan Generation (requires LLM) ---
 if [ -n "${LITELLM_URL:-}" ]; then
     echo ""
-    echo "7. Generate Care Plan (LLM required — may take 1-2 minutes)"
+    echo "8. Generate Care Plan (LLM required — may take 1-2 minutes)"
     curl -sf -X POST "$ACP_WRITER_URL/api/v1/careplans" \
         -H "Content-Type: application/fhir+json" \
         --data-binary "@$PATIENT_BUNDLE" \
@@ -179,7 +257,7 @@ assert 'CarePlan' in types, f'resource types: {types}'
     fi
 else
     echo ""
-    echo "7. Skipping care plan generation (set LITELLM_URL to enable)"
+    echo "8. Skipping care plan generation (set LITELLM_URL to enable)"
 fi
 
 # --- Summary ---
