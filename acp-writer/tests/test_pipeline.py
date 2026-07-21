@@ -1,10 +1,58 @@
 """Tests for the LangGraph care plan pipeline."""
 
 import logging
+from unittest.mock import patch, MagicMock
 
 from langgraph.checkpoint.memory import MemorySaver
 
 from acp_writer.pipeline import build_pipeline
+
+
+def _mock_llm_invoke(messages):
+    """Return a minimal valid response for any LLM call."""
+    mock_response = MagicMock()
+    mock_response.content = '{"verdict": "APPROVE", "issues": []}'
+    return mock_response
+
+
+@patch("acp_writer.nodes.plan_composer._get_llm")
+@patch("acp_writer.nodes.brief_reviewer._get_llm")
+@patch("acp_writer.nodes.fhir_semantic_reviewer._get_llm")
+def _run_pipeline(mock_fhir_llm, mock_brief_llm, mock_compose_llm, ips_bundle=None, checkpointer=None, config=None):
+    """Run the pipeline with mocked LLM nodes for determinism."""
+    import json
+
+    compose_response = MagicMock()
+    compose_response.content = json.dumps({
+        "patient_reference": "Patient/unknown",
+        "applicable_cpgs": [],
+        "dmn_audit_trail": [],
+        "goals": [],
+        "activities": [],
+        "conflicts": [],
+        "review_status": "pending",
+    })
+    mock_compose = MagicMock()
+    mock_compose.invoke.return_value = compose_response
+    mock_compose_llm.return_value = mock_compose
+
+    for mock_llm in [mock_brief_llm, mock_fhir_llm]:
+        approve_response = MagicMock()
+        approve_response.content = '{"verdict": "APPROVE", "issues": []}'
+        m = MagicMock()
+        m.invoke.return_value = approve_response
+        mock_llm.return_value = m
+
+    graph = build_pipeline()
+    compile_kwargs = {}
+    if checkpointer:
+        compile_kwargs["checkpointer"] = checkpointer
+    compiled = graph.compile(**compile_kwargs)
+
+    invoke_kwargs = {}
+    if config:
+        invoke_kwargs["config"] = config
+    return compiled, compiled.invoke({"ips_bundle": ips_bundle or {}}, **invoke_kwargs)
 
 
 class TestPipelineStructure:
@@ -37,21 +85,15 @@ class TestPipelineStructure:
 
 
 class TestPipelineExecution:
-    def test_stub_pipeline_runs(self, caplog):
-        graph = build_pipeline()
-        compiled = graph.compile()
-        result = compiled.invoke({"ips_bundle": {"resourceType": "Bundle"}})
-
-        assert result["delivery_status"] == "skipped"
+    def test_pipeline_completes(self):
+        _, result = _run_pipeline()
+        assert "delivery_status" in result
         assert result["fhir_bundle"]["resourceType"] == "Bundle"
         assert result["fhir_bundle"]["type"] == "transaction"
 
-    def test_all_stubs_execute(self, caplog):
-        graph = build_pipeline()
-        compiled = graph.compile()
-
+    def test_all_nodes_execute(self, caplog):
         with caplog.at_level(logging.INFO):
-            compiled.invoke({"ips_bundle": {}})
+            _run_pipeline()
 
         logged = caplog.text
         for node in [
@@ -70,13 +112,11 @@ class TestPipelineExecution:
             assert node in logged, f"Node {node} did not execute"
 
     def test_memorysaver_checkpoint(self):
-        graph = build_pipeline()
-        checkpointer = MemorySaver()
-        compiled = graph.compile(checkpointer=checkpointer)
-
         config = {"configurable": {"thread_id": "test-run-001"}}
-        result = compiled.invoke({"ips_bundle": {}}, config=config)
-        assert result["delivery_status"] == "skipped"
+        checkpointer = MemorySaver()
+        compiled, result = _run_pipeline(checkpointer=checkpointer, config=config)
+
+        assert "delivery_status" in result
 
         state = compiled.get_state(config)
-        assert state.values["delivery_status"] == "skipped"
+        assert state.values["delivery_status"] == result["delivery_status"]

@@ -136,6 +136,8 @@ class TestGuidelineResolver:
 
     def test_pipeline_integration(self):
         """Full pipeline with Condition Scanner + Guideline Resolver."""
+        from unittest.mock import MagicMock, patch
+
         metadata = _load_sample_metadata()
         api_module._guidelines_store.register(metadata)
         _deploy_dmn("treatment-recommendation.dmn")
@@ -143,10 +145,20 @@ class TestGuidelineResolver:
 
         bundle = json.loads((DATA_DIR / "patient-bundle-medication.json").read_text())
 
-        from acp_writer.pipeline import build_pipeline
-        graph = build_pipeline()
-        compiled = graph.compile()
-        result = compiled.invoke({"ips_bundle": bundle})
+        with patch("acp_writer.nodes.plan_composer._get_llm") as mock_compose, \
+             patch("acp_writer.nodes.brief_reviewer._get_llm") as mock_brief, \
+             patch("acp_writer.nodes.fhir_semantic_reviewer._get_llm") as mock_fhir:
+            for mock_llm in [mock_compose, mock_brief, mock_fhir]:
+                resp = MagicMock()
+                resp.content = '{"patient_reference":"Patient/patient-1","applicable_cpgs":[],"goals":[],"activities":[],"conflicts":[],"review_status":"pending"}'
+                m = MagicMock()
+                m.invoke.return_value = resp
+                mock_llm.return_value = m
 
-        assert len(result["applicable_cpgs"]) == 1
-        assert len(result["applicable_dmn_models"]) == 2
+            from acp_writer.pipeline import build_pipeline
+            graph = build_pipeline()
+            compiled = graph.compile()
+            result = compiled.invoke({"ips_bundle": bundle})
+
+            assert len(result["applicable_cpgs"]) == 1
+            assert len(result["applicable_dmn_models"]) == 2

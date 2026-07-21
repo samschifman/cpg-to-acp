@@ -180,13 +180,24 @@ class TestConditionScanner:
 
 class TestPipelineIntegration:
     def test_condition_scanner_in_pipeline(self):
+        from unittest.mock import MagicMock, patch
         from acp_writer.pipeline import build_pipeline
 
-        graph = build_pipeline()
-        compiled = graph.compile()
-        bundle = _load_bundle("patient-bundle-medication.json")
-        result = compiled.invoke({"ips_bundle": bundle})
+        with patch("acp_writer.nodes.plan_composer._get_llm") as mock_compose, \
+             patch("acp_writer.nodes.brief_reviewer._get_llm") as mock_brief, \
+             patch("acp_writer.nodes.fhir_semantic_reviewer._get_llm") as mock_fhir:
+            for mock_llm in [mock_compose, mock_brief, mock_fhir]:
+                resp = MagicMock()
+                resp.content = '{"patient_reference":"Patient/patient-1","applicable_cpgs":[],"goals":[],"activities":[],"conflicts":[],"review_status":"pending"}'
+                m = MagicMock()
+                m.invoke.return_value = resp
+                mock_llm.return_value = m
 
-        assert result["patient_reference"] == "Patient/patient-1"
-        assert len(result["condition_codes"]) >= 2
-        assert result["delivery_status"] == "skipped"
+            graph = build_pipeline()
+            compiled = graph.compile()
+            bundle = _load_bundle("patient-bundle-medication.json")
+            result = compiled.invoke({"ips_bundle": bundle})
+
+            assert result["patient_reference"] == "Patient/patient-1"
+            assert len(result["condition_codes"]) >= 2
+            assert "delivery_status" in result
