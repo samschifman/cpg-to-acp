@@ -1,6 +1,6 @@
-FROM python:3.12-slim
+FROM image-registry.openshift-image-registry.svc:5000/openshift/python:3.12-ubi9
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+RUN dnf install -y gcc gcc-c++ make && dnf clean all
 COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
 COPY cpg-ingester/pyproject.toml .
