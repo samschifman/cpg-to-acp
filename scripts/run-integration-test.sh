@@ -224,10 +224,81 @@ has_excerpt = any(r.get('excerpt') for r in results)
 assert has_excerpt, 'no excerpts in search results'
 "
 
+# --- Multi-CPG: Deliver second CPG (diabetes) ---
+DIABETES_FIXTURES="$ROOT_DIR/tests/integration/fixtures/diabetes-cpg.json"
+if [ -f "$DIABETES_FIXTURES" ]; then
+    echo ""
+    echo "8. Deliver second CPG (diabetes — overlapping scope)"
+
+    python3 -c "
+import json
+data = json.load(open('$DIABETES_FIXTURES'))
+json.dump(data['metadata'], open('$TMPDIR/dm2_metadata.json', 'w'))
+json.dump(data['recommendation_bundle'], open('$TMPDIR/dm2_rec_bundle.json', 'w'))
+"
+
+    curl -sf -X POST "$ACP_WRITER_URL/api/v1/guidelines" \
+        -H "Content-Type: application/json" \
+        -d @"$TMPDIR/dm2_metadata.json" \
+        -o "$TMPDIR/dm2_metadata_response.json"
+    check "POST diabetes CPG metadata succeeded" test -s "$TMPDIR/dm2_metadata_response.json"
+
+    curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/recommendations/batch" \
+        -H "Content-Type: application/json" \
+        -d @"$TMPDIR/dm2_rec_bundle.json" \
+        -o "$TMPDIR/dm2_rec_response.json"
+    check "POST diabetes recommendations succeeded" test -s "$TMPDIR/dm2_rec_response.json"
+
+    echo ""
+    echo "9. Verify multi-CPG search"
+
+    # Both CPGs should return results for overlapping query
+    curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "ACE inhibitor blood pressure hypertension diabetes", "top_k": 10}' \
+        -o "$TMPDIR/search_multi.json"
+    check "Multi-CPG search returns results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_multi.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no results'
+"
+
+    check "Results from both CPGs" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_multi.json'))
+cpgs = set(r['recommendation']['source_cpg'] for r in d.get('results', []))
+assert 'SYN-HTN-2026-001' in cpgs, f'missing HTN CPG, got: {cpgs}'
+assert 'SYN-DM2-2026-001' in cpgs, f'missing DM2 CPG, got: {cpgs}'
+"
+
+    # CPG-specific filter still isolates
+    curl -sf -X POST "$ACP_WRITER_URL/api/v1/knowledge/search" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "medication treatment", "source_cpg": "SYN-DM2-2026-001", "top_k": 5}' \
+        -o "$TMPDIR/search_dm2_only.json"
+    check "DM2-only filter returns only DM2 results" python3 -c "
+import json
+d = json.load(open('$TMPDIR/search_dm2_only.json'))
+results = d.get('results', [])
+assert len(results) > 0, 'no results'
+for r in results:
+    assert r['recommendation']['source_cpg'] == 'SYN-DM2-2026-001', f'wrong cpg: {r[\"recommendation\"][\"source_cpg\"]}'
+"
+
+    # Two guidelines registered
+    curl -sf "$ACP_WRITER_URL/api/v1/guidelines" -o "$TMPDIR/guidelines_multi.json"
+    check "Two guidelines registered" python3 -c "
+import json
+d = json.load(open('$TMPDIR/guidelines_multi.json'))
+assert len(d) >= 2, f'expected >= 2 guidelines, got {len(d)}'
+"
+fi
+
 # --- Care Plan Generation (requires LLM) ---
 if [ -n "${LITELLM_URL:-}" ]; then
     echo ""
-    echo "8. Generate Care Plan (LLM required — may take 1-2 minutes)"
+    echo "10. Generate Care Plan (LLM required — may take 1-2 minutes)"
     curl -sf -X POST "$ACP_WRITER_URL/api/v1/careplans" \
         -H "Content-Type: application/fhir+json" \
         --data-binary "@$PATIENT_BUNDLE" \
@@ -257,7 +328,7 @@ assert 'CarePlan' in types, f'resource types: {types}'
     fi
 else
     echo ""
-    echo "8. Skipping care plan generation (set LITELLM_URL to enable)"
+    echo "10. Skipping care plan generation (set LITELLM_URL to enable)"
 fi
 
 # --- Summary ---
