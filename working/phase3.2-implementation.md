@@ -573,6 +573,8 @@ Key parallelism opportunities:
 | PatientSummary allergies field | Contract type lacks allergies — non-blocking but needed if MCP tools expose allergy queries. | Backlog |
 | Provenance CPG lineage improvement | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display. | Backlog |
 | Improve conflict resolution in care plans | Current conflict handling is placeholder detection only — LLM flags potential conflicts but they are not resolved. Needs: interactive clinician resolution UI, structured conflict types (same target/contradictory/overlapping), resolution tracking in Provenance, support for multi-CPG conflicts. | Phase 3.3+ |
+| FHIR transaction bundle patient reference | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but we need to handle the case where it doesn't — either include the Patient in the transaction or use conditional references. | Backlog |
+| Approval workflow should POST to FHIR server | Currently care plans are stored in-memory and approval only updates local state. The care plan should be POSTed to FHIR in "draft" status on creation, then on approval the status should be updated to "active" on the FHIR server; on rejection it should be updated to "entered-in-error". The AIAST → CLINAST_AIRPT transition should also be reflected on the server. | Backlog |
 
 ### Implementation notes
 

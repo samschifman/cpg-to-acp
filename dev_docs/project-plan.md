@@ -363,6 +363,8 @@ Work that can be picked up at any time, independent of the current phase. These 
 | Abbreviation expansion in Rec Extractor | ✅ Complete | cpg-ingester | Rec Extractor prompt now expands ALL occurrences of abbreviations in `content` as "Full Name (ABBREVIATION)". No bare abbreviations — content is self-contained for vector search. |
 | Provenance CPG lineage improvement | Not started | acp-writer | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display in the care plan bundle. |
 | Improve conflict resolution in care plans | Not started | acp-writer | Current conflict handling is placeholder detection only. Needs interactive clinician resolution UI, structured conflict types (same target, contradictory, overlapping), resolution tracking in Provenance, multi-CPG conflict support. See design doc § Conflict Resolution. |
+| FHIR transaction bundle patient reference | Not started | acp-writer | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but need to handle the case where it doesn't — either include Patient in the transaction or use conditional references. |
+| Approval workflow should POST/update on FHIR server | Not started | acp-writer | Care plan should be POSTed to FHIR in "draft" status on creation. Approval updates status to "active" on the FHIR server; rejection updates to "entered-in-error". AIAST → CLINAST_AIRPT transition should be reflected on the server, not just in-memory. |
 
 ---
 
