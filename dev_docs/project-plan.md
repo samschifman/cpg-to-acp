@@ -6,9 +6,9 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 3.2 Nearly Complete)
+## Current State (Phase 3.3 In Progress)
 
-Both cpg-ingester and acp-writer are multi-agent LangGraph pipelines with adversarial review. Phase 3.2 Steps 0–17 are complete; Step 18 (minimal UI) remains.
+Both cpg-ingester and acp-writer are multi-agent LangGraph pipelines with adversarial review. Phase 3.2 is complete (all 19 steps including minimal UI). Phase 3.3 (integration, governance, and end-to-end testing) is in progress.
 
 **What works:**
 - **cpg-ingester:** Full pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). Minimal web UI for upload and artifact browsing.
@@ -113,7 +113,7 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 ---
 
-#### Phase 3.2 — acp-writer Multi-Agent Composition (Steps 0–17 complete, Step 18 in progress)
+#### Phase 3.2 — acp-writer Multi-Agent Composition (complete)
 
 **Goal:** Replace the hardcoded care plan composition with a multi-agent system that uses DMN decisions, retrieved recommendations, and FHIR expertise to produce clinically complete care plans.
 
@@ -139,7 +139,7 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 | FHIR Semantic Reviewer (adversarial LLM) | ✅ |
 | FHIR Server Writer + approval workflow (AIAST → CLINAST_AIRPT) | ✅ |
 | E2E integration tests + legacy removal + README | ✅ |
-| Minimal UI: review and approve a generated care plan | **Step 18 — next** |
+| Minimal UI: review and approve a generated care plan | ✅ |
 
 ##### Exit Criteria
 
@@ -152,7 +152,7 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 - [x] AI Transparency on FHIR IG compliant (AIAST tags, AI-Device, AI-Provenance)
 - [x] Care plans written to HAPI FHIR server
 - [x] Approval workflow changes AIAST → CLINAST_AIRPT
-- [ ] Minimal review/approval UI functional (Step 18)
+- [x] Minimal review/approval UI functional
 - [x] All agents traced in MLflow
 
 ---
@@ -163,14 +163,15 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the independently-developed tracks are integrated and hardened.
 
-##### Pre-work (fixes to Phase 3.2 code before starting 3.3)
+##### Pre-work (fixes and improvements before integration)
 
 | Area | Work | Notes |
 |---|---|---|
-| **acp-writer** | Fix reject status: "revoked" → "entered-in-error" | FHIR CarePlan status code correction across server writer, API, tests, UI |
+| **acp-writer** | FHIR bundle & server workflow | Combined: fix reject status ("revoked" → "entered-in-error"), add Patient to transaction bundle with conditional create, implement full server-side lifecycle (draft on creation, active on approve, entered-in-error on reject). |
 | **acp-writer** | Fix Provenance targetPath for inline activities | Use AI Transparency on FHIR IG `targetPath` extension to target specific fields within a resource, instead of referencing non-existent standalone resources. Eliminates unresolved reference warnings. |
-| **acp-writer** | Improve reviewer iterations and prompts | Max iterations 2 → 4. Reviewer should APPROVE when good enough (stop nitpicking). Strengthen Plan Composer prompt to get it right first attempt. Reviewer must return a clear signal that stops the loop. |
-| **acp-writer** | Parallelize Phase 2 validators | Terminology Validator and FHIR Syntax Validator run in parallel (both deterministic, independent). Consider running FHIR Semantic Reviewer in parallel with them as well. |
+| **acp-writer** | Improve reviewer iterations and prompts | Max iterations 2 → 4. Reviewer should APPROVE when good enough (stop nitpicking). Strengthen Plan Composer prompt to get it right first attempt. |
+| **acp-writer** | Parallelize Phase 2 validators | Terminology Validator ∥ FHIR Syntax Validator (both deterministic, independent; fan-in before FHIR Semantic Reviewer). Note: DMN Executor → Recommendation Retriever must remain sequential (Retriever uses DMN outputs to enrich vector search). |
+| **acp-writer** | SqliteSaver for persistent checkpointing | Replace MemorySaver so pipeline state survives restarts and historical runs are visible in UI. |
 
 ##### Phase 3.3 work items
 
@@ -182,16 +183,13 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **integration** | Validate recommendation indexing and retrieval | Recommendations produced by cpg-ingester are correctly embedded, indexed, and retrieved by acp-writer's vector store |
 | **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
 | **integration** | Add a second CPG for multi-CPG testing | Prepare or find a second CPG with overlapping scope. Pipeline should handle multiple CPGs producing a single care plan with duplicates and conflicts present (conflict resolution is deferred — just let them through). |
-| **acp-writer** | Fix FHIR transaction bundle patient references | Handle case where Patient doesn't exist on FHIR server. Normally patient exists (IPS originated from there), but need a fallback — either include Patient in the transaction or use conditional references. |
-| **acp-writer** | FHIR server approval workflow | POST care plan as "draft" on creation. On approve: update to "active" on FHIR server, AIAST → CLINAST_AIRPT. On reject: update to "entered-in-error". |
-| **acp-writer** | SqliteSaver for persistent checkpointing | Replace MemorySaver so pipeline state survives restarts and historical runs are visible in UI |
 | **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
 | **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
 | **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Requires pod split — policies are per-pod, not per-function within a pod |
 | **platform** | MCP Gateway integration | Based on spike findings. Demonstrate governed tool access as a Red Hat AI capability. |
 | **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases. Include both single-CPG and multi-CPG scenarios. |
 
-\* Pod split requires an orchestration engine (spike above) to coordinate work across pods. Each pod group registers as a service; the orchestrator drives the pipeline. UIs run in their own pods. The in-process LangGraph pipeline remains as the within-pod execution model for pod groups with multiple nodes; pod groups with a single node (e.g., DMN Executor) should be plain REST services. The orchestrator handles the between-pod coordination.
+\* Pod split requires an orchestration engine (spike above) to coordinate work across pods. Each pod group registers as a service; the orchestrator drives the pipeline. UIs run in their own pods (separate from agent backends, enables independent evolution). The in-process LangGraph pipeline remains as the within-pod execution model for pod groups with multiple nodes; pod groups with a single node (e.g., DMN Executor) should be plain REST services. The orchestrator handles the between-pod coordination. Total: 5 cpg-ingester pods + 6 acp-writer pods = 11 pod groups.
 
 ##### Conflict resolution — deferred
 
@@ -207,7 +205,8 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 - OpenShell agent policies applied and enforced per pod
 - MCP Gateway demonstrating governed tool access
 - FHIR server integration working (draft → active / entered-in-error)
-- Phase 2 validators running in parallel
+- Pipeline parallelism: Terminology Validator ∥ FHIR Syntax Validator
+- Inference routed through MaaS on OpenShift
 - Golden test cases passing
 - All Phase 3.1 and Phase 3.2 exit criteria met
 
@@ -355,8 +354,8 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
-| Phase 3.2 | Nearly complete (Step 18 remains) | pgvector, LangGraph (acp-writer agents), AI Transparency IG |
-| Phase 3.3 | Not started | MCP Gateway, pod-per-security-profile (integration and governance) |
+| Phase 3.2 | Complete | pgvector, LangGraph (acp-writer agents), AI Transparency IG |
+| Phase 3.3 | In progress | MCP Gateway, SonataFlow, pod-per-security-profile (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
 | Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
 | Phase 6 | Not started | Keycloak, SPIFFE/SPIRE |
@@ -388,8 +387,8 @@ Work that can be picked up at any time, independent of the current phase. These 
 | Abbreviation expansion in Rec Extractor | ✅ Complete | cpg-ingester | Rec Extractor prompt now expands ALL occurrences of abbreviations in `content` as "Full Name (ABBREVIATION)". No bare abbreviations — content is self-contained for vector search. |
 | Provenance CPG lineage improvement | Not started | acp-writer | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display in the care plan bundle. |
 | Improve conflict resolution in care plans | Not started | acp-writer | Current conflict handling is placeholder detection only. Needs interactive clinician resolution UI, structured conflict types (same target, contradictory, overlapping), resolution tracking in Provenance, multi-CPG conflict support. See design doc § Conflict Resolution. |
-| FHIR transaction bundle patient reference | Not started | acp-writer | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but need to handle the case where it doesn't — either include Patient in the transaction or use conditional references. |
-| Approval workflow should POST/update on FHIR server | Not started | acp-writer | Care plan should be POSTed to FHIR in "draft" status on creation. Approval updates status to "active" on the FHIR server; rejection updates to "entered-in-error". AIAST → CLINAST_AIRPT transition should be reflected on the server, not just in-memory. |
+| FHIR transaction bundle patient reference | Phase 3.3 | acp-writer | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but need to handle the case where it doesn't — either include Patient in the transaction or use conditional references. |
+| Approval workflow should POST/update on FHIR server | Phase 3.3 | acp-writer | Care plan should be POSTed to FHIR in "draft" status on creation. Approval updates status to "active" on the FHIR server; rejection updates to "entered-in-error". AIAST → CLINAST_AIRPT transition should be reflected on the server, not just in-memory. |
 
 ---
 

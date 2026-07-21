@@ -63,13 +63,53 @@ def _codeable_concept(code_dict: dict | None, text: str | None = None) -> dict:
     return {"text": "Unknown"}
 
 
-def build_fhir_bundle(brief: PlanningBrief) -> dict:
+def build_fhir_bundle(
+    brief: PlanningBrief,
+    patient_demographics: dict[str, Any] | None = None,
+) -> dict:
     """Build a complete FHIR R4 transaction Bundle from a PlanningBrief."""
     entries: list[dict] = []
     now = datetime.now(timezone.utc).isoformat()
 
-    patient_ref = brief.patient_reference
     bundle_id = _uuid()
+
+    patient_uid = _uuid()
+    patient_urn = _urn(patient_uid)
+    patient_resource: dict[str, Any] = {
+        "resourceType": "Patient",
+        "id": patient_uid,
+        "meta": _meta(),
+    }
+    if_none_exist = None
+    if patient_demographics:
+        identifiers = patient_demographics.get("identifiers", [])
+        if identifiers:
+            patient_resource["identifier"] = [
+                {"system": ident["system"], "value": ident["value"]}
+                for ident in identifiers
+            ]
+            first = identifiers[0]
+            if_none_exist = f"identifier={first['system']}|{first['value']}"
+        if patient_demographics.get("name"):
+            patient_resource["name"] = [{"text": patient_demographics["name"]}]
+        if patient_demographics.get("gender"):
+            patient_resource["gender"] = patient_demographics["gender"]
+        if patient_demographics.get("birth_date"):
+            patient_resource["birthDate"] = patient_demographics["birth_date"]
+
+    patient_entry: dict[str, Any] = {
+        "fullUrl": patient_urn,
+        "resource": patient_resource,
+        "request": {
+            "method": "POST",
+            "url": "Patient",
+        },
+    }
+    if if_none_exist:
+        patient_entry["request"]["ifNoneExist"] = if_none_exist
+    entries.append(patient_entry)
+
+    patient_ref = patient_urn
 
     goal_uids: list[str] = []
     activity_refs: list[dict] = []

@@ -115,9 +115,55 @@ class TestCarePlan:
         cp = _get_resources(bundle, "CarePlan")[0]
         assert cp["status"] == "draft"
         assert cp["intent"] == "proposal"
-        assert cp["subject"]["reference"] == "Patient/patient-1"
+        assert cp["subject"]["reference"].startswith("urn:uuid:")
         assert len(cp["goal"]) == 1
         assert len(cp["activity"]) == 3
+
+
+class TestPatientResource:
+    def test_patient_included_in_bundle(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        patients = _get_resources(bundle, "Patient")
+        assert len(patients) == 1
+
+    def test_patient_is_first_entry(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        first = bundle["entry"][0]["resource"]
+        assert first["resourceType"] == "Patient"
+
+    def test_patient_conditional_create_with_demographics(self):
+        demographics = {
+            "id": "patient-1",
+            "reference": "Patient/patient-1",
+            "name": "John Doe",
+            "gender": "male",
+            "birth_date": "1970-01-01",
+            "identifiers": [
+                {"system": "http://hospital.example/mrn", "value": "MRN-12345"},
+            ],
+        }
+        bundle = build_fhir_bundle(_hypertension_brief(), patient_demographics=demographics)
+        patient_entry = bundle["entry"][0]
+        patient = patient_entry["resource"]
+        assert patient["resourceType"] == "Patient"
+        assert patient["identifier"][0]["value"] == "MRN-12345"
+        assert patient["gender"] == "male"
+        assert patient["birthDate"] == "1970-01-01"
+        assert patient_entry["request"]["ifNoneExist"] == "identifier=http://hospital.example/mrn|MRN-12345"
+
+    def test_patient_without_demographics(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        patient_entry = bundle["entry"][0]
+        assert "ifNoneExist" not in patient_entry["request"]
+
+    def test_all_subject_refs_use_patient_urn(self):
+        bundle = build_fhir_bundle(_hypertension_brief())
+        patient_urn = bundle["entry"][0]["fullUrl"]
+        for entry in bundle["entry"]:
+            resource = entry["resource"]
+            subject = resource.get("subject", {})
+            if subject:
+                assert subject["reference"] == patient_urn
 
 
 class TestGoals:

@@ -226,14 +226,14 @@ async def update_careplan_status(careplan_id: str, request: Request):
         if not result:
             raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
         return result
-    elif new_status == "revoked":
+    elif new_status == "entered-in-error":
         reason = data.get("reason", "No reason provided")
         result = reject_care_plan(careplan_id, reason=reason)
         if not result:
             raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
         return result
     else:
-        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}. Use 'active' or 'revoked'.")
+        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}. Use 'active' or 'entered-in-error'.")
 
 
 # --- Decision Models ---
