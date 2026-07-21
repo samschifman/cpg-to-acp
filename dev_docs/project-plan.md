@@ -14,10 +14,6 @@ cpg-ingester is now a multi-agent pipeline (LangGraph) with adversarial review. 
 
 **What doesn't exist yet:** acp-writer multi-agent composition, vector store, real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
 
-**What works:** end-to-end pipeline on OpenShift, recommendation contracts defined, all component boundaries closed, test fixtures for independent development.
-
-**What doesn't exist yet:** multi-agent orchestration, vector store, recommendation extraction, UIs, real CPGs, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance.
-
 ---
 
 ## Phases
@@ -329,8 +325,8 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
-| Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
-| Phase 3.3 | Not started | — (integration and governance) |
+| Phase 3.2 | Not started | Vector store, LangGraph (acp-writer agents) |
+| Phase 3.3 | Not started | MCP Gateway, pod-per-security-profile (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
 | Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
 | Phase 6 | Not started | Keycloak, SPIFFE/SPIRE |
@@ -358,6 +354,7 @@ Work that can be picked up at any time, independent of the current phase. These 
 | Enhance tracing in MLflow | all      | Make sure that the use of MLflow is optimized and that traces are useful. |
 | FEEL expression validator | cpg-ingester | Replace regex-based FEEL checks with a proper validator. Best option: expose a validation endpoint from the Kogito runtime (already running in acp-writer, Apache 2.0). No mature license-compatible Python FEEL parser exists. |
 | Upgrade DMN to 1.5 | cpg-ingester | Currently targeting DMN 1.4 (latest supported by Drools/Kogito at conformance level 3). DMN 1.5 (Aug 2024) adds useful FEEL functions (`context put`, `now()`, `today()`). Upgrade when Drools/Kogito formally supports 1.5. Watch [Drools releases](https://github.com/apache/incubator-kie-drools/releases). |
+| Abbreviation expansion in Rec Extractor | cpg-ingester | Before Phase 3.3: refine Rec Extractor prompt to always expand abbreviations on first use in recommendation `content`. Ensures acp-writer's vector store gets self-contained text for semantic search. |
 
 ---
 

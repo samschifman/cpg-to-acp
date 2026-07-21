@@ -28,7 +28,7 @@ _dynamic_models: dict[str, dict] = {}
 
 app = FastAPI(
     title="ACP Writer API",
-    version="0.1.0",
+    version="0.2.0",
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
 
@@ -158,7 +158,7 @@ def status():
         },
         "knowledge_base": {
             "status": "unavailable",
-            "documents_ingested": 0,
+            "recommendations_ingested": 0,
         },
     }
 

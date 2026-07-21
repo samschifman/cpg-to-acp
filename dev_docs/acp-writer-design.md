@@ -169,7 +169,7 @@ Uses `POST /api/v1/knowledge/search` (the `RecommendationSearchRequest` contract
 
 The core clinical reasoning step. Maps decisions and recommendations into a structured Planning Brief.
 
-**Inputs:** Patient summary, DMN results (with audit trail), retrieved recommendations, abbreviations
+**Inputs:** Patient summary, DMN results (with audit trail), retrieved recommendations
 **Outputs:** Planning Brief containing:
 - Goals (with target measures, target values, source recommendation IDs)
 - Activities:
@@ -437,19 +437,19 @@ Phase 3.2 deploys acp-writer as a **single pod** running the entire LangGraph pi
 
 4. **Terminology verified during composition, not after.** The Plan Composer resolves codes via API before the FHIR layer. The Terminology Validator is a safety net, not the primary mechanism.
 
-4. **AI Transparency is built in, not bolted on.** Device, Provenance, and AIAST tagging are first-class outputs of the FHIR Bundle Generator, not optional additions.
+5. **AI Transparency is built in, not bolted on.** Device, Provenance, and AIAST tagging are first-class outputs of the FHIR Bundle Generator, not optional additions.
 
-5. **Conflict resolution is deferred but designed for.** The Planning Brief includes a `conflicts` field. The architecture supports inserting a Conflict Resolver node before the Brief Reviewer in Phase 4.
+6. **Conflict resolution is deferred but designed for.** The Planning Brief includes a `conflicts` field. The architecture supports inserting a Conflict Resolver node before the Brief Reviewer in Phase 4.
 
-6. **Approval workflow changes the AI Transparency tag.** AIAST (AI-asserted) → CLINAST_AIRPT (clinician-asserted from AI-reported) on approval, per the IG's intent.
+7. **Approval workflow changes the AI Transparency tag.** AIAST (AI-asserted) → CLINAST_AIRPT (clinician-asserted from AI-reported) on approval, per the IG's intent.
 
-7. **DMN audit trail flows through to Provenance.** Every DMN call is recorded verbatim and becomes a Provenance entity, enabling full lineage from care plan activity → recommendation → CPG → DMN evaluation → patient data.
+8. **DMN audit trail flows through to Provenance.** Every DMN call is recorded verbatim and becomes a Provenance entity, enabling full lineage from care plan activity → recommendation → CPG → DMN evaluation → patient data.
 
-8. **Vector store is pluggable.** The architecture references the vector store through the search API contract (`RecommendationSearchRequest/Response`). The actual store (PostgreSQL + pgvector, Milvus, etc.) is an internal implementation detail per AGENTS.md.
+9. **Vector store is pluggable.** The architecture references the vector store through the search API contract (`RecommendationSearchRequest/Response`). The actual store (PostgreSQL + pgvector, Milvus, etc.) is an internal implementation detail per AGENTS.md.
 
-9. **Recommendation source_location enables CPG lineage.** The `SourceLocation` on each recommendation carries page numbers and bounding boxes from the original CPG PDF, flowing through to Provenance for complete lineage.
+10. **Recommendation source_location enables CPG lineage.** The `SourceLocation` on each recommendation carries page numbers and bounding boxes from the original CPG PDF, flowing through to Provenance for complete lineage.
 
-10. **Adversarial review at two levels.** The Brief Reviewer checks clinical reasoning; the FHIR Semantic Reviewer checks FHIR encoding. Different concerns, different personas, different retry loops.
+11. **Adversarial review at two levels.** The Brief Reviewer checks clinical reasoning; the FHIR Semantic Reviewer checks FHIR encoding. Different concerns, different personas, different retry loops.
 
 ## Lessons Applied from cpg-ingester
 
