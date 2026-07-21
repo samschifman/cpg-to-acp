@@ -44,6 +44,7 @@ def _build_search_query(
 @mlflow.trace(name="recommendation_retriever")
 def recommendation_retriever(state: CarePlanComposerState) -> dict:
     """Retrieve applicable recommendations from the vector store."""
+    logger.info("── Recommendation Retriever ──")
     from acp_writer.api import _vector_store
 
     condition_codes = state.get("condition_codes", [])

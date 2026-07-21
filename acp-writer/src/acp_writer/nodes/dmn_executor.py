@@ -75,6 +75,7 @@ def _extract_input_value(
 @mlflow.trace(name="dmn_executor")
 def dmn_executor(state: CarePlanComposerState) -> dict:
     """Execute applicable DMN models in topological order."""
+    logger.info("── DMN Executor ──")
     from acp_writer.api import _dynamic_models, _evaluate_jit
 
     ips_bundle = state.get("ips_bundle", {})

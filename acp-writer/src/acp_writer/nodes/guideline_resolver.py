@@ -74,6 +74,7 @@ def _build_dependency_graph(
 @mlflow.trace(name="guideline_resolver")
 def guideline_resolver(state: CarePlanComposerState) -> dict:
     """Match patient conditions to registered CPGs and DMN models."""
+    logger.info("── Guideline Resolver ──")
     from acp_writer.api import _dynamic_models, _guidelines_store
 
     condition_codes = state.get("condition_codes", [])

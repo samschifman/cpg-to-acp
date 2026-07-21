@@ -7,6 +7,7 @@ context for future BPMN generation.
 
 import json
 import logging
+import time
 from typing import Any
 
 import mlflow
@@ -120,13 +121,20 @@ def plan_composer(state: CarePlanComposerState) -> dict:
         feedback=feedback_text,
     )
 
+    review_round = state.get("brief_review_count", 0)
+    logger.info("── Plan Composer (round %d) ──", review_round + 1)
+
     llm = _get_llm(state)
-    logger.info("Invoking Plan Composer LLM")
+    logger.info("Calling LLM...")
+    t0 = time.time()
 
     response = llm.invoke([
         {"role": "system", "content": PLAN_COMPOSER_SYSTEM},
         {"role": "user", "content": user_prompt},
     ])
+
+    elapsed = time.time() - t0
+    logger.info("LLM responded in %.1fs", elapsed)
 
     try:
         brief_data = _parse_brief_from_response(response.content)

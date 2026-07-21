@@ -25,6 +25,7 @@ _care_plans: dict[str, dict] = {}
 @mlflow.trace(name="fhir_server_writer")
 def fhir_server_writer(state: CarePlanComposerState) -> dict:
     """Write the FHIR Bundle to the HAPI FHIR server."""
+    logger.info("── FHIR Server Writer ──")
     bundle = state.get("fhir_bundle", {})
     output_dir = state.get("output_dir", "")
 

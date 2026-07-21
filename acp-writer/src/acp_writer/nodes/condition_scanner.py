@@ -70,6 +70,7 @@ def _extract_patient_demographics(patient: dict) -> dict[str, Any]:
 @mlflow.trace(name="condition_scanner")
 def condition_scanner(state: CarePlanComposerState) -> dict:
     """Extract condition codes, medication codes, and demographics from IPS."""
+    logger.info("── Condition Scanner ──")
     bundle = state.get("ips_bundle", {})
     if not bundle:
         logger.warning("No IPS bundle provided")

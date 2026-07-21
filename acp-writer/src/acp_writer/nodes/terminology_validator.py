@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @mlflow.trace(name="terminology_validator")
 def terminology_validator(state: CarePlanComposerState) -> dict:
     """Verify all FHIR codes in the bundle against terminology servers."""
+    logger.info("── Terminology Validator ──")
     bundle = state.get("fhir_bundle", {})
 
     if not bundle.get("entry"):

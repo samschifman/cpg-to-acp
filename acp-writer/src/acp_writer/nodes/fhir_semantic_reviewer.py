@@ -6,6 +6,7 @@ AI Transparency completeness. APPROVE/REVISE protocol, max 2 loops.
 
 import json
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -52,6 +53,8 @@ def fhir_semantic_reviewer(state: CarePlanComposerState) -> dict:
             "fhir_review_count": review_count + 1,
         }
 
+    logger.info("── FHIR Semantic Reviewer (iteration %d) ──", review_count + 1)
+
     user_prompt = FHIR_SEMANTIC_REVIEWER_USER.format(
         fhir_bundle=json.dumps(bundle, indent=2, default=str),
         syntax_errors=json.dumps(syntax_errors) if syntax_errors else "None",
@@ -59,12 +62,16 @@ def fhir_semantic_reviewer(state: CarePlanComposerState) -> dict:
     )
 
     llm = _get_llm(state)
-    logger.info("Invoking FHIR Semantic Reviewer LLM (iteration %d)", review_count + 1)
+    logger.info("Calling LLM...")
+    t0 = time.time()
 
     response = llm.invoke([
         {"role": "system", "content": FHIR_SEMANTIC_REVIEWER_SYSTEM},
         {"role": "user", "content": user_prompt},
     ])
+
+    elapsed = time.time() - t0
+    logger.info("LLM responded in %.1fs", elapsed)
 
     try:
         review = _parse_review_response(response.content)

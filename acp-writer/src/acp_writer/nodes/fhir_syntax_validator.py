@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 @mlflow.trace(name="fhir_syntax_validator")
 def fhir_syntax_validator(state: CarePlanComposerState) -> dict:
     """Run structural validation on the FHIR Bundle."""
+    logger.info("── FHIR Syntax Validator ──")
     bundle = state.get("fhir_bundle", {})
     output_dir = state.get("output_dir", "")
 

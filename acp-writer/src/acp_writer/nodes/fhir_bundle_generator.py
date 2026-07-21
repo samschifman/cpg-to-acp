@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 @mlflow.trace(name="fhir_bundle_generator")
 def fhir_bundle_generator(state: CarePlanComposerState) -> dict:
     """Generate a FHIR R4 transaction Bundle from the Planning Brief."""
+    logger.info("── FHIR Bundle Generator ──")
     brief_dict = state.get("planning_brief", {})
     output_dir = state.get("output_dir", "")
     feedback = state.get("fhir_review_feedback", "")

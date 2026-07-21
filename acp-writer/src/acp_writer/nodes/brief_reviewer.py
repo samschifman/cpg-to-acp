@@ -6,6 +6,7 @@ APPROVE/REVISE protocol with max 2 review loops.
 
 import json
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -77,6 +78,8 @@ def brief_reviewer(state: CarePlanComposerState) -> dict:
             "brief_review_count": review_count + 1,
         }
 
+    logger.info("── Brief Reviewer (iteration %d) ──", review_count + 1)
+
     patient_ref = state.get("patient_reference", "unknown")
     condition_codes = state.get("condition_codes", [])
     medication_codes = state.get("medication_codes", [])
@@ -98,12 +101,16 @@ def brief_reviewer(state: CarePlanComposerState) -> dict:
     )
 
     llm = _get_llm(state)
-    logger.info("Invoking Brief Reviewer LLM (iteration %d)", review_count + 1)
+    logger.info("Calling LLM...")
+    t0 = time.time()
 
     response = llm.invoke([
         {"role": "system", "content": BRIEF_REVIEWER_SYSTEM},
         {"role": "user", "content": user_prompt},
     ])
+
+    elapsed = time.time() - t0
+    logger.info("LLM responded in %.1fs", elapsed)
 
     try:
         review = _parse_review_response(response.content)
