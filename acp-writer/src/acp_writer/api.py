@@ -11,8 +11,19 @@ import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from cpg_contracts import DecisionModelSummary, DecisionVariable
+from cpg_contracts import (
+    CPGMetadata,
+    DecisionModelSummary,
+    DecisionVariable,
+    Recommendation,
+    RecommendationBundle,
+    RecommendationSearchRequest,
+)
+
 from acp_writer.careplan import build_careplan, extract_patient_data
+from acp_writer.store.embedding import EmbeddingProvider, FakeEmbeddingProvider
+from acp_writer.store.guidelines_store import GuidelinesStore
+from acp_writer.store.vector_store import InMemoryVectorStore, VectorStore
 
 try:
     mlflow.fastapi.autolog()
@@ -25,6 +36,24 @@ KOGITO_URL = os.environ.get("KOGITO_URL", "http://localhost:8081")
 DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
 
 _dynamic_models: dict[str, dict] = {}
+
+# --- Store initialization ---
+# Use FakeEmbeddingProvider by default to avoid downloading a model on import.
+# Set EMBEDDING_MODEL env var or call init_stores() with a real provider.
+
+_embedding_provider: EmbeddingProvider = FakeEmbeddingProvider(dimensions=8)
+_vector_store: VectorStore = InMemoryVectorStore(_embedding_provider)
+_guidelines_store: GuidelinesStore = GuidelinesStore(_vector_store)
+
+
+def init_stores(embedding_provider: EmbeddingProvider | None = None) -> None:
+    """Re-initialize stores with a specific embedding provider."""
+    global _embedding_provider, _vector_store, _guidelines_store
+    if embedding_provider:
+        _embedding_provider = embedding_provider
+    _vector_store = InMemoryVectorStore(_embedding_provider)
+    _guidelines_store = GuidelinesStore(_vector_store)
+
 
 app = FastAPI(
     title="ACP Writer API",
@@ -151,14 +180,15 @@ def status():
     kogito_healthy = _check_kogito()
     total_models = len(_dynamic_models)
     return {
-        "version": "0.1.0",
+        "version": "0.2.0",
         "decision_engine": {
             "status": "healthy" if kogito_healthy else "unavailable",
             "models_deployed": total_models,
         },
         "knowledge_base": {
-            "status": "unavailable",
-            "recommendations_ingested": 0,
+            "status": "available",
+            "guidelines_registered": _guidelines_store.count(),
+            "recommendations_ingested": _vector_store.count(),
         },
     }
 
@@ -266,19 +296,88 @@ async def evaluate_decision(model_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Decision evaluation failed: {e}")
 
 
-# --- Knowledge (stubs) ---
+# --- Guidelines ---
 
 
-@app.post("/api/v1/knowledge/documents", status_code=501)
-def ingest_document():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented. Vector store is a Phase 2 feature.")
+@app.post("/api/v1/guidelines", status_code=201)
+async def register_guideline(request: Request):
+    data = await request.json()
+    try:
+        metadata = CPGMetadata.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid CPG metadata: {e}")
+    result = _guidelines_store.register(metadata)
+    return result.model_dump(mode="json")
 
 
-@app.get("/api/v1/knowledge/documents", status_code=501)
-def list_documents():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented")
+@app.get("/api/v1/guidelines")
+def list_guidelines():
+    return [g.model_dump(mode="json") for g in _guidelines_store.list_all()]
 
 
-@app.post("/api/v1/knowledge/search", status_code=501)
-def search_knowledge():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented")
+@app.get("/api/v1/guidelines/{cpg_id}")
+def get_guideline(cpg_id: str):
+    g = _guidelines_store.get(cpg_id)
+    if not g:
+        raise HTTPException(status_code=404, detail=f"Guideline '{cpg_id}' not found")
+    return g.model_dump(mode="json")
+
+
+@app.delete("/api/v1/guidelines/{cpg_id}", status_code=204)
+def delete_guideline(cpg_id: str):
+    if not _guidelines_store.delete(cpg_id):
+        raise HTTPException(status_code=404, detail=f"Guideline '{cpg_id}' not found")
+
+
+# --- Knowledge / Recommendations ---
+
+
+@app.post("/api/v1/knowledge/recommendations", status_code=201)
+async def ingest_recommendation(request: Request):
+    data = await request.json()
+    try:
+        rec = Recommendation.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid recommendation: {e}")
+    _vector_store.add(rec)
+    return {"id": rec.id, "status": "ingested"}
+
+
+@app.post("/api/v1/knowledge/recommendations/batch", status_code=201)
+async def ingest_recommendation_batch(request: Request):
+    data = await request.json()
+    try:
+        bundle = RecommendationBundle.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid recommendation bundle: {e}")
+    _vector_store.add_batch(bundle.recommendations)
+    return {
+        "source_cpg": bundle.source_cpg,
+        "count": len(bundle.recommendations),
+        "status": "ingested",
+    }
+
+
+@app.get("/api/v1/knowledge/recommendations")
+def list_recommendations(source_cpg: str | None = None):
+    recs = _vector_store.list_all(source_cpg=source_cpg)
+    return [r.model_dump(mode="json") for r in recs]
+
+
+@app.get("/api/v1/knowledge/recommendations/{recommendation_id}")
+def get_recommendation(recommendation_id: str):
+    rec = _vector_store.get(recommendation_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Recommendation '{recommendation_id}' not found")
+    return rec.model_dump(mode="json")
+
+
+@app.post("/api/v1/knowledge/search")
+async def search_knowledge(request: Request):
+    data = await request.json()
+    try:
+        search_req = RecommendationSearchRequest.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid search request: {e}")
+    result = _vector_store.search(search_req)
+    return result.model_dump(mode="json")

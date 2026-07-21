@@ -6,8 +6,21 @@ import os
 import mlflow
 from mcp.server.fastmcp import FastMCP
 
+from cpg_contracts import (
+    CPGMetadata,
+    Recommendation,
+    RecommendationBundle,
+    RecommendationSearchRequest,
+)
+
 from acp_writer.careplan import build_careplan, extract_patient_data
-from acp_writer.api import _dynamic_models, _evaluate_jit, _parse_dmn_metadata
+from acp_writer.api import (
+    _dynamic_models,
+    _evaluate_jit,
+    _guidelines_store,
+    _parse_dmn_metadata,
+    _vector_store,
+)
 
 mcp = FastMCP("acp-writer")
 
@@ -78,3 +91,43 @@ def generate_careplan(patient_data: dict) -> str:
 
     bundle = build_careplan(extracted["patient_id"], decisions)
     return json.dumps(bundle)
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_register_guideline")
+def register_guideline(metadata: dict) -> str:
+    """Register a CPG guideline's metadata."""
+    cpg = CPGMetadata.model_validate(metadata)
+    result = _guidelines_store.register(cpg)
+    return json.dumps(result.model_dump(mode="json"))
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_ingest_recommendation")
+def ingest_recommendation(recommendation: dict) -> str:
+    """Ingest a single recommendation into the vector store."""
+    rec = Recommendation.model_validate(recommendation)
+    _vector_store.add(rec)
+    return json.dumps({"id": rec.id, "status": "ingested"})
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_ingest_recommendation_batch")
+def ingest_recommendation_batch(bundle: dict) -> str:
+    """Ingest a batch of recommendations from a RecommendationBundle."""
+    rb = RecommendationBundle.model_validate(bundle)
+    _vector_store.add_batch(rb.recommendations)
+    return json.dumps({
+        "source_cpg": rb.source_cpg,
+        "count": len(rb.recommendations),
+        "status": "ingested",
+    })
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_search_recommendations")
+def search_recommendations(query: str, top_k: int = 5, source_cpg: str | None = None) -> str:
+    """Search recommendations by semantic similarity with optional filters."""
+    req = RecommendationSearchRequest(query=query, top_k=top_k, source_cpg=source_cpg)
+    result = _vector_store.search(req)
+    return json.dumps(result.model_dump(mode="json"))

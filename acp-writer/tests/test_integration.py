@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from acp_writer.api import app, _dynamic_models
+from acp_writer.api import app, _dynamic_models, _vector_store, _guidelines_store
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
@@ -215,11 +215,13 @@ class TestCarePlanStubs:
         assert r.status_code == 501
 
 
-class TestKnowledgeStubs:
-    def test_ingest_not_implemented(self):
-        r = client.post("/api/v1/knowledge/documents", json={})
-        assert r.status_code == 501
+class TestKnowledge:
+    def test_search_empty(self):
+        r = client.post("/api/v1/knowledge/search", json={"query": "hypertension treatment"})
+        assert r.status_code == 200
+        assert r.json()["results"] == []
 
-    def test_search_not_implemented(self):
-        r = client.post("/api/v1/knowledge/search", json={"query": "test"})
-        assert r.status_code == 501
+    def test_list_recommendations_empty(self):
+        r = client.get("/api/v1/knowledge/recommendations")
+        assert r.status_code == 200
+        assert r.json() == []
