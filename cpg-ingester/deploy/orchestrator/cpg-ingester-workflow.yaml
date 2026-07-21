@@ -1,0 +1,106 @@
+apiVersion: sonataflow.org/v1alpha08
+kind: SonataFlow
+metadata:
+  name: cpgingester
+  annotations:
+    sonataflow.org/profile: dev
+    sonataflow.org/description: "CPG Ingester pipeline orchestration"
+    sonataflow.org/version: "0.1.0"
+spec:
+  podTemplate:
+    container:
+      env:
+        - name: INGESTION_URL
+          value: "http://cpg-ingester-ingestion:8080"
+        - name: LLM_ANALYSIS_URL
+          value: "http://cpg-ingester-llm:8080"
+        - name: ASSEMBLY_URL
+          value: "http://cpg-ingester-assembly:8080"
+        - name: DELIVERY_URL
+          value: "http://cpg-ingester-delivery:8080"
+  flow:
+    specVersion: "0.8"
+    start: Parse
+    functions:
+      - name: parsepdf
+        type: custom
+        operation: rest:post:${INGESTION_URL}/api/v1/parse
+      - name: analyze
+        type: custom
+        operation: rest:post:${LLM_ANALYSIS_URL}/api/v1/analyze
+      - name: assemble
+        type: custom
+        operation: rest:post:${ASSEMBLY_URL}/api/v1/assemble
+      - name: deliver
+        type: custom
+        operation: rest:post:${DELIVERY_URL}/api/v1/deliver
+    states:
+      - name: Parse
+        type: operation
+        actions:
+          - name: callParse
+            functionRef:
+              refName: parsepdf
+              arguments:
+                file: "${ .pdfData }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ {markdown: .markdown, docling_json: .docling_json} }"
+              toStateData: "${ .parseResult }"
+        transition: Analyze
+
+      - name: Analyze
+        type: operation
+        actions:
+          - name: callAnalyze
+            functionRef:
+              refName: analyze
+              arguments:
+                markdown: "${ .parseResult.markdown }"
+                docling_json: "${ .parseResult.docling_json }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ {cpg_metadata: .cpg_metadata, item_manifest: .item_manifest, dmn_results: .dmn_results, recommendation_results: .recommendation_results} }"
+              toStateData: "${ .analysisResult }"
+        transition: Assemble
+
+      - name: Assemble
+        type: operation
+        actions:
+          - name: callAssemble
+            functionRef:
+              refName: assemble
+              arguments:
+                cpg_metadata: "${ .analysisResult.cpg_metadata }"
+                item_manifest: "${ .analysisResult.item_manifest }"
+                dmn_results: "${ .analysisResult.dmn_results }"
+                recommendation_results: "${ .analysisResult.recommendation_results }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ {dmn_results: .dmn_results, recommendation_results: .recommendation_results, escalated_items: .escalated_items, assembly_report: .assembly_report} }"
+              toStateData: "${ .assemblyResult }"
+        transition: Deliver
+
+      - name: Deliver
+        type: operation
+        actions:
+          - name: callDeliver
+            functionRef:
+              refName: deliver
+              arguments:
+                cpg_metadata: "${ .analysisResult.cpg_metadata }"
+                dmn_results: "${ .assemblyResult.dmn_results }"
+                recommendation_results: "${ .assemblyResult.recommendation_results }"
+                escalated_items: "${ .assemblyResult.escalated_items }"
+                assembly_report: "${ .assemblyResult.assembly_report }"
+                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
+            actionDataFilter:
+              results: "${ {delivery_status: .delivery_status} }"
+              toStateData: "${ .deliveryResult }"
+        transition: Done
+
+      - name: Done
+        type: inject
+        data:
+          status: "completed"
+        end: true

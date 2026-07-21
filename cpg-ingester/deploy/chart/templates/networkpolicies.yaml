@@ -1,0 +1,122 @@
+# Ingestion pod: no external network access (filesystem + ML only)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ingestion-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: ingestion
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+# LLM Analysis pod: LLM inference endpoint only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-llm-analysis-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: llmAnalysis
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+
+# Assembly pod: no external network access
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-assembly-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: assembly
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+# Delivery pod: acp-writer API only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-delivery-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: delivery
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: acp-writer
+      ports:
+        - port: 8082
+          protocol: TCP
+
+# UI pod: orchestrator access only
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ui-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: ui
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {}
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
