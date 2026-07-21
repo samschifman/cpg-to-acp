@@ -361,6 +361,7 @@ Work that can be picked up at any time, independent of the current phase. These 
 | DMN validator                     | Not started | cpg-ingester | Improve the DMN validator, look for opensource solutions and potentially expose an endpoint from Kogito to test.                                                                                                                                                                                                                |
 | Upgrade DMN to 1.5                | Not started | cpg-ingester | Currently targeting DMN 1.4 (latest supported by Drools/Kogito at conformance level 3). DMN 1.5 (Aug 2024) adds useful FEEL functions (`context put`, `now()`, `today()`). Upgrade when Drools/Kogito formally supports 1.5. Watch [Drools releases](https://github.com/apache/incubator-kie-drools/releases).                  |
 | Abbreviation expansion in Rec Extractor | ✅ Complete | cpg-ingester | Rec Extractor prompt now expands ALL occurrences of abbreviations in `content` as "Full Name (ABBREVIATION)". No bare abbreviations — content is self-contained for vector search. |
+| Provenance CPG lineage improvement | Not started | acp-writer | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display in the care plan bundle. |
 
 ---
 

@@ -89,6 +89,12 @@ def _setup_sample_data():
 
 @app.on_event("startup")
 async def startup():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
     _setup_sample_data()
 
 
