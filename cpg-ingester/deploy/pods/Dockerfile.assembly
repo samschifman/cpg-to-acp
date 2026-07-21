@@ -1,11 +1,10 @@
 FROM python:3.12-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
-COPY cpg-ingester/pyproject.toml .
-COPY cpg-ingester/src/ src/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir mlflow fastapi uvicorn
+COPY cpg-ingester/src/ /app/src/
+ENV PYTHONPATH=/app/src
 RUN chmod -R g=u /app
 USER 1001
 EXPOSE 8080
