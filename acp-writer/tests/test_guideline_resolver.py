@@ -1,0 +1,152 @@
+"""Tests for the Guideline Resolver node."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+import acp_writer.api as api_module
+from acp_writer.api import _dynamic_models, init_stores
+from acp_writer.nodes.guideline_resolver import (
+    _build_dependency_graph,
+    _condition_matches_scope,
+    guideline_resolver,
+)
+from acp_writer.store.embedding import FakeEmbeddingProvider
+from cpg_contracts import CPGMetadata, DecisionModelSummary, DecisionVariable
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+FIXTURES = PROJECT_ROOT / "shared" / "tests" / "fixtures"
+DATA_DIR = PROJECT_ROOT / "mock-EHR" / "data"
+DMN_DIR = PROJECT_ROOT / "cpg-ingester" / "data" / "golden"
+
+
+def _load_sample_metadata() -> CPGMetadata:
+    data = json.loads((FIXTURES / "sample-recommendations.json").read_text())
+    return CPGMetadata.model_validate(data["metadata"])
+
+
+def _deploy_dmn(name: str):
+    from acp_writer.api import _parse_dmn_metadata
+    dmn_xml = (DMN_DIR / name).read_text()
+    summary = _parse_dmn_metadata(dmn_xml)
+    _dynamic_models[summary.id] = {"summary": summary, "dmn_xml": dmn_xml}
+    return summary
+
+
+@pytest.fixture(autouse=True)
+def reset_stores():
+    _dynamic_models.clear()
+    init_stores(FakeEmbeddingProvider(dimensions=8))
+    yield
+    _dynamic_models.clear()
+    init_stores(FakeEmbeddingProvider(dimensions=8))
+
+
+class TestConditionMatchesScope:
+    def test_hypertension_matches(self):
+        codes = [{"system": "http://snomed.info/sct", "code": "59621000", "display": "Essential hypertension"}]
+        assert _condition_matches_scope(codes, "Adults (age 18+) with a new diagnosis of essential hypertension")
+
+    def test_no_match(self):
+        codes = [{"system": "http://snomed.info/sct", "code": "73211009", "display": "Diabetes mellitus"}]
+        assert not _condition_matches_scope(codes, "Adults with essential hypertension")
+
+    def test_none_scope_matches_all(self):
+        codes = [{"system": "http://snomed.info/sct", "code": "12345"}]
+        assert _condition_matches_scope(codes, None)
+
+    def test_empty_codes(self):
+        assert not _condition_matches_scope([], "Adults with hypertension")
+
+
+class TestBuildDependencyGraph:
+    def test_no_dependencies(self):
+        models = [
+            {"id": "a", "modifies": None},
+            {"id": "b", "modifies": None},
+        ]
+        levels = _build_dependency_graph(models)
+        assert len(levels) == 1
+        assert set(levels[0]) == {"a", "b"}
+
+    def test_linear_dependency(self):
+        models = [
+            {"id": "treatment", "modifies": ["monitoring"]},
+            {"id": "monitoring", "modifies": None},
+        ]
+        levels = _build_dependency_graph(models)
+        assert len(levels) == 2
+        assert levels[0] == ["treatment"]
+        assert levels[1] == ["monitoring"]
+
+    def test_external_dependency_ignored(self):
+        models = [
+            {"id": "a", "modifies": ["external-model"]},
+        ]
+        levels = _build_dependency_graph(models)
+        assert len(levels) == 1
+        assert levels[0] == ["a"]
+
+
+class TestGuidelineResolver:
+    def test_matches_hypertension_cpg(self):
+        metadata = _load_sample_metadata()
+        api_module._guidelines_store.register(metadata)
+        _deploy_dmn("treatment-recommendation.dmn")
+        _deploy_dmn("monitoring-plan.dmn")
+
+        state = {
+            "condition_codes": [
+                {"system": "http://snomed.info/sct", "code": "59621000", "display": "Essential hypertension"},
+            ],
+        }
+        result = guideline_resolver(state)
+
+        assert len(result["applicable_cpgs"]) == 1
+        assert result["applicable_cpgs"][0]["cpg_id"] == "SYN-HTN-2026-001"
+        assert len(result["applicable_dmn_models"]) == 2
+        assert len(result["dmn_dependency_graph"]) >= 1
+
+    def test_no_matching_conditions(self):
+        metadata = _load_sample_metadata()
+        api_module._guidelines_store.register(metadata)
+
+        state = {
+            "condition_codes": [
+                {"system": "http://snomed.info/sct", "code": "73211009", "display": "Diabetes mellitus"},
+            ],
+        }
+        result = guideline_resolver(state)
+        assert result["applicable_cpgs"] == []
+        assert result["applicable_dmn_models"] == []
+
+    def test_no_registered_guidelines(self):
+        state = {
+            "condition_codes": [
+                {"system": "http://snomed.info/sct", "code": "59621000", "display": "Essential hypertension"},
+            ],
+        }
+        result = guideline_resolver(state)
+        assert result["applicable_cpgs"] == []
+
+    def test_no_condition_codes(self):
+        result = guideline_resolver({})
+        assert result["applicable_cpgs"] == []
+
+    def test_pipeline_integration(self):
+        """Full pipeline with Condition Scanner + Guideline Resolver."""
+        metadata = _load_sample_metadata()
+        api_module._guidelines_store.register(metadata)
+        _deploy_dmn("treatment-recommendation.dmn")
+        _deploy_dmn("monitoring-plan.dmn")
+
+        bundle = json.loads((DATA_DIR / "patient-bundle-medication.json").read_text())
+
+        from acp_writer.pipeline import build_pipeline
+        graph = build_pipeline()
+        compiled = graph.compile()
+        result = compiled.invoke({"ips_bundle": bundle})
+
+        assert len(result["applicable_cpgs"]) == 1
+        assert len(result["applicable_dmn_models"]) == 2
