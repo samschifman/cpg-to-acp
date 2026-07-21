@@ -208,7 +208,11 @@ Independent LLM review of the Planning Brief before FHIR generation.
 
 ### Planning Brief Format
 
-The Planning Brief is a structured JSON document (not FHIR) that captures the clinical reasoning output:
+The Planning Brief is a **formal Pydantic model** — the contract between the LLM reasoning layer (Phase 1) and the deterministic FHIR generation layer (Phase 2). Because the FHIR Bundle Generator is pure code with no LLM to interpret ambiguity, its input must be unambiguous and schema-validated. This is the same pattern as fhir-ips-writer's declarative JSON spec → `build_ips_bundle.py`.
+
+The Planning Brief is defined as Pydantic types (likely in `acp_writer/planning_brief.py` or `shared/cpg_contracts/`). The Brief Reviewer validates against this schema deterministically before doing the LLM clinical coherence check — a free gate that catches structural issues before spending tokens on semantic review.
+
+**The brief carries more than what ends up in FHIR.** Phase 1's clinical reasoning captures context that the FHIR CarePlan cannot represent — detailed clinical rationale, step-by-step decision logic, process workflow descriptions, escalation paths, timing dependencies between activities, and actor/role assignments. This extra context is critical for BPMN generation in Phase 4: the BPMN Writer will need to know workflow sequencing, actor assignments, decision branching, and escalation paths that have no representation in FHIR CarePlan resources. By capturing this in the Planning Brief now, Phase 4 can operate directly on the brief without re-running clinical reasoning.
 
 ```json
 {
@@ -242,7 +246,14 @@ The Planning Brief is a structured JSON document (not FHIR) that captures the cl
       "frequency": "daily",
       "source_recommendation_id": "rec-guid-456",
       "source_cpg": "SYN-HTN-2026-001",
-      "source_dmn_call": 0
+      "source_dmn_call": 0,
+      "clinical_rationale": "ACE inhibitor selected due to renal protective effects in patient with diabetes",
+      "workflow": {
+        "actor": "prescribing_physician",
+        "sequence_after": null,
+        "escalation": "If BP not at target after 4 weeks, consider dose increase or addition of second agent",
+        "monitoring_trigger": "BMP in 4 weeks to check renal function and electrolytes"
+      }
     }
   ],
   "conflicts": [],
@@ -420,7 +431,7 @@ Phase 3.2 deploys acp-writer as a **single pod** running the entire LangGraph pi
 
 1. **FHIR generation is deterministic code.** LLMs reason about what goes in the care plan; code produces valid FHIR from the Planning Brief. This eliminates code hallucination — the single most dangerous failure mode for clinical FHIR resources (from fhir-ips-writer lessons).
 
-2. **Planning Brief as intermediate format.** Clinical reasoning produces a well-structured JSON document, not FHIR. This separates clinical decisions from FHIR encoding, making both testable independently.
+2. **Planning Brief as formal Pydantic schema.** Clinical reasoning produces a schema-validated document, not FHIR. The brief is the contract between the LLM layer and the deterministic FHIR generator — because the generator is code with no LLM, its input must be unambiguous. The brief also carries context beyond what FHIR can represent (workflow sequencing, actor assignments, escalation paths, clinical rationale) which Phase 4's BPMN Writer will consume without re-running clinical reasoning.
 
 3. **Lazy IPS extraction, not upfront parsing.** The Condition Scanner does a minimal first pass (condition codes + demographics only). The DMN Executor extracts specific data points on-demand as each model needs them. This avoids context bloat from large IPS documents with irrelevant data, and makes every extracted data point auditable (traceable to a specific FHIR resource in the IPS).
 
