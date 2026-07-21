@@ -159,37 +159,55 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 #### Phase 3.3 — Integration, Governance, and End-to-End Testing
 
-**Goal:** Connect cpg-ingester and acp-writer end-to-end, apply governance (OpenShell, MCP Gateway), split into pod-per-security-profile with workflow orchestration, and validate the complete pipeline.
+**Goal:** Connect cpg-ingester and acp-writer end-to-end, apply governance (OpenShell, MCP Gateway), split into pod-per-security-profile with workflow orchestration, and validate the complete pipeline with multiple CPGs.
 
 Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the independently-developed tracks are integrated and hardened.
 
+##### Pre-work (fixes to Phase 3.2 code before starting 3.3)
+
 | Area | Work | Notes |
 |---|---|---|
-| **spike** | **Spike: SonataFlow for pipeline orchestration** | Evaluate SonataFlow (Apache KIE, same ecosystem as Kogito) for orchestrating the pod-split pipeline. Compare with Temporal.io. Key questions: Can SonataFlow drive LangGraph node execution across pods via CloudEvents/OpenAPI? Does the RHDH Orchestrator operator provide a supported path? What does the YAML workflow definition look like for our review-loop pattern? See `dev_docs/project-plan.md` § orchestration analysis. |
-| **integration** | End-to-end test: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both | Verify contract compatibility, data flow, error handling. Verify Delivery Agent works against new guidelines/recommendations/batch endpoints. |
-| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer | Contract fidelity check |
+| **acp-writer** | Fix reject status: "revoked" → "entered-in-error" | FHIR CarePlan status code correction across server writer, API, tests, UI |
+| **acp-writer** | Fix Provenance targetPath for inline activities | Use AI Transparency on FHIR IG `targetPath` extension to target specific fields within a resource, instead of referencing non-existent standalone resources. Eliminates unresolved reference warnings. |
+| **acp-writer** | Improve reviewer iterations and prompts | Max iterations 2 → 4. Reviewer should APPROVE when good enough (stop nitpicking). Strengthen Plan Composer prompt to get it right first attempt. Reviewer must return a clear signal that stops the loop. |
+| **acp-writer** | Parallelize Phase 2 validators | Terminology Validator and FHIR Syntax Validator run in parallel (both deterministic, independent). Consider running FHIR Semantic Reviewer in parallel with them as well. |
+
+##### Phase 3.3 work items
+
+| Area | Work | Notes |
+|---|---|---|
+| **spike** | **Spike: Workflow orchestration for pod-split pipeline** | Evaluate SonataFlow (Apache KIE, same ecosystem as Kogito), Temporal.io, and other Red Hat-friendly orchestration options. Key questions: Can it drive LangGraph node execution across pods via CloudEvents/OpenAPI? Does RHDH Orchestrator provide a supported path? How does the review-loop pattern express in the DSL? Pod groups with a single node (e.g., DMN Executor) should be plain REST services, not LangGraph wrappers. |
+| **spike** | **Spike: MCP Gateway for governed tool access** | Research what MCP Gateway provides and how it fits this project. MCP Gateway is a major Red Hat AI offering — valuable to demonstrate. Determine: which tools to govern, what policies to apply (rate limiting, agent-level access control, audit logging), and how it integrates with OpenShell. |
+| **integration** | End-to-end test: cpg-ingester → acp-writer live | cpg-ingester pushes DMN + recommendations via Delivery Agent → acp-writer generates care plans. Verify Delivery Agent works against the new guidelines/recommendations/batch endpoints. Verify contract compatibility, data flow, error handling. |
+| **integration** | Validate recommendation indexing and retrieval | Recommendations produced by cpg-ingester are correctly embedded, indexed, and retrieved by acp-writer's vector store |
 | **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
-| **integration** | Prepare or find a second CPG with overlapping scope for multi-CPG conflict testing | Needed to exercise conflict resolution beyond placeholder detection |
-| **acp-writer** | Fix FHIR transaction bundle patient references | Handle case where Patient doesn't exist on FHIR server. See backlog. |
-| **acp-writer** | Implement FHIR server approval workflow (draft → active / entered-in-error) | POST draft on creation, update status on approve/reject on the FHIR server. AIAST → CLINAST_AIRPT on server. |
+| **integration** | Add a second CPG for multi-CPG testing | Prepare or find a second CPG with overlapping scope. Pipeline should handle multiple CPGs producing a single care plan with duplicates and conflicts present (conflict resolution is deferred — just let them through). |
+| **acp-writer** | Fix FHIR transaction bundle patient references | Handle case where Patient doesn't exist on FHIR server. Normally patient exists (IPS originated from there), but need a fallback — either include Patient in the transaction or use conditional references. |
+| **acp-writer** | FHIR server approval workflow | POST care plan as "draft" on creation. On approve: update to "active" on FHIR server, AIAST → CLINAST_AIRPT. On reject: update to "entered-in-error". |
 | **acp-writer** | SqliteSaver for persistent checkpointing | Replace MemorySaver so pipeline state survives restarts and historical runs are visible in UI |
 | **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
 | **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
 | **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Requires pod split — policies are per-pod, not per-function within a pod |
-| **platform** | MCP Gateway for governed tool access | Deferred from Phase 3.0 — tools must work before governance is layered on. Needs a design sketch: which tools, what policies. |
-| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases |
+| **platform** | MCP Gateway integration | Based on spike findings. Demonstrate governed tool access as a Red Hat AI capability. |
+| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases. Include both single-CPG and multi-CPG scenarios. |
 
-\* Pod split requires an orchestration engine (spike above) to coordinate work across pods. Each pod group registers as a service; the orchestrator drives the pipeline. UIs run in their own pods. The in-process LangGraph pipeline remains as the within-pod execution model; the orchestrator handles the between-pod coordination.
+\* Pod split requires an orchestration engine (spike above) to coordinate work across pods. Each pod group registers as a service; the orchestrator drives the pipeline. UIs run in their own pods. The in-process LangGraph pipeline remains as the within-pod execution model for pod groups with multiple nodes; pod groups with a single node (e.g., DMN Executor) should be plain REST services. The orchestrator handles the between-pod coordination.
+
+##### Conflict resolution — deferred
+
+Full conflict resolution (interactive clinician UI, structured conflict types, resolution tracking in Provenance) is deferred beyond Phase 3.3. Multi-CPG testing in this phase will surface duplicates and conflicts in the care plan, but they will not be resolved automatically — the clinician sees them and can reject the plan if needed.
 
 ##### Exit Criteria
 
 - End-to-end pipeline: cpg-ingester → acp-writer produces CarePlans using both DMN and recommendations
+- Pipeline tested with at least two CPGs
 - Pipeline runs on OpenShift with MLflow traces visible for every step
 - Both cpg-ingester and acp-writer split into pod-per-security-profile
 - Orchestration engine selected and driving cross-pod pipeline execution
 - OpenShell agent policies applied and enforced per pod
-- MCP Gateway governing tool access
+- MCP Gateway demonstrating governed tool access
 - FHIR server integration working (draft → active / entered-in-error)
+- Phase 2 validators running in parallel
 - Golden test cases passing
 - All Phase 3.1 and Phase 3.2 exit criteria met
 
