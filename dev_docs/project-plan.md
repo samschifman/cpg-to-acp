@@ -6,11 +6,13 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 3.0 Complete)
+## Current State (Phase 3.1 Complete)
 
-The system runs on OpenShift with Red Hat AI platform capabilities. The full pipeline (synthetic CPG → Docling → LLM DMN extraction → deploy to acp-writer → JIT Kogito evaluation → FHIR CarePlan) works both locally via podman-compose and on OpenShift via Helm charts. MaaS routes inference to OpenAI GPT-5.6. MLflow tracing is instrumented across both components. MCP servers expose decision and FHIR tools. Agent framework evaluated (LangGraph recommended). Praxis investigated (too early, Phase 5 target).
+cpg-ingester is now a multi-agent pipeline (LangGraph) with adversarial review. The pipeline extracts both DMN decision tables and structured recommendations from CPG PDFs, with deterministic syntax validation and LLM-based semantic review at every extraction stage. A minimal web UI supports upload, analysis review, and artifact browsing. All nodes traced in MLflow.
 
-The recommendation contract between cpg-ingester and acp-writer is defined (was TBD). Contract version 1.0 covers: recommendations with normalized certainty grades, cross-references, provenance tracking, and CPG metadata. 42 real CPGs from 7 organizations have been analyzed to inform the contract design (see `dev_docs/cpg-analysis.md`). Phase 3.1 (cpg-ingester) and Phase 3.2 (acp-writer) can now proceed independently.
+**What works:** Full cpg-ingester pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). End-to-end verified with synthetic CPG via live LLM (154 API calls, 13 DMN decisions, 8 recommendation batches). Recommendation contracts defined. Mock receiver for testing without acp-writer.
+
+**What doesn't exist yet:** acp-writer multi-agent composition, vector store, real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
 
 **What works:** end-to-end pipeline on OpenShift, recommendation contracts defined, all component boundaries closed, test fixtures for independent development.
 
@@ -84,7 +86,7 @@ Phase 3 is split into sub-phases that can advance independently. Phase 3.0 estab
 
 ---
 
-#### Phase 3.1 — cpg-ingester Multi-Agent Pipeline (in progress)
+#### Phase 3.1 — cpg-ingester Multi-Agent Pipeline (complete)
 
 **Goal:** Replace the single-prompt DMN extraction with a multi-agent pipeline that extracts both DMN decision tables and narrative recommendations from CPGs.
 
@@ -310,7 +312,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 1 | Complete | Docling, LiteLLM (local), Drools/Kogito |
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
-| Phase 3.1 | In progress | LangGraph (cpg-ingester agents) |
+| Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
 | Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
 | Phase 3.3 | Not started | — (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
