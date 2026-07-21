@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from acp_writer.nodes.brief_reviewer import brief_reviewer
 from acp_writer.nodes.condition_scanner import condition_scanner
 from acp_writer.nodes.dmn_executor import dmn_executor
+from acp_writer.nodes.fhir_bundle_generator import fhir_bundle_generator
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.plan_composer import plan_composer
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
@@ -27,11 +28,6 @@ MAX_FHIR_REVIEWS = 2
 
 # --- Stub nodes ---
 # Each stub logs and passes state through. Real implementations in nodes/.
-
-
-def _fhir_bundle_generator(state: CarePlanComposerState) -> dict:
-    logger.info("[stub] fhir_bundle_generator")
-    return {"fhir_bundle": {"resourceType": "Bundle", "type": "transaction", "entry": []}}
 
 
 def _terminology_validator(state: CarePlanComposerState) -> dict:
@@ -93,7 +89,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("brief_reviewer", brief_reviewer)
 
     # Phase 2: FHIR Generation
-    graph.add_node("fhir_bundle_generator", _fhir_bundle_generator)
+    graph.add_node("fhir_bundle_generator", fhir_bundle_generator)
     graph.add_node("terminology_validator", _terminology_validator)
     graph.add_node("fhir_syntax_validator", _fhir_syntax_validator)
     graph.add_node("fhir_semantic_reviewer", _fhir_semantic_reviewer)
