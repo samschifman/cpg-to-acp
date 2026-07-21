@@ -123,22 +123,36 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 | Work | Notes |
 |---|---|
-| Implement knowledge ingestion endpoint — accepts recommendations per the shared contract | Replace the 501 stubs with working implementation |
-| Establish vector store for recommendations | Pluggable (Milvus, pgvector); internal to acp-writer per AGENTS.md |
-| Enhance care plan composition agent — uses DMN + retrieved recommendations | Replace hardcoded mapping with LangGraph-based composition |
-| Generate CarePlan with narrative activities from process/recommendations | Activities reference CPG source material |
-| Add FHIR CarePlan expert agent — correct codes, AI Transparency on FHIR IG compliance | Research: HL7 AIToF IG |
-| **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input |
-| Write CarePlan + associated resources back to HAPI FHIR server | — |
-| Accept patient data as IPS instead of raw Bundle | Replace Phase 1 shortcut |
-| Minimal UI: review and approve a generated care plan | Simple workflow: submit patient data → review CarePlan → approve |
+| **Spike:** Vector store selection | Evaluate PostgreSQL+pgvector vs Milvus vs ChromaDB. See `dev_docs/acp-writer-design.md` § Vector Store Spike |
+| Implement guidelines CRUD endpoints | `POST/GET/LIST/DELETE /api/v1/guidelines` — cpg-ingester sends CPGMetadata first |
+| Implement knowledge ingestion endpoints — recommendations per shared contract | Replace 501 stubs: single ingest, batch ingest, list, get, search |
+| Establish vector store for recommendations | Embed recommendation content on ingest, semantic search with type/strength/cpg filtering |
+| Define Planning Brief as formal Pydantic schema | Contract between LLM reasoning (Phase 1) and deterministic FHIR generation (Phase 2). Carries workflow context for future BPMN. See design doc. |
+| Build LangGraph pipeline: Condition Scanner → Guideline Resolver → DMN Executor → Recommendation Retriever → Plan Composer | Phase 1 clinical reasoning. Lazy IPS extraction (condition codes first, targeted data on-demand). |
+| Build adversarial Brief Reviewer | Validates Planning Brief schema + clinical coherence (max 2 loops) |
+| Build terminology lookup tool | Multi-system API verification: SNOMED, RxNorm, LOINC, ICD-10. Reusable by Plan Composer and Terminology Validator. |
+| Build deterministic FHIR Bundle Generator | Produces CarePlan + Goal + activity resources + AI Device + AI Provenance from Planning Brief. No LLM. |
+| Build FHIR validation pipeline: Terminology Validator → Syntax Validator → Semantic Reviewer | Deterministic code checks + adversarial LLM review (max 2 loops) |
+| Implement AI Transparency on FHIR IG compliance | AIAST `meta.security` on all resources, AI-Device, AI-Provenance with full lineage. See design doc. |
+| Implement care plan approval workflow | Approve/reject with AIAST → CLINAST_AIRPT tag transition |
+| Write CarePlan bundle to HAPI FHIR server | POST transaction bundle, validate response |
+| Complete MCP server tools | Add 6 missing tools: register_guideline, ingest_recommendation, ingest_recommendation_batch, search_recommendations, get_careplan, approve_careplan |
+| Accept patient data as IPS | Condition Scanner handles IPS or raw Bundle |
+| Add conflict detection placeholder | Detect overlapping/contradictory recommendations. Full resolution deferred to Phase 3.3+. |
+| **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input needed for Plan Composer |
+| Minimal UI: review and approve a generated care plan | Submit patient data → review CarePlan → approve/reject |
 
 ##### Exit Criteria
 
 - acp-writer produces CarePlans with recommendation-backed narrative activities
 - Vector store operational with recommendation retrieval
-- Knowledge ingestion endpoint accepts and indexes recommendations
+- Knowledge ingestion and guidelines CRUD endpoints functional
 - Care plan composition uses both DMN decisions and retrieved recommendations
+- Planning Brief validated by adversarial reviewer before FHIR generation
+- FHIR output passes terminology, syntax, and semantic validation
+- AI Transparency on FHIR IG compliant (AIAST tags, AI-Device, AI-Provenance)
+- Care plans written to HAPI FHIR server
+- Approval workflow changes AIAST → CLINAST_AIRPT
 - Minimal review/approval UI functional
 - All agents traced in MLflow
 
