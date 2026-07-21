@@ -6,6 +6,10 @@
     <p>Patient: <strong>{{ patient_ref }}</strong> | Status: <span class="badge badge-{{ status }}">{{ status }}</span></p>
 </div>
 
+{% if brief and brief.review_feedback %}
+<div class="status status-warning">{{ brief.review_feedback }}</div>
+{% endif %}
+
 {% if brief %}
 <div class="card">
     <h2>Planning Brief</h2>

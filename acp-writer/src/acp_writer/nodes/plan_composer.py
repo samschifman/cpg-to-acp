@@ -132,6 +132,23 @@ def plan_composer(state: CarePlanComposerState) -> dict:
 
     cpg_ids = [c.get("cpg_id", c) if isinstance(c, dict) else c for c in applicable_cpgs]
 
+    if not cpg_ids and not recommendations:
+        logger.warning("No applicable CPGs or recommendations — cannot compose a care plan")
+        brief_dict = {
+            "patient_reference": patient_ref,
+            "applicable_cpgs": [],
+            "dmn_audit_trail": [],
+            "goals": [],
+            "activities": [],
+            "conflicts": [],
+            "review_status": "flagged",
+            "review_feedback": "No clinical practice guidelines matched this patient's conditions. "
+                "Register applicable guidelines and ingest recommendations before generating a care plan.",
+        }
+        if output_dir:
+            write_artifact(output_dir, "planning-brief.json", brief_dict)
+        return {"planning_brief": brief_dict, "brief_review_feedback": ""}
+
     feedback_text = ""
     if feedback:
         feedback_text = f"\n## Reviewer Feedback (address these issues)\n{feedback}"

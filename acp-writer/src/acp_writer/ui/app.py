@@ -100,7 +100,15 @@ async def startup():
 
 @app.get("/", response_class=HTMLResponse)
 async def submit_page(request: Request):
-    return templates.TemplateResponse(request, "submit.html", {"error": None})
+    import acp_writer.api as api_module
+    from acp_writer.api import _dynamic_models
+    guidelines = [g.model_dump(mode="json") for g in api_module._guidelines_store.list_all()]
+    return templates.TemplateResponse(request, "submit.html", {
+        "error": request.query_params.get("error"),
+        "guidelines": guidelines,
+        "models_deployed": len(_dynamic_models),
+        "recs_ingested": api_module._vector_store.count(),
+    })
 
 
 @app.post("/submit")

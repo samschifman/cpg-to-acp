@@ -32,4 +32,33 @@
         </form>
     </div>
 </div>
+
+<div class="card">
+    <h2>Loaded Guidelines</h2>
+    {% if guidelines %}
+    <table>
+        <thead>
+            <tr><th>CPG ID</th><th>Title</th><th>Scope</th><th>Grading</th></tr>
+        </thead>
+        <tbody>
+            {% for g in guidelines %}
+            <tr>
+                <td><code>{{ g.cpg_id }}</code></td>
+                <td>{{ g.title }}</td>
+                <td>{{ g.scope or '—' }}</td>
+                <td>{{ g.grading_system or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p style="font-size:13px; color:#666; margin-top:8px;">
+        {{ models_deployed }} DMN models deployed | {{ recs_ingested }} recommendations ingested
+    </p>
+    {% else %}
+    <div class="status status-warning">
+        No guidelines registered. Care plan generation requires at least one CPG with recommendations.
+        Use the API to register guidelines and ingest recommendations.
+    </div>
+    {% endif %}
+</div>
 {% endblock %}
