@@ -60,8 +60,19 @@ app = FastAPI(
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
 
-from acp_writer.ui.app import app as ui_app
+from acp_writer.ui.app import app as ui_app, _setup_sample_data
 app.mount("/ui", ui_app)
+
+
+@app.on_event("startup")
+async def startup():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    _setup_sample_data()
 
 
 def _check_kogito() -> bool:
