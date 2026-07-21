@@ -1,11 +1,9 @@
-FROM image-registry.openshift-image-registry.svc:5000/openshift/python:3.12-ubi9
+FROM registry.access.redhat.com/ubi9/python-312:latest
 WORKDIR /app
-COPY shared/ /app/shared/
-RUN pip install --no-cache-dir /app/shared/
-RUN pip install --no-cache-dir mlflow requests fastapi uvicorn jinja2 python-multipart
-COPY acp-writer/src/ /app/src/
+COPY acp-writer/src/acp_writer/ui/ /app/src/acp_writer/ui/
+COPY acp-writer/src/acp_writer/__init__.py /app/src/acp_writer/__init__.py
+RUN pip install --no-cache-dir fastapi uvicorn jinja2 requests python-multipart
 ENV PYTHONPATH=/app/src
-RUN chmod -R g=u /app
 USER 1001
 EXPOSE 8082
 CMD ["uvicorn", "acp_writer.ui.app:app", "--host", "0.0.0.0", "--port", "8082"]

@@ -1,11 +1,10 @@
-FROM image-registry.openshift-image-registry.svc:5000/openshift/python:3.12-ubi9
+FROM registry.access.redhat.com/ubi9/python-312:latest
 WORKDIR /app
-COPY shared/ /app/shared/
-RUN pip install --no-cache-dir /app/shared/
-RUN pip install --no-cache-dir mlflow fastapi uvicorn jinja2 python-multipart click langgraph langchain-openai lxml
-COPY cpg-ingester/src/ /app/src/
+COPY cpg-ingester/src/cpg_ingester/ui/ /app/src/cpg_ingester/ui/
+COPY cpg-ingester/src/cpg_ingester/__init__.py /app/src/cpg_ingester/__init__.py
+COPY cpg-ingester/src/cpg_ingester/output.py /app/src/cpg_ingester/output.py
+RUN pip install --no-cache-dir fastapi uvicorn jinja2 requests click
 ENV PYTHONPATH=/app/src
-RUN chmod -R g=u /app
 USER 1001
 EXPOSE 8090
 CMD ["python", "-m", "cpg_ingester.ui.app"]
