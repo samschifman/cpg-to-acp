@@ -50,6 +50,13 @@ explicitly states it cannot make a recommendation.
 - If a recommendation has structured "Remarks" or "Notes", put them in \
 the remarks field as a list of strings.
 - Cross-references should use GUIDs from the manifest, not names.
+- **Abbreviation expansion**: In the `content` field, expand EVERY occurrence \
+of an abbreviation using the pattern "Full Name (ABBREVIATION)" — e.g., \
+"Dietary Approaches to Stop Hypertension (DASH)" every time, not just the \
+first occurrence. Never use a bare abbreviation. The content is stored in a \
+vector database for semantic search and must be completely self-contained — \
+a reader should never encounter an unexpanded abbreviation. Use the \
+abbreviations list provided in the user message.
 """
 
 REC_EXTRACTOR_USER = """\
@@ -61,7 +68,8 @@ Item specifications from the manifest (use these GUIDs):
 Grading system definitions for this CPG:
 {grading_definitions}
 
-Abbreviations:
+Abbreviations (expand EVERY occurrence in the `content` field as \
+"Full Name (ABBREVIATION)" — no abbreviation should ever appear unexpanded):
 {abbreviations}
 
 Source content:
