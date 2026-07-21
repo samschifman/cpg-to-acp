@@ -20,7 +20,6 @@ from cpg_contracts import (
     RecommendationSearchRequest,
 )
 
-from acp_writer.careplan import build_careplan, extract_patient_data
 from acp_writer.store.embedding import EmbeddingProvider, FakeEmbeddingProvider
 from acp_writer.store.guidelines_store import GuidelinesStore
 from acp_writer.store.vector_store import InMemoryVectorStore, VectorStore
@@ -118,48 +117,6 @@ def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     return r.json()
 
 
-@mlflow.trace(name="invoke_decisions")
-def invoke_decisions_dynamic(patient_data: dict) -> dict:
-    """Invoke decisions using dynamically deployed models.
-
-    Phase 1 shortcut: hardcoded to call treatment-recommendation then
-    monitoring-plan by name. Does not generalize.
-    """
-    treatment_model = _dynamic_models.get("treatment-recommendation")
-    monitoring_model = _dynamic_models.get("monitoring-plan")
-
-    if not treatment_model or not monitoring_model:
-        raise ValueError("Required decision models not deployed: treatment-recommendation, monitoring-plan")
-
-    treatment_result = _evaluate_jit(
-        treatment_model["dmn_xml"],
-        {
-            "Systolic BP": patient_data["systolic_bp"],
-            "Has Diabetes": patient_data["has_diabetes"],
-            "Has Kidney Disease": patient_data["has_kidney_disease"],
-        },
-    )
-
-    action = treatment_result["Treatment Recommendation"]["Action"]
-
-    monitoring_result = _evaluate_jit(
-        monitoring_model["dmn_xml"],
-        {
-            "Treatment Action": action,
-            "Has Kidney Disease": patient_data["has_kidney_disease"],
-        },
-    )
-
-    return {
-        "action": action,
-        "medication": treatment_result["Treatment Recommendation"]["Medication"],
-        "dose": treatment_result["Treatment Recommendation"]["Dose"],
-        "follow_up_weeks": treatment_result["Treatment Recommendation"]["Follow Up Weeks"],
-        "lab_order": monitoring_result["Monitoring Plan"]["Lab Order"],
-        "lab_timing_weeks": monitoring_result["Monitoring Plan"]["Lab Timing Weeks"],
-    }
-
-
 # --- Health ---
 
 
@@ -203,19 +160,28 @@ async def generate_careplan(request: Request):
     if bundle.get("resourceType") != "Bundle":
         raise HTTPException(status_code=400, detail="Request body must be a FHIR Bundle")
 
-    try:
-        patient_data = extract_patient_data(bundle)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    from acp_writer.pipeline import build_pipeline
+
+    litellm_url = os.environ.get("LITELLM_URL", "http://localhost:4000")
+    llm_model = os.environ.get("LLM_MODEL", "default")
+    llm_api_key = os.environ.get("LLM_API_KEY", "sk-change-me")
+
+    graph = build_pipeline()
+    compiled = graph.compile()
 
     try:
-        decisions = invoke_decisions_dynamic(patient_data)
+        result = compiled.invoke({
+            "ips_bundle": bundle,
+            "litellm_url": litellm_url,
+            "llm_model": llm_model,
+            "llm_api_key": llm_api_key,
+        })
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Decision evaluation failed: {e}")
+        raise HTTPException(status_code=422, detail=f"Care plan generation failed: {e}")
 
-    careplan_bundle = build_careplan(patient_data["patient_id"], decisions)
+    fhir_bundle = result.get("fhir_bundle", {})
     return Response(
-        content=json.dumps(careplan_bundle),
+        content=json.dumps(fhir_bundle),
         media_type="application/fhir+json",
         status_code=201,
     )

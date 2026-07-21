@@ -1,11 +1,8 @@
-"""Integration tests for the acp-writer API.
-
-Requires Kogito decision service running on localhost:8081.
-Start with: podman-compose up -d kogito acp-writer
-"""
+"""Integration tests for the acp-writer API."""
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -119,86 +116,41 @@ class TestDecisionModels:
         assert r.status_code == 400
 
 
-@pytest.mark.integration
-class TestCarePlanGeneration:
-    """These tests require Kogito running on localhost:8081."""
-
-    def test_medication_path(self):
-        deploy_models()
-        bundle = load_bundle("patient-bundle-medication.json")
-        r = client.post(
-            "/api/v1/careplans",
-            json=bundle,
-            headers={"Content-Type": "application/fhir+json"},
-        )
-        assert r.status_code == 201
-
-        careplan_bundle = r.json()
-        assert careplan_bundle["resourceType"] == "Bundle"
-
-        careplans = find_resources(careplan_bundle, "CarePlan")
-        assert len(careplans) == 1
-        assert careplans[0]["title"] == "Hypertension Management Plan"
-
-        goals = find_resources(careplan_bundle, "Goal")
-        assert len(goals) == 1
-
-        med_requests = find_resources(careplan_bundle, "MedicationRequest")
-        assert len(med_requests) == 1
-        assert "Lisinopril" in med_requests[0]["medicationCodeableConcept"]["text"]
-
-        service_requests = find_resources(careplan_bundle, "ServiceRequest")
-        assert len(service_requests) == 2
-        sr_texts = {sr["code"]["text"] for sr in service_requests}
-        assert "Follow-up appointment" in sr_texts
-        assert "Basic Metabolic Panel" in sr_texts
-
-    def test_lifestyle_path(self):
-        deploy_models()
-        bundle = load_bundle("patient-bundle-lifestyle.json")
-        r = client.post(
-            "/api/v1/careplans",
-            json=bundle,
-            headers={"Content-Type": "application/fhir+json"},
-        )
-        assert r.status_code == 201
-
-        careplan_bundle = r.json()
-        med_requests = find_resources(careplan_bundle, "MedicationRequest")
-        assert len(med_requests) == 0
-
-        service_requests = find_resources(careplan_bundle, "ServiceRequest")
-        assert len(service_requests) == 1
-        assert service_requests[0]["code"]["text"] == "Follow-up appointment"
-        assert service_requests[0]["occurrenceTiming"]["repeat"]["period"] == 12
-
-    def test_no_models_deployed(self):
-        bundle = load_bundle("patient-bundle-medication.json")
-        r = client.post("/api/v1/careplans", json=bundle)
-        assert r.status_code == 422
-
+class TestCarePlanEndpoint:
     def test_invalid_bundle(self):
         r = client.post("/api/v1/careplans", json={"not": "a bundle"})
         assert r.status_code == 400
 
-    def test_no_patient_in_bundle(self):
-        r = client.post(
-            "/api/v1/careplans",
-            json={"resourceType": "Bundle", "type": "collection", "entry": []},
-        )
-        assert r.status_code == 400
+    @patch("acp_writer.nodes.plan_composer._get_llm")
+    @patch("acp_writer.nodes.brief_reviewer._get_llm")
+    @patch("acp_writer.nodes.fhir_semantic_reviewer._get_llm")
+    def test_generates_fhir_bundle(self, mock_fhir, mock_brief, mock_compose):
+        brief_json = json.dumps({
+            "patient_reference": "Patient/patient-1",
+            "applicable_cpgs": [],
+            "dmn_audit_trail": [],
+            "goals": [{"description": "Lower BP", "source_cpg": "test"}],
+            "activities": [{"type": "lifestyle", "description": "DASH diet", "source_cpg": "test"}],
+            "conflicts": [],
+            "review_status": "pending",
+        })
+        for mock_llm, content in [
+            (mock_compose, brief_json),
+            (mock_brief, '{"verdict": "APPROVE", "issues": []}'),
+            (mock_fhir, '{"verdict": "APPROVE", "issues": []}'),
+        ]:
+            resp = MagicMock()
+            resp.content = content
+            m = MagicMock()
+            m.invoke.return_value = resp
+            mock_llm.return_value = m
 
-    def test_no_bp_observation(self):
-        bundle = {
-            "resourceType": "Bundle",
-            "type": "collection",
-            "entry": [
-                {"resource": {"resourceType": "Patient", "id": "test-patient"}},
-            ],
-        }
+        bundle = load_bundle("patient-bundle-medication.json")
         r = client.post("/api/v1/careplans", json=bundle)
-        assert r.status_code == 400
-        assert "blood pressure" in r.json()["detail"].lower()
+        assert r.status_code == 201
+        data = r.json()
+        assert data["resourceType"] == "Bundle"
+        assert data["type"] == "transaction"
 
 
 class TestCarePlanEndpoints:

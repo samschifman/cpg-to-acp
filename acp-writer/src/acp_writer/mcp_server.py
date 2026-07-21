@@ -13,7 +13,6 @@ from cpg_contracts import (
     RecommendationSearchRequest,
 )
 
-from acp_writer.careplan import build_careplan, extract_patient_data
 from acp_writer.api import (
     _dynamic_models,
     _evaluate_jit,
@@ -57,40 +56,24 @@ def evaluate_decision(model_id: str, inputs: dict) -> str:
 
 @mcp.tool()
 @mlflow.trace(name="mcp_generate_careplan")
-def generate_careplan(patient_data: dict) -> str:
-    """Generate a patient-specific FHIR CarePlan from a FHIR Bundle."""
-    extracted = extract_patient_data(patient_data)
+def generate_careplan(ips_bundle: dict) -> str:
+    """Generate a patient-specific FHIR CarePlan from a FHIR IPS Bundle.
 
-    treatment_model = _dynamic_models.get("treatment-recommendation")
-    monitoring_model = _dynamic_models.get("monitoring-plan")
-    if not treatment_model or not monitoring_model:
-        return json.dumps({"error": "Required decision models not deployed"})
+    Runs the full LangGraph care plan composition pipeline.
+    """
+    from acp_writer.pipeline import build_pipeline
 
-    treatment_result = _evaluate_jit(
-        treatment_model["dmn_xml"],
-        {
-            "Systolic BP": extracted["systolic_bp"],
-            "Has Diabetes": extracted["has_diabetes"],
-            "Has Kidney Disease": extracted["has_kidney_disease"],
-        },
-    )
-    action = treatment_result["Treatment Recommendation"]["Action"]
-    monitoring_result = _evaluate_jit(
-        monitoring_model["dmn_xml"],
-        {"Treatment Action": action, "Has Kidney Disease": extracted["has_kidney_disease"]},
-    )
+    graph = build_pipeline()
+    compiled = graph.compile()
 
-    decisions = {
-        "action": action,
-        "medication": treatment_result["Treatment Recommendation"]["Medication"],
-        "dose": treatment_result["Treatment Recommendation"]["Dose"],
-        "follow_up_weeks": treatment_result["Treatment Recommendation"]["Follow Up Weeks"],
-        "lab_order": monitoring_result["Monitoring Plan"]["Lab Order"],
-        "lab_timing_weeks": monitoring_result["Monitoring Plan"]["Lab Timing Weeks"],
-    }
+    result = compiled.invoke({
+        "ips_bundle": ips_bundle,
+        "litellm_url": os.environ.get("LITELLM_URL", "http://localhost:4000"),
+        "llm_model": os.environ.get("LLM_MODEL", "default"),
+        "llm_api_key": os.environ.get("LLM_API_KEY", "sk-change-me"),
+    })
 
-    bundle = build_careplan(extracted["patient_id"], decisions)
-    return json.dumps(bundle)
+    return json.dumps(result.get("fhir_bundle", {}))
 
 
 @mcp.tool()
