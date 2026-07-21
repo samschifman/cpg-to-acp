@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Submit Patient Data — ACP Writer{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Submit Patient Data</h2>
+    <p>Upload a FHIR IPS Bundle (JSON) to generate a care plan.</p>
+    <form action="/ui/submit" method="POST" enctype="multipart/form-data">
+        <div>
+            <label>Patient IPS Bundle (JSON file):</label><br>
+            <input type="file" name="bundle_file" accept=".json" required>
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Generate Care Plan</button>
+        </div>
+    </form>
+</div>
+
+{% if error %}
+<div class="status status-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <h2>Or use a sample patient</h2>
+    <div class="actions">
+        <form action="/ui/submit-sample" method="post" style="display:inline">
+            <input type="hidden" name="sample" value="medication">
+            <button type="submit" class="btn btn-secondary">Patient 1 — Medication Path</button>
+        </form>
+        <form action="/ui/submit-sample" method="post" style="display:inline">
+            <input type="hidden" name="sample" value="lifestyle">
+            <button type="submit" class="btn btn-secondary">Patient 2 — Lifestyle Path</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

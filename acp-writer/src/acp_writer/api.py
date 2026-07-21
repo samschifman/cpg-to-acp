@@ -60,6 +60,9 @@ app = FastAPI(
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
 
+from acp_writer.ui.app import app as ui_app
+app.mount("/ui", ui_app)
+
 
 def _check_kogito() -> bool:
     try:
