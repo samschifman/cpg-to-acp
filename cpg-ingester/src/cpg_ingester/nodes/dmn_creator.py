@@ -1,6 +1,7 @@
 """DMN Creator — generates DMN 1.4 XML per decision item."""
 
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -50,6 +51,7 @@ def _strip_markdown_fences(text: str) -> str:
 @mlflow.trace(name="dmn_creator")
 def dmn_creator(state: dict) -> dict:
     """Generate DMN 1.4 XML for a decision item."""
+    logger.info("── DMN Creator ──")
     item = state.get("item", {})
     source_pages = state.get("source_pages", "")
     abbreviations = state.get("abbreviations", {})
@@ -74,6 +76,8 @@ def dmn_creator(state: dict) -> dict:
 
     llm = _get_llm(state)
 
+    logger.info("Calling LLM...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": DMN_CREATOR_SYSTEM.format(reference=REFERENCE_EXAMPLES)},
         {"role": "user", "content": DMN_CREATOR_USER.format(
@@ -88,6 +92,7 @@ def dmn_creator(state: dict) -> dict:
             feedback=feedback,
         )},
     ])
+    logger.info("LLM responded in %.1fs", time.time() - t0)
 
     dmn_xml = _strip_markdown_fences(response.content)
 

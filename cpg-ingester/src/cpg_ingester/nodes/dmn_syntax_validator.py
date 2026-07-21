@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @mlflow.trace(name="dmn_syntax_validator")
 def dmn_syntax_validator(state: dict) -> dict:
     """Validate DMN XML syntax. Returns errors in state for retry routing."""
+    logger.info("── DMN Syntax Validator ──")
     dmn_xml = state.get("dmn_xml", "")
     item = state.get("item", {})
     name = item.get("name", "unknown")

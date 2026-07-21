@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -61,6 +62,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="metadata_extractor")
 def metadata_extractor(state: dict) -> dict:
     """Extract CPGMetadata from the document."""
+    logger.info("── Metadata Extractor ──")
     markdown = state.get("markdown", "")
     output_dir = state.get("output_dir", "output")
 
@@ -68,10 +70,14 @@ def metadata_extractor(state: dict) -> dict:
 
     content = markdown[:6000]
 
+    logger.info("Calling LLM...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": METADATA_EXTRACTOR_SYSTEM},
         {"role": "user", "content": METADATA_EXTRACTOR_USER.format(content=content)},
     ])
+
+    logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
         raw = _parse_llm_json(response.content)

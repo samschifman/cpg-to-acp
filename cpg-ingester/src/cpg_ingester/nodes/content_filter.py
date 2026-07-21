@@ -83,6 +83,7 @@ def _remove_section_from_markdown(markdown: str, heading: str, next_heading: str
 @mlflow.trace(name="content_filter")
 def content_filter(state: dict) -> dict:
     """Remove sections classified as 'skip', with safety checks."""
+    logger.info("── Content Filter ──")
     section_map = state.get("section_map", [])
     markdown = state.get("markdown", "")
     output_dir = state.get("output_dir", "output")

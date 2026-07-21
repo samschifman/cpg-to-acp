@@ -119,7 +119,8 @@ def dmn_executor(state: CarePlanComposerState) -> dict:
         inputs: dict[str, Any] = {}
         fhir_refs: list[str] = []
 
-        for var in model_info.get("inputs", []):
+        expected_inputs = model_info.get("inputs", [])
+        for var in expected_inputs:
             value, ref = _extract_input_value(
                 ips_bundle, var["name"], var.get("type", "string"), prior_results
             )
@@ -127,6 +128,10 @@ def dmn_executor(state: CarePlanComposerState) -> dict:
                 inputs[var["name"]] = value
             if ref:
                 fhir_refs.append(ref)
+
+        missing = [v["name"] for v in expected_inputs if v["name"] not in inputs]
+        if missing:
+            logger.warning("DMN model %s missing inputs: %s", model_info.get("name"), missing)
 
         logger.info("Evaluating DMN model: %s with inputs: %s", model_info.get("name"), inputs)
 

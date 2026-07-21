@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 import uuid
 
 import mlflow
@@ -95,6 +96,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="item_identifier")
 def item_identifier(state: dict) -> dict:
     """Identify all decisions and recommendations in the CPG."""
+    logger.info("── Item Identifier ──")
     markdown = state.get("markdown", "")
     section_map = state.get("section_map", [])
     abbreviations = state.get("abbreviations", {})
@@ -113,6 +115,8 @@ def item_identifier(state: dict) -> dict:
     if feedback:
         content = f"REVIEWER FEEDBACK FROM PREVIOUS ITERATION — address these issues:\n{feedback}\n\n---\n\n{content}"
 
+    logger.info("Identifying items (LLM)...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": ITEM_IDENTIFIER_SYSTEM},
         {"role": "user", "content": ITEM_IDENTIFIER_USER.format(
@@ -121,6 +125,8 @@ def item_identifier(state: dict) -> dict:
             content=content,
         )},
     ])
+
+    logger.info("Item identification: %.1fs", time.time() - t0)
 
     try:
         result = _parse_llm_json(response.content)

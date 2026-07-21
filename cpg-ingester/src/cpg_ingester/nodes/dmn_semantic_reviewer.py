@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -28,6 +29,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="dmn_semantic_reviewer")
 def dmn_semantic_reviewer(state: dict) -> dict:
     """Adversarial review of generated DMN against source material."""
+    logger.info("── DMN Semantic Reviewer ──")
     dmn_xml = state.get("dmn_xml", "")
     item = state.get("item", {})
     source_pages = state.get("source_pages", "")
@@ -45,6 +47,8 @@ def dmn_semantic_reviewer(state: dict) -> dict:
 
     llm = _get_llm(state)
 
+    logger.info("Calling LLM...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": DMN_SEMANTIC_REVIEWER_SYSTEM},
         {"role": "user", "content": DMN_SEMANTIC_REVIEWER_USER.format(
@@ -53,6 +57,7 @@ def dmn_semantic_reviewer(state: dict) -> dict:
             source_pages=source_pages,
         )},
     ])
+    logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
         result = _parse_llm_json(response.content)

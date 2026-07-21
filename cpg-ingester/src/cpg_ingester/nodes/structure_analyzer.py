@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -114,6 +115,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="structure_analyzer")
 def structure_analyzer(state: dict) -> dict:
     """Analyze document structure, detect archetype, build section map."""
+    logger.info("── Structure Analyzer ──")
     docling_json = state.get("docling_json", {})
     markdown = state.get("markdown", "")
     output_dir = state.get("output_dir", "output")
@@ -134,10 +136,13 @@ def structure_analyzer(state: dict) -> dict:
         f"- Page {s['page_no']}: \"{s['heading']}\""
         for s in sections
     )
+    logger.info("Classifying %d sections (LLM)...", len(sections))
+    t0 = time.time()
     classification_response = llm.invoke([
         {"role": "system", "content": SECTION_CLASSIFICATION_SYSTEM},
         {"role": "user", "content": SECTION_CLASSIFICATION_USER.format(section_list=section_list)},
     ])
+    logger.info("Section classification: %.1fs", time.time() - t0)
     try:
         classifications = _parse_llm_json(classification_response.content)
     except (json.JSONDecodeError, ValueError):
@@ -160,6 +165,8 @@ def structure_analyzer(state: dict) -> dict:
     # Detect archetype
     section_headings = "\n".join(f"- {s['heading']}" for s in sections)
     first_page_content = markdown[:2000]
+    logger.info("Detecting archetype (LLM)...")
+    t0 = time.time()
     archetype_response = llm.invoke([
         {"role": "system", "content": ARCHETYPE_DETECTION_SYSTEM},
         {"role": "user", "content": ARCHETYPE_DETECTION_USER.format(
@@ -167,6 +174,7 @@ def structure_analyzer(state: dict) -> dict:
             first_page_content=first_page_content,
         )},
     ])
+    logger.info("Archetype detection: %.1fs", time.time() - t0)
     try:
         archetype_result = _parse_llm_json(archetype_response.content)
         archetype = archetype_result.get("archetype", "institutional")
@@ -175,10 +183,13 @@ def structure_analyzer(state: dict) -> dict:
     logger.info("Detected archetype: %s", archetype)
 
     # Extract grading definitions
+    logger.info("Extracting grading definitions (LLM)...")
+    t0 = time.time()
     grading_response = llm.invoke([
         {"role": "system", "content": GRADING_EXTRACTION_SYSTEM},
         {"role": "user", "content": GRADING_EXTRACTION_USER.format(content=markdown[:8000])},
     ])
+    logger.info("Grading extraction: %.1fs", time.time() - t0)
     try:
         grading_result = _parse_llm_json(grading_response.content)
         grading_definitions = grading_result.get("definitions") or ""

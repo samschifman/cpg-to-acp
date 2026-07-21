@@ -93,6 +93,7 @@ def _collect_from_output_dir(output_dir: str) -> tuple[list[dict], list[dict]]:
 @mlflow.trace(name="assembly")
 def assembly(state: dict) -> dict:
     """Assemble all validated outputs from DMN and Rec tracks."""
+    logger.info("── Assembly ──")
     cpg_metadata = state.get("cpg_metadata", {})
     item_manifest = state.get("item_manifest", [])
     output_dir = state.get("output_dir", "output")

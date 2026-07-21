@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @mlflow.trace(name="rec_schema_validator")
 def rec_schema_validator(state: dict) -> dict:
     """Validate extracted recommendations against the contract schema."""
+    logger.info("── Rec Schema Validator ──")
     recommendations = state.get("recommendations", [])
     items = state.get("items", [])
 
