@@ -1,79 +1,102 @@
 # Actionable Care Plan Writer
 
-This is the heart of the project. It composes patient-specific, FHIR-compliant care plans by combining clinical decision logic with patient data.
+Composes patient-specific, FHIR-compliant care plans by combining clinical decision logic (DMN), retrieved recommendations (vector store), and patient data (FHIR IPS). Uses a multi-agent LangGraph pipeline with adversarial review.
 
 ## Architecture
 
-The acp-writer contains two sub-components:
+Two-phase LangGraph pipeline:
 
-- **`decision-service/`** — Java/Quarkus application (Apache KIE 10.2 / Kogito) that exposes DMN decision tables as REST endpoints. This is the Drools decision engine runtime.
-- **`src/acp_writer/`** — Python service that orchestrates the care plan composition pipeline: accepts patient data, invokes the decision service, and assembles a FHIR CarePlan Bundle.
+**Phase 1 — Clinical Reasoning:**
+1. **Condition Scanner** — Extract patient conditions, medications, allergies from IPS (deterministic)
+2. **Guideline Resolver** — Match conditions to registered CPGs and DMN models
+3. **DMN Executor** — Evaluate decision models with targeted IPS extraction
+4. **Recommendation Retriever** — Search vector store for applicable recommendations
+5. **Plan Composer** — LLM maps decisions + recommendations → Planning Brief
+6. **Brief Reviewer** — Adversarial LLM review (clinical pharmacist persona, max 2 loops)
 
-Both the decision engine and the vector store (Phase 2) are internal implementation details of acp-writer, hidden behind the API.
+**Phase 2 — FHIR Generation:**
+7. **FHIR Bundle Generator** — Deterministic FHIR R4 from Planning Brief (no LLM)
+8. **Terminology Validator** — Verify all codes against SNOMED/RxNorm/LOINC/ICD-10
+9. **FHIR Syntax Validator** — Structural validation + AI Transparency IG compliance
+10. **FHIR Semantic Reviewer** — LLM review for clinical coherence (max 2 loops)
+11. **FHIR Server Writer** — POST to HAPI FHIR + approve/reject workflow
 
-## Two Outputs
+### Sub-components
 
-1. **FHIR CarePlan** — Patient-specific care plan with goals, activities (MedicationRequests, ServiceRequests), and references back to the patient record.
-2. **BPMN** (Phase 3) — Process definitions for automatable care plan activities, sent to the automation service.
+- **`decision-service/`** — Java/Quarkus (Apache KIE / Kogito) DMN engine runtime
+- **`src/acp_writer/`** — Python pipeline service
 
-## API Contract
+Both the decision engine and vector store are internal implementation details, hidden behind the API.
 
-The acp-writer exposes a REST API defined in [`api/openapi.yaml`](api/openapi.yaml) and MCP tool definitions in [`api/mcp-tools.json`](api/mcp-tools.json).
-
-**Design principles:**
-- **Callers provide patient data directly** — the acp-writer does not query FHIR servers. Patient data is POSTed as a FHIR Bundle or IPS document.
-- **Internal services are hidden** — Kogito and the vector store are behind the API. Callers deploy DMN and ingest knowledge; the API handles the rest.
-
-### API Groups
-
-| Group | Endpoints | Purpose |
-|---|---|---|
-| **Decisions** | `/api/v1/decisions/models`, `.../evaluate/{id}` | Deploy, list, remove, and evaluate DMN decision models |
-| **Knowledge** | `/api/v1/knowledge/documents`, `.../search` | Ingest, list, remove, and search clinical recommendations |
-| **Care Plans** | `/api/v1/careplans`, `.../status` | Generate, retrieve, list, and approve/reject care plans |
-| **Health** | `/health`, `/health/ready`, `/api/v1/status` | Liveness, readiness, and component status |
-
-### MCP Tools
-
-Each REST endpoint has a corresponding MCP tool definition for agent framework integration:
-
-| MCP Tool | REST Endpoint | Description |
-|---|---|---|
-| `deploy_decision_model` | `POST /api/v1/decisions/models` | Deploy DMN to the decision engine |
-| `list_decision_models` | `GET /api/v1/decisions/models` | List deployed models |
-| `evaluate_decision` | `POST /api/v1/decisions/evaluate/{id}` | Test a model with inputs |
-| `ingest_knowledge` | `POST /api/v1/knowledge/documents` | Add content to the knowledge base |
-| `search_knowledge` | `POST /api/v1/knowledge/search` | Search the knowledge base |
-| `generate_careplan` | `POST /api/v1/careplans` | Generate a care plan from patient data |
-| `get_careplan` | `GET /api/v1/careplans/{id}` | Retrieve a generated care plan |
-| `approve_careplan` | `PUT /api/v1/careplans/{id}/status` | Approve or reject a care plan |
-
-## CLI
-
-The CLI reads a FHIR Bundle from a file and generates a CarePlan. It requires Kogito running on :8081.
+## Getting Started
 
 ```bash
 cd acp-writer
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-
-acp-writer ../mock-EHR/data/patient-bundle-medication.json   # Requires Kogito on :8081
+pip install -e "../shared" -e ".[test]"
 ```
 
-### Phase 1 Shortcuts
+### Run the pipeline via CLI
 
-These are intentional simplifications documented in the code. They must be replaced when the API is implemented.
+Requires LiteLLM proxy running:
 
-- **Hardcoded FHIR-to-DMN mapping** — Specific to the hypertension decision tables. The API design eliminates this by having callers provide patient data directly and the service extracting what it needs.
-- **Direct FHIR queries instead of IPS** — The API design eliminates this entirely. Callers provide patient data in the request body.
+```bash
+LITELLM_URL=http://localhost:4000 acp-writer ../mock-EHR/data/patient-bundle-medication.json
+```
+
+### Run tests
+
+```bash
+# Unit tests (no external services needed)
+pytest tests/ -k "not integration and not network"
+
+# With live terminology servers
+pytest tests/ -k "not integration"
+
+# Full E2E (requires LiteLLM)
+LITELLM_URL=http://localhost:4000 pytest tests/test_e2e.py -v
+```
+
+## API Contract
+
+REST API defined in [`api/openapi.yaml`](api/openapi.yaml). MCP tools in [`api/mcp-tools.json`](api/mcp-tools.json).
+
+### Endpoints
+
+| Group | Endpoints | Purpose |
+|---|---|---|
+| **Guidelines** | `/api/v1/guidelines` | Register, list, get, delete CPG metadata |
+| **Decisions** | `/api/v1/decisions/models`, `.../evaluate/{id}` | Deploy, list, remove, evaluate DMN models |
+| **Knowledge** | `/api/v1/knowledge/recommendations`, `.../search` | Ingest, list, search recommendations |
+| **Care Plans** | `/api/v1/careplans`, `.../status` | Generate, retrieve, approve/reject care plans |
+| **Health** | `/health`, `/health/ready`, `/api/v1/status` | Liveness, readiness, component status |
+
+### MCP Tools
+
+| Tool | Description |
+|---|---|
+| `deploy_decision_model` | Deploy DMN to the decision engine |
+| `list_decision_models` | List deployed models |
+| `evaluate_decision` | Evaluate a model with inputs |
+| `register_guideline` | Register CPG metadata |
+| `ingest_recommendation` | Ingest a single recommendation |
+| `ingest_recommendation_batch` | Ingest a RecommendationBundle |
+| `search_recommendations` | Search recommendations by similarity |
+| `generate_careplan` | Generate a care plan from an IPS Bundle |
+
+## AI Transparency
+
+Every care plan bundle includes:
+- **AIAST `meta.security`** on all generated resources
+- **AI-Device** resource (AI Transparency IG profile)
+- **AI-Provenance** with CPG derivation lineage
+- **Per-activity Provenance** linking to source recommendations
+- On approval: AIAST → CLINAST_AIRPT, clinician added as verifier
+
+## Observability
+
+MLflow tracing via `mlflow.langchain.autolog()` + `mlflow.fastapi.autolog()`. Set `MLFLOW_TRACKING_URI` to enable.
 
 ## Decision Service (Internal)
 
-The Kogito decision service auto-generates REST endpoints from DMN files. This is an internal component — external callers should use the acp-writer API, not call Kogito directly.
-
-```bash
-# Direct Kogito access (internal/debugging only)
-curl -X POST "http://localhost:8081/Treatment%20Recommendation" \
-  -H "Content-Type: application/json" \
-  -d '{"Systolic BP": 142, "Has Diabetes": true, "Has Kidney Disease": false}'
-```
+Kogito auto-generates REST endpoints from DMN. Internal — use the acp-writer API, not Kogito directly.

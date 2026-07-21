@@ -38,6 +38,7 @@ def _post_with_retry(url: str, data=None, json_data=None, headers=None) -> reque
 @mlflow.trace(name="delivery")
 def delivery(state: dict) -> dict:
     """Send assembled artifacts to acp-writer API."""
+    logger.info("── Delivery ──")
     cpg_metadata = state.get("cpg_metadata", {})
     dmn_results = state.get("dmn_results", []) or []
     recommendation_results = state.get("recommendation_results", [])

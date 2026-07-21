@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -28,6 +29,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="classification_reviewer")
 def classification_reviewer(state: dict) -> dict:
     """Adversarial review of the item manifest."""
+    logger.info("── Classification Reviewer (iteration %d) ──", state.get("classification_review_count", 0) + 1)
     manifest = state.get("item_manifest", [])
     section_map = state.get("section_map", [])
     markdown = state.get("markdown", "")
@@ -50,6 +52,8 @@ def classification_reviewer(state: dict) -> dict:
 
     content = markdown[:12000]
 
+    logger.info("Calling LLM...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": CLASSIFICATION_REVIEWER_SYSTEM},
         {"role": "user", "content": CLASSIFICATION_REVIEWER_USER.format(
@@ -59,6 +63,8 @@ def classification_reviewer(state: dict) -> dict:
             content=content,
         )},
     ])
+
+    logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
         result = _parse_llm_json(response.content)

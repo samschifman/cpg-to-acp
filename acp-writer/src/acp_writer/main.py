@@ -1,39 +1,57 @@
 """CLI entry point for care plan generation.
 
-Reads a FHIR Bundle from a file and generates a CarePlan.
+Reads a FHIR IPS Bundle from a file and runs the LangGraph
+care plan composition pipeline.
 """
 
 import json
 import logging
+import os
+import uuid
 
 import click
 
-from acp_writer.careplan import build_careplan, extract_patient_data, invoke_decisions
+from acp_writer.pipeline import build_pipeline
 
 
 @click.command()
 @click.argument("bundle_file", type=click.Path(exists=True))
-@click.option("--kogito-url", default="http://localhost:8081", help="Kogito decision service URL.")
-@click.option("--output", "-o", type=click.Path(), default=None, help="Write CarePlan JSON to file.")
-def main(bundle_file: str, kogito_url: str, output: str):
-    """Generate a FHIR CarePlan from a patient data bundle."""
+@click.option("--litellm-url", default=None, help="LiteLLM proxy URL.")
+@click.option("--model", default=None, help="LLM model name.")
+@click.option("--api-key", default=None, help="LLM API key.")
+@click.option("--output-dir", "-o", type=click.Path(), default=None, help="Output directory for artifacts.")
+def main(bundle_file: str, litellm_url: str, model: str, api_key: str, output_dir: str):
+    """Generate a FHIR CarePlan from a patient IPS Bundle."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     with open(bundle_file) as f:
         bundle = json.load(f)
 
-    patient_data = extract_patient_data(bundle)
-    decisions = invoke_decisions(kogito_url, patient_data)
-    careplan_bundle = build_careplan(patient_data["patient_id"], decisions)
+    run_id = str(uuid.uuid4())[:8]
+    if not output_dir:
+        output_dir = f"output/{run_id}"
 
-    careplan_json = json.dumps(careplan_bundle, indent=2)
+    graph = build_pipeline()
+    compiled = graph.compile()
 
-    if output:
-        with open(output, "w") as f:
-            f.write(careplan_json)
-        click.echo(f"CarePlan written to {output}")
-    else:
-        click.echo(careplan_json)
+    result = compiled.invoke({
+        "ips_bundle": bundle,
+        "run_id": run_id,
+        "output_dir": output_dir,
+        "litellm_url": litellm_url or os.environ.get("LITELLM_URL", "http://localhost:4000"),
+        "llm_model": model or os.environ.get("LLM_MODEL", "default"),
+        "llm_api_key": api_key or os.environ.get("LLM_API_KEY", "sk-change-me"),
+    })
+
+    fhir_bundle = result.get("fhir_bundle", {})
+    careplan_json = json.dumps(fhir_bundle, indent=2)
+
+    click.echo(f"Run ID: {run_id}")
+    click.echo(f"Delivery status: {result.get('delivery_status', 'unknown')}")
+    click.echo(f"Artifacts: {output_dir}")
+
+    if result.get("careplan_id"):
+        click.echo(f"Care plan ID: {result['careplan_id']}")
 
 
 if __name__ == "__main__":

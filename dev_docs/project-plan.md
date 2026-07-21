@@ -6,17 +6,15 @@
 
 Transform Clinical Practice Guidelines into patient-specific, FHIR-compliant, actionable care plans — running on OpenShift with Red Hat AI platform capabilities. Enable parallel development across areas with cross-cutting milestones.
 
-## Current State (Phase 3.1 Complete)
+## Current State (Phase 3.2 Nearly Complete)
 
-cpg-ingester is now a multi-agent pipeline (LangGraph) with adversarial review. The pipeline extracts both DMN decision tables and structured recommendations from CPG PDFs, with deterministic syntax validation and LLM-based semantic review at every extraction stage. A minimal web UI supports upload, analysis review, and artifact browsing. All nodes traced in MLflow.
+Both cpg-ingester and acp-writer are multi-agent LangGraph pipelines with adversarial review. Phase 3.2 Steps 0–17 are complete; Step 18 (minimal UI) remains.
 
-**What works:** Full cpg-ingester pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). End-to-end verified with synthetic CPG via live LLM (154 API calls, 13 DMN decisions, 8 recommendation batches). Recommendation contracts defined. Mock receiver for testing without acp-writer.
+**What works:**
+- **cpg-ingester:** Full pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). Minimal web UI for upload and artifact browsing.
+- **acp-writer:** Full 11-node pipeline (Condition Scanner → Guideline Resolver → DMN Executor → Recommendation Retriever → Plan Composer → Brief Reviewer → FHIR Bundle Generator → Terminology Validator → FHIR Syntax Validator → FHIR Semantic Reviewer → FHIR Server Writer). Vector store with pluggable embedding model. Guidelines CRUD + recommendation ingestion endpoints. AI Transparency IG compliance (AIAST/CLINAST_AIRPT). Care plan approval workflow. 205 unit tests + 3 E2E tests.
 
-**What doesn't exist yet:** acp-writer multi-agent composition, vector store, real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
-
-**What works:** end-to-end pipeline on OpenShift, recommendation contracts defined, all component boundaries closed, test fixtures for independent development.
-
-**What doesn't exist yet:** multi-agent orchestration, vector store, recommendation extraction, UIs, real CPGs, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance.
+**What doesn't exist yet:** acp-writer minimal UI (Step 18), real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
 
 ---
 
@@ -115,32 +113,47 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 ---
 
-#### Phase 3.2 — acp-writer Multi-Agent Composition
+#### Phase 3.2 — acp-writer Multi-Agent Composition (Steps 0–17 complete, Step 18 in progress)
 
 **Goal:** Replace the hardcoded care plan composition with a multi-agent system that uses DMN decisions, retrieved recommendations, and FHIR expertise to produce clinically complete care plans.
 
-Can proceed independently after Phase 3.0 contracts are defined. Does not depend on cpg-ingester's multi-agent pipeline — acp-writer can be developed and tested using hand-crafted recommendation data that conforms to the shared contract.
+**Design:** `dev_docs/acp-writer-design.md` | **Plan:** `working/phase3.2-implementation.md`
 
-| Work | Notes |
+| Work | Status |
 |---|---|
-| Implement knowledge ingestion endpoint — accepts recommendations per the shared contract | Replace the 501 stubs with working implementation |
-| Establish vector store for recommendations | Pluggable (Milvus, pgvector); internal to acp-writer per AGENTS.md |
-| Enhance care plan composition agent — uses DMN + retrieved recommendations | Replace hardcoded mapping with LangGraph-based composition |
-| Generate CarePlan with narrative activities from process/recommendations | Activities reference CPG source material |
-| Add FHIR CarePlan expert agent — correct codes, AI Transparency on FHIR IG compliance | Research: HL7 AIToF IG |
-| **Research:** What makes effective goals in a FHIR CarePlan? | Clinical + FHIR standard input |
-| Write CarePlan + associated resources back to HAPI FHIR server | — |
-| Accept patient data as IPS instead of raw Bundle | Replace Phase 1 shortcut |
-| Minimal UI: review and approve a generated care plan | Simple workflow: submit patient data → review CarePlan → approve |
+| **Spike:** Vector store selection (pgvector) | ✅ |
+| Project scaffolding + dependencies | ✅ |
+| Guidelines CRUD + recommendation ingestion + vector store | ✅ |
+| Planning Brief Pydantic schema | ✅ |
+| State schema + LangGraph pipeline skeleton (11 nodes) | ✅ |
+| Condition Scanner (deterministic FHIR traversal) | ✅ |
+| Guideline Resolver (condition → CPG scope matching) | ✅ |
+| Terminology lookup tool (SNOMED/RxNorm/LOINC/ICD-10) | ✅ |
+| IPS targeted extraction tool | ✅ |
+| DMN Executor (topological order, targeted extraction) | ✅ |
+| Recommendation Retriever (vector search) | ✅ |
+| Plan Composer (LLM → PlanningBrief) | ✅ |
+| Brief Reviewer (adversarial, clinical pharmacist) | ✅ |
+| FHIR Bundle Generator (deterministic, AI Transparency IG) | ✅ |
+| Terminology + FHIR Syntax Validators | ✅ |
+| FHIR Semantic Reviewer (adversarial LLM) | ✅ |
+| FHIR Server Writer + approval workflow (AIAST → CLINAST_AIRPT) | ✅ |
+| E2E integration tests + legacy removal + README | ✅ |
+| Minimal UI: review and approve a generated care plan | **Step 18 — next** |
 
 ##### Exit Criteria
 
-- acp-writer produces CarePlans with recommendation-backed narrative activities
-- Vector store operational with recommendation retrieval
-- Knowledge ingestion endpoint accepts and indexes recommendations
-- Care plan composition uses both DMN decisions and retrieved recommendations
-- Minimal review/approval UI functional
-- All agents traced in MLflow
+- [x] acp-writer produces CarePlans with recommendation-backed narrative activities
+- [x] Vector store operational with recommendation retrieval
+- [x] Knowledge ingestion and guidelines CRUD endpoints functional
+- [x] Care plan composition uses both DMN decisions and retrieved recommendations
+- [x] Planning Brief validated by adversarial reviewer before FHIR generation
+- [x] FHIR output passes terminology, syntax, and semantic validation
+- [x] AI Transparency on FHIR IG compliant (AIAST tags, AI-Device, AI-Provenance)
+- [x] Care plans written to HAPI FHIR server
+- [x] Approval workflow changes AIAST → CLINAST_AIRPT
+- [ ] Minimal review/approval UI functional (Step 18)
+- [x] All agents traced in MLflow
 
 ---
 
@@ -150,20 +163,25 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the independently-developed tracks are integrated and hardened.
 
-| Area | Work | Notes |
-|---|---|---|
+| Area | Work                                                                                                           | Notes |
+|---|----------------------------------------------------------------------------------------------------------------|---|
 | **integration** | End-to-end test: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both | Verify contract compatibility, data flow, error handling |
-| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer | Contract fidelity check |
-| **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
-| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Deferred from Phase 3.0 — agents must exist before policies can be applied |
-| **platform** | MCP Gateway for governed tool access | Deferred from Phase 3.0 — tools must work before governance is layered on |
-| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases |
+| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer       | Contract fidelity check |
+| **integration** | Test with the synthetic CPG end-to-end on OpenShift                                                            | Full pipeline on-cluster |
+| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod *                                       | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
+| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator pod *                                         | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
+| **platform** | OpenShell policies per agent (network, filesystem, credential scoping)                                         | Requires pod split — policies are per-pod, not per-function within a pod |
+| **platform** | MCP Gateway for governed tool access                                                                           | Deferred from Phase 3.0 — tools must work before governance is layered on |
+| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan)                               | Regression suite for future phases |
+
+\* when doing pod split, make sure UI is running in its own pod
 
 ##### Exit Criteria
 
 - End-to-end pipeline: cpg-ingester → acp-writer produces CarePlans using both DMN and recommendations
 - Pipeline runs on OpenShift with MLflow traces visible for every step
-- OpenShell agent policies applied and enforced
+- Both cpg-ingester and acp-writer split into pod-per-security-profile
+- OpenShell agent policies applied and enforced per pod
 - MCP Gateway governing tool access
 - Golden test cases passing
 - All Phase 3.1 and Phase 3.2 exit criteria met
@@ -186,7 +204,6 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **automation** | Implement automation service that accepts BPMN from acp-writer | Receives BPMN over API |
 | **shared** | Define the BPMN contract in shared/ | — |
 | **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer |
-| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
 
 #### Exit Criteria
 
@@ -313,8 +330,8 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
-| Phase 3.2 | Not started | Vector store, MCP Gateway, LangGraph (acp-writer agents) |
-| Phase 3.3 | Not started | — (integration and governance) |
+| Phase 3.2 | Nearly complete (Step 18 remains) | pgvector, LangGraph (acp-writer agents), AI Transparency IG |
+| Phase 3.3 | Not started | MCP Gateway, pod-per-security-profile (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
 | Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
 | Phase 6 | Not started | Keycloak, SPIFFE/SPIRE |
@@ -336,12 +353,18 @@ Within Phase 3, the cpg-ingester track (3.1) and acp-writer track (3.2) are desi
 
 Work that can be picked up at any time, independent of the current phase. These items improve the project but don't block other work.
 
-| Item | Area     | Notes |
-|---|----------|---|
-| MaaS with Vertex AI (Claude) | platform | Configure MaaS ExternalModel to route to Claude on Vertex AI. Requires a GCP service account key (not ADC user credentials) with the Vertex AI User role, and `oauth2` auth type on the ExternalProvider. OpenAI routing is already working; this adds Claude as a second provider option on-cluster. |
-| Enhance tracing in MLflow | all      | Make sure that the use of MLflow is optimized and that traces are useful. |
-| FEEL expression validator | cpg-ingester | Replace regex-based FEEL checks with a proper validator. Best option: expose a validation endpoint from the Kogito runtime (already running in acp-writer, Apache 2.0). No mature license-compatible Python FEEL parser exists. |
-| Upgrade DMN to 1.5 | cpg-ingester | Currently targeting DMN 1.4 (latest supported by Drools/Kogito at conformance level 3). DMN 1.5 (Aug 2024) adds useful FEEL functions (`context put`, `now()`, `today()`). Upgrade when Drools/Kogito formally supports 1.5. Watch [Drools releases](https://github.com/apache/incubator-kie-drools/releases). |
+| Item                              | Status | Area         | Notes                                                                                                                                                                                                                                                                                                                           |
+|-----------------------------------|---|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| MaaS with Vertex AI (Claude)      | Not started | platform     | Configure MaaS ExternalModel to route to Claude on Vertex AI. Requires a GCP service account key (not ADC user credentials) with the Vertex AI User role, and `oauth2` auth type on the ExternalProvider. OpenAI routing is already working; this adds Claude as a second provider option on-cluster.                           |
+| Enhance tracing in MLflow         | Not started | all          | Make sure that the use of MLflow is optimized and that traces are useful.                                                                                                                                                                                                                                                       |
+| FEEL expression validator         | Not started | cpg-ingester | Replace regex-based FEEL checks with a proper validator. Best option: expose a validation endpoint from the Kogito runtime (already running in acp-writer, Apache 2.0). No mature license-compatible Python FEEL parser exists.                                                                                                 |
+| DMN validator                     | Not started | cpg-ingester | Improve the DMN validator, look for opensource solutions and potentially expose an endpoint from Kogito to test.                                                                                                                                                                                                                |
+| Upgrade DMN to 1.5                | Not started | cpg-ingester | Currently targeting DMN 1.4 (latest supported by Drools/Kogito at conformance level 3). DMN 1.5 (Aug 2024) adds useful FEEL functions (`context put`, `now()`, `today()`). Upgrade when Drools/Kogito formally supports 1.5. Watch [Drools releases](https://github.com/apache/incubator-kie-drools/releases).                  |
+| Abbreviation expansion in Rec Extractor | ✅ Complete | cpg-ingester | Rec Extractor prompt now expands ALL occurrences of abbreviations in `content` as "Full Name (ABBREVIATION)". No bare abbreviations — content is self-contained for vector search. |
+| Provenance CPG lineage improvement | Not started | acp-writer | Per-activity Provenance currently only references recommendation ID. Should include CPG title, section, page numbers (from SourceLocation), and recommendation title for meaningful lineage display in the care plan bundle. |
+| Improve conflict resolution in care plans | Not started | acp-writer | Current conflict handling is placeholder detection only. Needs interactive clinician resolution UI, structured conflict types (same target, contradictory, overlapping), resolution tracking in Provenance, multi-CPG conflict support. See design doc § Conflict Resolution. |
+| FHIR transaction bundle patient reference | Not started | acp-writer | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but need to handle the case where it doesn't — either include Patient in the transaction or use conditional references. |
+| Approval workflow should POST/update on FHIR server | Not started | acp-writer | Care plan should be POSTed to FHIR in "draft" status on creation. Approval updates status to "active" on the FHIR server; rejection updates to "entered-in-error". AIAST → CLINAST_AIRPT transition should be reflected on the server, not just in-memory. |
 
 ---
 

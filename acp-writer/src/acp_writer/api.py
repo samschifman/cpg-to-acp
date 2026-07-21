@@ -11,8 +11,18 @@ import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from cpg_contracts import DecisionModelSummary, DecisionVariable
-from acp_writer.careplan import build_careplan, extract_patient_data
+from cpg_contracts import (
+    CPGMetadata,
+    DecisionModelSummary,
+    DecisionVariable,
+    Recommendation,
+    RecommendationBundle,
+    RecommendationSearchRequest,
+)
+
+from acp_writer.store.embedding import EmbeddingProvider, FakeEmbeddingProvider
+from acp_writer.store.guidelines_store import GuidelinesStore
+from acp_writer.store.vector_store import InMemoryVectorStore, VectorStore
 
 try:
     mlflow.fastapi.autolog()
@@ -26,11 +36,43 @@ DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
 
 _dynamic_models: dict[str, dict] = {}
 
+# --- Store initialization ---
+# Use FakeEmbeddingProvider by default to avoid downloading a model on import.
+# Set EMBEDDING_MODEL env var or call init_stores() with a real provider.
+
+_embedding_provider: EmbeddingProvider = FakeEmbeddingProvider(dimensions=8)
+_vector_store: VectorStore = InMemoryVectorStore(_embedding_provider)
+_guidelines_store: GuidelinesStore = GuidelinesStore(_vector_store)
+
+
+def init_stores(embedding_provider: EmbeddingProvider | None = None) -> None:
+    """Re-initialize stores with a specific embedding provider."""
+    global _embedding_provider, _vector_store, _guidelines_store
+    if embedding_provider:
+        _embedding_provider = embedding_provider
+    _vector_store = InMemoryVectorStore(_embedding_provider)
+    _guidelines_store = GuidelinesStore(_vector_store)
+
+
 app = FastAPI(
     title="ACP Writer API",
-    version="0.1.0",
+    version="0.2.0",
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
+
+from acp_writer.ui.app import app as ui_app, _setup_sample_data
+app.mount("/ui", ui_app)
+
+
+@app.on_event("startup")
+async def startup():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    _setup_sample_data()
 
 
 def _check_kogito() -> bool:
@@ -89,48 +131,6 @@ def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     return r.json()
 
 
-@mlflow.trace(name="invoke_decisions")
-def invoke_decisions_dynamic(patient_data: dict) -> dict:
-    """Invoke decisions using dynamically deployed models.
-
-    Phase 1 shortcut: hardcoded to call treatment-recommendation then
-    monitoring-plan by name. Does not generalize.
-    """
-    treatment_model = _dynamic_models.get("treatment-recommendation")
-    monitoring_model = _dynamic_models.get("monitoring-plan")
-
-    if not treatment_model or not monitoring_model:
-        raise ValueError("Required decision models not deployed: treatment-recommendation, monitoring-plan")
-
-    treatment_result = _evaluate_jit(
-        treatment_model["dmn_xml"],
-        {
-            "Systolic BP": patient_data["systolic_bp"],
-            "Has Diabetes": patient_data["has_diabetes"],
-            "Has Kidney Disease": patient_data["has_kidney_disease"],
-        },
-    )
-
-    action = treatment_result["Treatment Recommendation"]["Action"]
-
-    monitoring_result = _evaluate_jit(
-        monitoring_model["dmn_xml"],
-        {
-            "Treatment Action": action,
-            "Has Kidney Disease": patient_data["has_kidney_disease"],
-        },
-    )
-
-    return {
-        "action": action,
-        "medication": treatment_result["Treatment Recommendation"]["Medication"],
-        "dose": treatment_result["Treatment Recommendation"]["Dose"],
-        "follow_up_weeks": treatment_result["Treatment Recommendation"]["Follow Up Weeks"],
-        "lab_order": monitoring_result["Monitoring Plan"]["Lab Order"],
-        "lab_timing_weeks": monitoring_result["Monitoring Plan"]["Lab Timing Weeks"],
-    }
-
-
 # --- Health ---
 
 
@@ -151,14 +151,15 @@ def status():
     kogito_healthy = _check_kogito()
     total_models = len(_dynamic_models)
     return {
-        "version": "0.1.0",
+        "version": "0.2.0",
         "decision_engine": {
             "status": "healthy" if kogito_healthy else "unavailable",
             "models_deployed": total_models,
         },
         "knowledge_base": {
-            "status": "unavailable",
-            "documents_ingested": 0,
+            "status": "available",
+            "guidelines_registered": _guidelines_store.count(),
+            "recommendations_ingested": _vector_store.count(),
         },
     }
 
@@ -173,37 +174,66 @@ async def generate_careplan(request: Request):
     if bundle.get("resourceType") != "Bundle":
         raise HTTPException(status_code=400, detail="Request body must be a FHIR Bundle")
 
-    try:
-        patient_data = extract_patient_data(bundle)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    from acp_writer.pipeline import build_pipeline
+
+    litellm_url = os.environ.get("LITELLM_URL", "http://localhost:4000")
+    llm_model = os.environ.get("LLM_MODEL", "default")
+    llm_api_key = os.environ.get("LLM_API_KEY", "sk-change-me")
+
+    graph = build_pipeline()
+    compiled = graph.compile()
 
     try:
-        decisions = invoke_decisions_dynamic(patient_data)
+        result = compiled.invoke({
+            "ips_bundle": bundle,
+            "litellm_url": litellm_url,
+            "llm_model": llm_model,
+            "llm_api_key": llm_api_key,
+        })
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Decision evaluation failed: {e}")
+        raise HTTPException(status_code=422, detail=f"Care plan generation failed: {e}")
 
-    careplan_bundle = build_careplan(patient_data["patient_id"], decisions)
+    fhir_bundle = result.get("fhir_bundle", {})
     return Response(
-        content=json.dumps(careplan_bundle),
+        content=json.dumps(fhir_bundle),
         media_type="application/fhir+json",
         status_code=201,
     )
 
 
-@app.get("/api/v1/careplans", status_code=501)
-def list_careplans():
-    raise HTTPException(status_code=501, detail="Care plan persistence not implemented")
+@app.get("/api/v1/careplans")
+def list_careplans(patient: str | None = None, status: str | None = None):
+    from acp_writer.nodes.fhir_server_writer import list_care_plans
+    return list_care_plans(patient=patient, status=status)
 
 
-@app.get("/api/v1/careplans/{careplan_id}", status_code=501)
+@app.get("/api/v1/careplans/{careplan_id}")
 def get_careplan(careplan_id: str):
-    raise HTTPException(status_code=501, detail="Care plan persistence not implemented")
+    from acp_writer.nodes.fhir_server_writer import get_care_plan
+    cp = get_care_plan(careplan_id)
+    if not cp:
+        raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+    return cp
 
 
-@app.put("/api/v1/careplans/{careplan_id}/status", status_code=501)
-def update_careplan_status(careplan_id: str):
-    raise HTTPException(status_code=501, detail="Care plan approval workflow not implemented")
+@app.put("/api/v1/careplans/{careplan_id}/status")
+async def update_careplan_status(careplan_id: str, request: Request):
+    from acp_writer.nodes.fhir_server_writer import approve_care_plan, reject_care_plan
+    data = await request.json()
+    new_status = data.get("status")
+    if new_status == "active":
+        result = approve_care_plan(careplan_id, clinician=data.get("clinician"))
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+        return result
+    elif new_status == "revoked":
+        reason = data.get("reason", "No reason provided")
+        result = reject_care_plan(careplan_id, reason=reason)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
+        return result
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}. Use 'active' or 'revoked'.")
 
 
 # --- Decision Models ---
@@ -266,19 +296,88 @@ async def evaluate_decision(model_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Decision evaluation failed: {e}")
 
 
-# --- Knowledge (stubs) ---
+# --- Guidelines ---
 
 
-@app.post("/api/v1/knowledge/documents", status_code=501)
-def ingest_document():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented. Vector store is a Phase 2 feature.")
+@app.post("/api/v1/guidelines", status_code=201)
+async def register_guideline(request: Request):
+    data = await request.json()
+    try:
+        metadata = CPGMetadata.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid CPG metadata: {e}")
+    result = _guidelines_store.register(metadata)
+    return result.model_dump(mode="json")
 
 
-@app.get("/api/v1/knowledge/documents", status_code=501)
-def list_documents():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented")
+@app.get("/api/v1/guidelines")
+def list_guidelines():
+    return [g.model_dump(mode="json") for g in _guidelines_store.list_all()]
 
 
-@app.post("/api/v1/knowledge/search", status_code=501)
-def search_knowledge():
-    raise HTTPException(status_code=501, detail="Knowledge base not implemented")
+@app.get("/api/v1/guidelines/{cpg_id}")
+def get_guideline(cpg_id: str):
+    g = _guidelines_store.get(cpg_id)
+    if not g:
+        raise HTTPException(status_code=404, detail=f"Guideline '{cpg_id}' not found")
+    return g.model_dump(mode="json")
+
+
+@app.delete("/api/v1/guidelines/{cpg_id}", status_code=204)
+def delete_guideline(cpg_id: str):
+    if not _guidelines_store.delete(cpg_id):
+        raise HTTPException(status_code=404, detail=f"Guideline '{cpg_id}' not found")
+
+
+# --- Knowledge / Recommendations ---
+
+
+@app.post("/api/v1/knowledge/recommendations", status_code=201)
+async def ingest_recommendation(request: Request):
+    data = await request.json()
+    try:
+        rec = Recommendation.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid recommendation: {e}")
+    _vector_store.add(rec)
+    return {"id": rec.id, "status": "ingested"}
+
+
+@app.post("/api/v1/knowledge/recommendations/batch", status_code=201)
+async def ingest_recommendation_batch(request: Request):
+    data = await request.json()
+    try:
+        bundle = RecommendationBundle.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid recommendation bundle: {e}")
+    _vector_store.add_batch(bundle.recommendations)
+    return {
+        "source_cpg": bundle.source_cpg,
+        "count": len(bundle.recommendations),
+        "status": "ingested",
+    }
+
+
+@app.get("/api/v1/knowledge/recommendations")
+def list_recommendations(source_cpg: str | None = None):
+    recs = _vector_store.list_all(source_cpg=source_cpg)
+    return [r.model_dump(mode="json") for r in recs]
+
+
+@app.get("/api/v1/knowledge/recommendations/{recommendation_id}")
+def get_recommendation(recommendation_id: str):
+    rec = _vector_store.get(recommendation_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Recommendation '{recommendation_id}' not found")
+    return rec.model_dump(mode="json")
+
+
+@app.post("/api/v1/knowledge/search")
+async def search_knowledge(request: Request):
+    data = await request.json()
+    try:
+        search_req = RecommendationSearchRequest.model_validate(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid search request: {e}")
+    result = _vector_store.search(search_req)
+    return result.model_dump(mode="json")

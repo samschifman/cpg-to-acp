@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import mlflow
 from langchain_openai import ChatOpenAI
@@ -28,6 +29,7 @@ def _get_llm(state: dict) -> ChatOpenAI:
 @mlflow.trace(name="rec_extractor")
 def rec_extractor(state: dict) -> dict:
     """Extract recommendations for a section batch."""
+    logger.info("── Rec Extractor ──")
     items = state.get("items", [])
     source_pages = state.get("source_pages", "")
     grading_definitions = state.get("grading_definitions", "")
@@ -50,6 +52,8 @@ def rec_extractor(state: dict) -> dict:
 
     llm = _get_llm(state)
 
+    logger.info("Calling LLM...")
+    t0 = time.time()
     response = llm.invoke([
         {"role": "system", "content": REC_EXTRACTOR_SYSTEM},
         {"role": "user", "content": REC_EXTRACTOR_USER.format(
@@ -60,6 +64,7 @@ def rec_extractor(state: dict) -> dict:
             feedback=feedback,
         )},
     ])
+    logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
         result = _parse_llm_json(response.content)

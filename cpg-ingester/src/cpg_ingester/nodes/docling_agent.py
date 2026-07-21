@@ -52,6 +52,7 @@ def _build_heading_page_map(doc) -> dict[str, dict]:
 @mlflow.trace(name="docling_agent")
 def docling_agent(state: dict) -> dict:
     """Convert CPG PDF to markdown and Docling JSON with provenance data."""
+    logger.info("── Docling Agent ──")
     pdf_path = state["pdf_path"]
     output_dir = state.get("output_dir", "output")
 

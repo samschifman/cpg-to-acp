@@ -6,8 +6,20 @@ import os
 import mlflow
 from mcp.server.fastmcp import FastMCP
 
-from acp_writer.careplan import build_careplan, extract_patient_data
-from acp_writer.api import _dynamic_models, _evaluate_jit, _parse_dmn_metadata
+from cpg_contracts import (
+    CPGMetadata,
+    Recommendation,
+    RecommendationBundle,
+    RecommendationSearchRequest,
+)
+
+from acp_writer.api import (
+    _dynamic_models,
+    _evaluate_jit,
+    _guidelines_store,
+    _parse_dmn_metadata,
+    _vector_store,
+)
 
 mcp = FastMCP("acp-writer")
 
@@ -44,37 +56,61 @@ def evaluate_decision(model_id: str, inputs: dict) -> str:
 
 @mcp.tool()
 @mlflow.trace(name="mcp_generate_careplan")
-def generate_careplan(patient_data: dict) -> str:
-    """Generate a patient-specific FHIR CarePlan from a FHIR Bundle."""
-    extracted = extract_patient_data(patient_data)
+def generate_careplan(ips_bundle: dict) -> str:
+    """Generate a patient-specific FHIR CarePlan from a FHIR IPS Bundle.
 
-    treatment_model = _dynamic_models.get("treatment-recommendation")
-    monitoring_model = _dynamic_models.get("monitoring-plan")
-    if not treatment_model or not monitoring_model:
-        return json.dumps({"error": "Required decision models not deployed"})
+    Runs the full LangGraph care plan composition pipeline.
+    """
+    from acp_writer.pipeline import build_pipeline
 
-    treatment_result = _evaluate_jit(
-        treatment_model["dmn_xml"],
-        {
-            "Systolic BP": extracted["systolic_bp"],
-            "Has Diabetes": extracted["has_diabetes"],
-            "Has Kidney Disease": extracted["has_kidney_disease"],
-        },
-    )
-    action = treatment_result["Treatment Recommendation"]["Action"]
-    monitoring_result = _evaluate_jit(
-        monitoring_model["dmn_xml"],
-        {"Treatment Action": action, "Has Kidney Disease": extracted["has_kidney_disease"]},
-    )
+    graph = build_pipeline()
+    compiled = graph.compile()
 
-    decisions = {
-        "action": action,
-        "medication": treatment_result["Treatment Recommendation"]["Medication"],
-        "dose": treatment_result["Treatment Recommendation"]["Dose"],
-        "follow_up_weeks": treatment_result["Treatment Recommendation"]["Follow Up Weeks"],
-        "lab_order": monitoring_result["Monitoring Plan"]["Lab Order"],
-        "lab_timing_weeks": monitoring_result["Monitoring Plan"]["Lab Timing Weeks"],
-    }
+    result = compiled.invoke({
+        "ips_bundle": ips_bundle,
+        "litellm_url": os.environ.get("LITELLM_URL", "http://localhost:4000"),
+        "llm_model": os.environ.get("LLM_MODEL", "default"),
+        "llm_api_key": os.environ.get("LLM_API_KEY", "sk-change-me"),
+    })
 
-    bundle = build_careplan(extracted["patient_id"], decisions)
-    return json.dumps(bundle)
+    return json.dumps(result.get("fhir_bundle", {}))
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_register_guideline")
+def register_guideline(metadata: dict) -> str:
+    """Register a CPG guideline's metadata."""
+    cpg = CPGMetadata.model_validate(metadata)
+    result = _guidelines_store.register(cpg)
+    return json.dumps(result.model_dump(mode="json"))
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_ingest_recommendation")
+def ingest_recommendation(recommendation: dict) -> str:
+    """Ingest a single recommendation into the vector store."""
+    rec = Recommendation.model_validate(recommendation)
+    _vector_store.add(rec)
+    return json.dumps({"id": rec.id, "status": "ingested"})
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_ingest_recommendation_batch")
+def ingest_recommendation_batch(bundle: dict) -> str:
+    """Ingest a batch of recommendations from a RecommendationBundle."""
+    rb = RecommendationBundle.model_validate(bundle)
+    _vector_store.add_batch(rb.recommendations)
+    return json.dumps({
+        "source_cpg": rb.source_cpg,
+        "count": len(rb.recommendations),
+        "status": "ingested",
+    })
+
+
+@mcp.tool()
+@mlflow.trace(name="mcp_search_recommendations")
+def search_recommendations(query: str, top_k: int = 5, source_cpg: str | None = None) -> str:
+    """Search recommendations by semantic similarity with optional filters."""
+    req = RecommendationSearchRequest(query=query, top_k=top_k, source_cpg=source_cpg)
+    result = _vector_store.search(req)
+    return json.dumps(result.model_dump(mode="json"))
