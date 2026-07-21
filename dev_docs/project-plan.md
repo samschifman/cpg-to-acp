@@ -325,7 +325,7 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | Phase 2 | Complete | OpenShift, OpenShell, MaaS, MLflow, MCP |
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
-| Phase 3.2 | Not started | Vector store, LangGraph (acp-writer agents) |
+| Phase 3.2 | In progress | Vector store, LangGraph (acp-writer agents) |
 | Phase 3.3 | Not started | MCP Gateway, pod-per-security-profile (integration and governance) |
 | Phase 4 | Not started | — (BPMN generation, no new platform tech) |
 | Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
