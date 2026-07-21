@@ -230,6 +230,60 @@ Created successfully in `sschifma-cpg-to-acp` with minimal config (dataIndex and
    {"id": "...", "workflowdata": {"fhirServer": {"fhirVersion": "8.10.0", "serverName": "HAPI FHIR Server"}, "status": "completed"}}
    ```
 
+### Review-loop pattern — verified
+
+Tested with a real REST mock reviewer service. Workflow calls reviewer, checks verdict via switch state, loops back on REVISE, exits on APPROVE or max iterations.
+
+**Test result:** Reviewer returned REVISE on call 1, APPROVE on call 2. Workflow looped once and exited with `status: "approved"`, `revisionCount: 2`. Max iteration guard also verified separately (3 loops then exit).
+
+**Verified workflow structure:**
+```yaml
+states:
+  - name: InitCounter
+    type: inject
+    data: { revisionCount: 0, maxRevisions: 4, feedback: "" }
+    transition: Compose
+
+  - name: Compose
+    type: inject          # would be operation state calling real compose service
+    data: {}
+    stateDataFilter:
+      output: "${ . + {currentDraft: (\"draft-v\" + (.revisionCount | tostring))} }"
+    transition: Review
+
+  - name: Review
+    type: operation
+    actions:
+      - functionRef:
+          refName: callreviewer
+          arguments:
+            draft: "${ .currentDraft }"
+            feedback: "${ .feedback }"
+        actionDataFilter:
+          results: "${ {verdict: .verdict, feedback: .feedback} }"
+          toStateData: "${ .reviewResult }"
+    transition: IncrementAndCheck
+
+  - name: IncrementAndCheck
+    type: inject
+    data: {}
+    stateDataFilter:
+      output: "${ . + {revisionCount: (.revisionCount + 1), feedback: .reviewResult.feedback} }"
+    transition: CheckVerdict
+
+  - name: CheckVerdict
+    type: switch
+    dataConditions:
+      - name: Approved
+        condition: '${ .reviewResult.verdict == "APPROVE" }'
+        transition: Approved
+      - name: MaxReached
+        condition: "${ .revisionCount >= .maxRevisions }"
+        transition: MaxRevisionsReached
+    defaultCondition:
+      transition: Compose          # LOOP BACK
+```
+
 ### For pod-split deployment
 
 For production workflows (not dev mode), base URLs should be configurable via environment variables. Use lowercase function names and provide URLs via env vars:
@@ -252,14 +306,37 @@ functions:
     operation: rest:post:${PATIENT_DATA_URL}/api/v1/scan
 ```
 
+## Status
+
+All critical patterns verified on OpenShift. SonataFlow is ready for use in Steps 10-11 (pod split).
+
+### What's verified
+
+| Pattern | Result |
+|---|---|
+| Sequential REST calls | Verified — hello-world called HAPI FHIR metadata |
+| Review-loop with counter | Verified — conditional exit on APPROVE, max iteration guard |
+| State transfer via jq | Verified — data flows between states, jq expressions work |
+| Custom REST functions | Verified — full URL in operation field works reliably |
+| Direct REST (not CloudEvents) | Verified — synchronous request-response works |
+| MLflow header propagation | Designed — HEADER_ prefix pattern (not tested, will verify during pod split) |
+
+### What's deferred to pod-split implementation (Steps 10-11)
+
+- Full acp-writer pipeline topology as a SonataFlow workflow
+- Production mode deployment (build from source instead of dev mode)
+- State trimming between steps (actionDataFilter optimization)
+- MLflow HEADER_ prefix verification with real tracing
+- Environment variable URL injection (`${VAR_NAME}`) for service discovery
+
 ## Next Steps
 
 - [x] Install the `logic-operator-rhel8` operator
 - [x] Create SonataFlowPlatform in `sschifma-cpg-to-acp`
 - [x] Build hello-world workflow (REST call verified)
-- [ ] Build review-loop workflow (conditional back-edge with counter)
-- [ ] Prototype the acp-writer pipeline topology
-- [ ] Test with mock REST services before wiring to real pods
+- [x] Build review-loop workflow (conditional exit + max iterations verified)
+- [x] Document deployment model, patterns, state management
+- Deferred to Steps 10-11: Full pipeline prototype (will build during pod split when real services exist)
 
 ## References
 
