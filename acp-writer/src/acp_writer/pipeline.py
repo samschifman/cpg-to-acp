@@ -26,8 +26,8 @@ from acp_writer.state import CarePlanComposerState
 
 logger = logging.getLogger(__name__)
 
-MAX_BRIEF_REVIEWS = 2
-MAX_FHIR_REVIEWS = 2
+MAX_BRIEF_REVIEWS = 4
+MAX_FHIR_REVIEWS = 4
 
 
 # --- Stub nodes ---
