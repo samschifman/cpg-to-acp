@@ -163,16 +163,18 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the independently-developed tracks are integrated and hardened.
 
-| Area | Work | Notes |
-|---|---|---|
+| Area | Work                                                                                                           | Notes |
+|---|----------------------------------------------------------------------------------------------------------------|---|
 | **integration** | End-to-end test: cpg-ingester pushes both DMN and recommendations → acp-writer generates care plans using both | Verify contract compatibility, data flow, error handling |
-| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer | Contract fidelity check |
-| **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
-| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
-| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator pod | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
-| **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Requires pod split — policies are per-pod, not per-function within a pod |
-| **platform** | MCP Gateway for governed tool access | Deferred from Phase 3.0 — tools must work before governance is layered on |
-| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases |
+| **integration** | Validate that recommendations produced by cpg-ingester are correctly indexed and retrieved by acp-writer       | Contract fidelity check |
+| **integration** | Test with the synthetic CPG end-to-end on OpenShift                                                            | Full pipeline on-cluster |
+| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator pod *                                       | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
+| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator pod *                                         | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
+| **platform** | OpenShell policies per agent (network, filesystem, credential scoping)                                         | Requires pod split — policies are per-pod, not per-function within a pod |
+| **platform** | MCP Gateway for governed tool access                                                                           | Deferred from Phase 3.0 — tools must work before governance is layered on |
+| **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan)                               | Regression suite for future phases |
+
+\* when doing pod split, make sure UI is running in its own pod
 
 ##### Exit Criteria
 
