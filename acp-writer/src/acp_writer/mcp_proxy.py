@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 
 import mlflow
 import requests
-from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
 from cpg_contracts import (
@@ -177,14 +176,21 @@ def search_recommendations(query: str, top_k: int = 5, source_cpg: str | None = 
     return json.dumps(result.model_dump(mode="json"))
 
 
-# --- FastAPI app with MCP mounted ---
+# --- Starlette app: MCP server with health endpoint ---
 
-app = FastAPI(title="acp-writer-mcp", version="0.1.0")
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+_mcp_app = mcp.streamable_http_app()
 
 
-@app.get("/health")
-def health():
-    return {"status": "UP", "service": "acp-writer-mcp"}
+async def health(request):
+    return JSONResponse({"status": "UP", "service": "acp-writer-mcp"})
 
 
-app.mount("/", mcp.streamable_http_app())
+app = Starlette(
+    routes=[Route("/health", health)],
+    lifespan=_mcp_app.router.lifespan_context,
+)
+app.mount("/", _mcp_app)

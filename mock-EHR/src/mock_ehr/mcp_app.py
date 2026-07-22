@@ -4,15 +4,21 @@ The tools proxy to the HAPI FHIR server via REST. Deployed as its own pod
 behind the MCP Gateway for governed tool access.
 """
 
-from fastapi import FastAPI
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
 from mock_ehr.mcp_server import mcp
 
-app = FastAPI(title="mock-ehr-mcp", version="0.1.0")
+_mcp_app = mcp.streamable_http_app()
 
 
-@app.get("/health")
-def health():
-    return {"status": "UP", "service": "mock-ehr-mcp"}
+async def health(request):
+    return JSONResponse({"status": "UP", "service": "mock-ehr-mcp"})
 
 
-app.mount("/", mcp.streamable_http_app())
+app = Starlette(
+    routes=[Route("/health", health)],
+    lifespan=_mcp_app.router.lifespan_context,
+)
+app.mount("/", _mcp_app)

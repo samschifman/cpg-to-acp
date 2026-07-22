@@ -37,6 +37,7 @@ spec:
     group: gateway.networking.k8s.io
     kind: Gateway
     name: cpg-gateway
+    namespace: sschifma-cpg-to-acp
     sectionName: mcp
 ---
 apiVersion: route.openshift.io/v1
