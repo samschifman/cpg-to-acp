@@ -26,6 +26,12 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 app = FastAPI(title="CPG Ingester UI")
 
+
+@app.get("/health")
+def health():
+    return {"status": "UP", "service": "cpg-ingester-ui"}
+
+
 OUTPUT_BASE = Path(os.environ.get("OUTPUT_DIR", "output"))
 INGESTION_URL = os.environ.get("INGESTION_URL", "")
 _active_runs: dict[str, dict] = {}

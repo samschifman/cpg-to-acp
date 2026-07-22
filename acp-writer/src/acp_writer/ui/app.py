@@ -22,6 +22,12 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 app = FastAPI(title="ACP Writer UI")
 
+
+@app.get("/health")
+def health():
+    return {"status": "UP", "service": "acp-writer-ui"}
+
+
 API_URL = os.environ.get("API_URL", "http://localhost:8082")
 
 _pending_runs: dict[str, dict] = {}
