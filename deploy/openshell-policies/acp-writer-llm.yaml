@@ -29,3 +29,12 @@ network_policies:
         access: full
     binaries:
       - path: "**"
+  minio:
+    name: artifact-store
+    endpoints:
+      - host: "minio.sschifma-cpg-to-acp.svc.cluster.local"
+        port: 9000
+        enforcement: enforce
+        access: full
+    binaries:
+      - path: "**"

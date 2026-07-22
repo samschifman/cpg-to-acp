@@ -9,13 +9,13 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 
-from cpg_contracts import get_artifact_store, store_artifact
+from cpg_contracts import get_phi_store, store_artifact
 from acp_writer.nodes.condition_scanner import condition_scanner
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-patient-data", version="0.1.0")
-_store = get_artifact_store()
+_phi_store = get_phi_store()
 
 
 @app.get("/health")
@@ -30,7 +30,7 @@ async def scan(request: Request):
     ips_bundle = data.get("ips_bundle", {})
     result = condition_scanner({"ips_bundle": ips_bundle})
 
-    _, ref = store_artifact(_store, f"{uuid4()}/ips_bundle.json", ips_bundle)
+    _, ref = store_artifact(_phi_store, f"{uuid4()}/ips_bundle.json", ips_bundle)
     if ref:
         result["ips_bundle_ref"] = ref
 

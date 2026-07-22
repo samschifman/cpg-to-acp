@@ -1,9 +1,13 @@
 """S3-compatible artifact store for large payload transfer between pods.
 
+Two buckets enforce data classification:
+- cpg-artifacts: non-PHI clinical content (recommendations)
+- cpg-phi: patient-specific data (IPS bundles, planning briefs, FHIR bundles)
+
 In distributed mode (ARTIFACT_STORE_URL set), pods store large payloads
-(patient bundles, recommendations, FHIR bundles) in MinIO/S3 and pass
-references through the SonataFlow workflow. In local mode (no URL set),
-get_artifact_store() returns None and services pass data inline.
+in MinIO/S3 and pass references through the SonataFlow workflow.
+In local mode (no URL set), get_artifact_store() returns None and
+services pass data inline.
 """
 
 import json
@@ -12,7 +16,8 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BUCKET = "cpg-artifacts"
+_BUCKET_ARTIFACTS = "cpg-artifacts"
+_BUCKET_PHI = "cpg-phi"
 
 
 class ArtifactStore:
@@ -21,7 +26,7 @@ class ArtifactStore:
     def __init__(
         self,
         endpoint_url: str,
-        bucket: str = _DEFAULT_BUCKET,
+        bucket: str = _BUCKET_ARTIFACTS,
         access_key: str = "minioadmin",
         secret_key: str = "minioadmin",
     ):
@@ -57,46 +62,60 @@ class ArtifactStore:
             except Exception:
                 pass
 
-    def put(self, key: str, data: dict) -> str:
-        """Store a JSON artifact. Returns the key for later retrieval."""
+    def put(self, key: str, data: dict | list) -> str:
+        """Store a JSON artifact. Returns a qualified ref: 'bucket:key'."""
         self._get_client().put_object(
             Bucket=self.bucket,
             Key=key,
             Body=json.dumps(data).encode(),
             ContentType="application/json",
         )
-        logger.debug("Stored artifact: %s/%s", self.bucket, key)
-        return key
+        ref = f"{self.bucket}:{key}"
+        logger.debug("Stored artifact: %s", ref)
+        return ref
 
-    def get(self, key: str) -> dict:
-        """Fetch a JSON artifact by key."""
-        obj = self._get_client().get_object(Bucket=self.bucket, Key=key)
+    def get(self, ref: str) -> dict | list:
+        """Fetch a JSON artifact by qualified ref ('bucket:key') or plain key."""
+        if ":" in ref and not ref.startswith("s3://"):
+            bucket, key = ref.split(":", 1)
+        else:
+            bucket, key = self.bucket, ref
+        obj = self._get_client().get_object(Bucket=bucket, Key=key)
         data = json.loads(obj["Body"].read().decode())
-        logger.debug("Fetched artifact: %s/%s", self.bucket, key)
+        logger.debug("Fetched artifact: %s:%s", bucket, key)
         return data
 
 
-def get_artifact_store() -> ArtifactStore | None:
-    """Return an ArtifactStore if ARTIFACT_STORE_URL is set, else None.
-
-    When None, services operate in inline mode (local development).
-    """
-    url = os.environ.get("ARTIFACT_STORE_URL", "")
+def _build_store(url: str, bucket: str) -> ArtifactStore | None:
     if not url:
         return None
     return ArtifactStore(
         endpoint_url=url,
-        bucket=os.environ.get("ARTIFACT_STORE_BUCKET", _DEFAULT_BUCKET),
+        bucket=bucket,
         access_key=os.environ.get("ARTIFACT_STORE_ACCESS_KEY", "minioadmin"),
         secret_key=os.environ.get("ARTIFACT_STORE_SECRET_KEY", "minioadmin"),
     )
 
 
+def get_artifact_store() -> ArtifactStore | None:
+    """Non-PHI artifact store (recommendations). Returns None in local mode."""
+    url = os.environ.get("ARTIFACT_STORE_URL", "")
+    bucket = os.environ.get("ARTIFACT_STORE_BUCKET", _BUCKET_ARTIFACTS)
+    return _build_store(url, bucket)
+
+
+def get_phi_store() -> ArtifactStore | None:
+    """PHI artifact store (patient bundles, care plans). Returns None in local mode."""
+    url = os.environ.get("ARTIFACT_STORE_URL", "")
+    bucket = os.environ.get("PHI_STORE_BUCKET", _BUCKET_PHI)
+    return _build_store(url, bucket)
+
+
 def resolve_ref(data: dict, field: str, store: ArtifactStore | None) -> dict | list:
     """Resolve a field that may be inline or a _ref.
 
-    If `{field}_ref` exists in data and store is available, fetch from store.
-    Otherwise return data[field] directly.
+    The ref format is 'bucket:key' — the store's get() parses the bucket
+    from the ref, so it works across buckets.
     """
     ref_key = f"{field}_ref"
     if store and ref_key in data:
@@ -105,13 +124,17 @@ def resolve_ref(data: dict, field: str, store: ArtifactStore | None) -> dict | l
 
 
 def store_artifact(
-    store: ArtifactStore | None, key: str, data: dict
-) -> tuple[dict | None, str | None]:
+    store: ArtifactStore | None, key: str, data: dict | list
+) -> tuple[dict | list | None, str | None]:
     """Store data in the artifact store if available.
 
-    Returns (None, ref_key) if stored, or (data, None) if inline.
+    Returns (None, ref) if stored, or (data, None) if inline.
+    On failure, logs a warning and falls back to inline.
     """
     if store:
-        ref = store.put(key, data)
-        return None, ref
+        try:
+            ref = store.put(key, data)
+            return None, ref
+        except Exception as e:
+            logger.warning("Artifact store unavailable, falling back to inline: %s", e)
     return data, None

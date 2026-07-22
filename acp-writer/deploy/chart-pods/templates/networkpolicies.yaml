@@ -18,8 +18,15 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
 
-# LLM Reasoning pod: LLM inference (HTTPS 443) only
+# LLM Reasoning pod: LLM inference (HTTPS 443) + artifact store
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -43,8 +50,15 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
 
-# Decision Engine pod: Kogito runtime only
+# Decision Engine pod: Kogito runtime + artifact store
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -71,8 +85,15 @@ spec:
       ports:
         - port: 8081
           protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
 
-# FHIR Generation pod: terminology APIs (HTTPS 443) only
+# FHIR Generation pod: terminology APIs (HTTPS 443) + artifact store
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -96,8 +117,15 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
 
-# FHIR Server pod: HAPI FHIR server only
+# FHIR Server pod: HAPI FHIR server + artifact store
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -123,6 +151,13 @@ spec:
               app.kubernetes.io/name: hapi-fhir
       ports:
         - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
           protocol: TCP
 
 # UI pod: ingress open, egress to cluster services

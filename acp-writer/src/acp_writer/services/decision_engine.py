@@ -11,14 +11,14 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 
-from cpg_contracts import get_artifact_store, resolve_ref
+from cpg_contracts import get_phi_store, resolve_ref
 from acp_writer.api import _dynamic_models, _parse_dmn_metadata
 from acp_writer.nodes.dmn_executor import dmn_executor
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-decision-engine", version="0.1.0")
-_store = get_artifact_store()
+_phi_store = get_phi_store()
 
 
 @app.get("/health")
@@ -50,7 +50,7 @@ def list_decision_models():
 async def execute(request: Request):
     """Execute DMN models against patient data."""
     data = await request.json()
-    ips_bundle = resolve_ref(data, "ips_bundle", _store)
+    ips_bundle = resolve_ref(data, "ips_bundle", _phi_store)
     state = {
         "ips_bundle": ips_bundle,
         "applicable_dmn_models": data.get("applicable_dmn_models", []),

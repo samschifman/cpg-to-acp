@@ -1,4 +1,4 @@
-# acp-writer Patient Data pod: NO external network (patient data only)
+# acp-writer Patient Data pod: artifact store (PHI bucket) only
 version: 1
 
 filesystem_policy:
@@ -12,6 +12,15 @@ network_policies:
       - host: "**.svc.cluster.local"
         port: 8080
         enforcement: log
+        access: full
+    binaries:
+      - path: "**"
+  minio:
+    name: artifact-store
+    endpoints:
+      - host: "minio.sschifma-cpg-to-acp.svc.cluster.local"
+        port: 9000
+        enforcement: enforce
         access: full
     binaries:
       - path: "**"

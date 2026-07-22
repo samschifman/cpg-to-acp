@@ -19,6 +19,7 @@ from cpg_contracts import (
     RecommendationBundle,
     RecommendationSearchRequest,
     get_artifact_store,
+    get_phi_store,
     resolve_ref,
     store_artifact,
 )
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-llm-reasoning", version="0.1.0")
 _store = get_artifact_store()
+_phi_store = get_phi_store()
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
 LLM_MODEL = os.environ.get("LLM_MODEL", "default")
@@ -149,7 +151,7 @@ async def compose(request: Request):
             break
 
     brief = state.get("planning_brief", {})
-    _, ref = store_artifact(_store, f"{uuid4()}/planning_brief.json", brief)
+    _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
     if ref:
         return {"planning_brief_ref": ref}
     return {"planning_brief": brief}
@@ -159,7 +161,7 @@ async def compose(request: Request):
 async def review_fhir(request: Request):
     """Run FHIR Semantic Reviewer."""
     data = await request.json()
-    fhir_bundle = resolve_ref(data, "fhir_bundle", _store)
+    fhir_bundle = resolve_ref(data, "fhir_bundle", _phi_store)
     state = {
         "fhir_bundle": fhir_bundle,
         "terminology_issues": data.get("terminology_issues", []),
