@@ -11,15 +11,15 @@ spec:
     container:
       env:
         - name: PATIENT_DATA_URL
-          value: "http://acp-writer-patient-data:8080"
+          value: "http://acp-patient-data:8080"
         - name: LLM_REASONING_URL
-          value: "http://acp-writer-llm:8080"
+          value: "http://acp-llm-reasoning:8080"
         - name: DECISION_ENGINE_URL
-          value: "http://acp-writer-decision:8080"
+          value: "http://acp-decision-engine:8080"
         - name: FHIR_GENERATION_URL
-          value: "http://acp-writer-fhir-gen:8080"
+          value: "http://acp-fhir-generation:8080"
         - name: FHIR_SERVER_URL
-          value: "http://acp-writer-fhir-srv:8080"
+          value: "http://acp-fhir-server:8080"
   flow:
     specVersion: "0.8"
     start: ScanPatient
