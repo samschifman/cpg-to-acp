@@ -24,16 +24,16 @@ spec:
     functions:
       - name: parsepdf
         type: custom
-        operation: rest:post:${INGESTION_URL}/api/v1/parse
+        operation: rest:post:http://cpg-ing-ingestion:8080/api/v1/parse
       - name: analyze
         type: custom
-        operation: rest:post:${LLM_ANALYSIS_URL}/api/v1/analyze
+        operation: rest:post:http://cpg-ing-llm-analysis:8080/api/v1/analyze
       - name: assemble
         type: custom
-        operation: rest:post:${ASSEMBLY_URL}/api/v1/assemble
+        operation: rest:post:http://cpg-ing-assembly:8080/api/v1/assemble
       - name: deliver
         type: custom
-        operation: rest:post:${DELIVERY_URL}/api/v1/deliver
+        operation: rest:post:http://cpg-ing-delivery:8080/api/v1/deliver
     states:
       - name: Parse
         type: operation

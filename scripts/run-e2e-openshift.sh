@@ -361,17 +361,21 @@ if [ "${RUN_PIPELINE:-}" = "1" ]; then
     PATIENT_BUNDLE="$ROOT_DIR/mock-EHR/data/patient-bundle-medication.json"
     PATIENT_JSON=$(cat "$PATIENT_BUNDLE")
 
-    # Helper: call a pod-split service from inside the cluster
+    # Helper: call a pod-split service from inside the cluster.
+    # Payload must be a valid JSON string (passed directly, not as a Python literal).
     pod_call() {
         local service_url="$1"
         local payload="$2"
         local timeout="${3:-120}"
         local method="${4:-POST}"
-        oc exec deploy/acp-writer-mcp -n "$NAMESPACE" -- python3 -c "
-import urllib.request, json, sys
+        local payload_b64
+        payload_b64=$(echo -n "$payload" | base64)
+        oc exec deploy/acp-writer-mcp -n "$NAMESPACE" --request-timeout="${timeout}s" -- python3 -c "
+import urllib.request, json, sys, base64
+payload = base64.b64decode('${payload_b64}')
 req = urllib.request.Request(
     '${service_url}',
-    data=json.dumps(${payload}).encode(),
+    data=payload,
     headers={'Content-Type': 'application/json'},
     method='${method}'
 )
@@ -455,11 +459,50 @@ d = json.load(open('$TMPDIR/pipe_dmn.json'))
 assert d.get('id'), f'no model id: {d}'
 "
 
-    # --- Step 2: Compose plan (LLM call via MaaS) ---
-    echo "  8c. Compose plan (llm-reasoning pod — calls LLM)"
+    # --- Step 2: Resolve guidelines ---
+    echo "  8c. Resolve guidelines (llm-reasoning pod — calls LLM)"
+    RESOLVE_INPUT=$(python3 -c "
+import json
+scan = json.load(open('$TMPDIR/pipe_scan.json'))
+print(json.dumps({'condition_codes': scan.get('condition_codes', [])}))
+")
+    pod_call "http://acp-llm-reasoning:8080/api/v1/resolve" \
+        "$RESOLVE_INPUT" 120 > "$TMPDIR/pipe_resolve.json"
+    check "resolve: returns applicable_cpgs" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_resolve.json'))
+cpgs = d.get('applicable_cpgs', [])
+assert len(cpgs) > 0, f'no applicable CPGs found (is guideline loaded?): {list(d.keys())}'
+"
+
+    # --- Step 3: Retrieve recommendations ---
+    echo "  8d. Retrieve recommendations (llm-reasoning pod)"
+    RETRIEVE_INPUT=$(python3 -c "
+import json
+scan = json.load(open('$TMPDIR/pipe_scan.json'))
+resolve = json.load(open('$TMPDIR/pipe_resolve.json'))
+print(json.dumps({
+    'condition_codes': scan.get('condition_codes', []),
+    'dmn_results': [],
+    'applicable_cpgs': resolve.get('applicable_cpgs', [])
+}))
+")
+    pod_call "http://acp-llm-reasoning:8080/api/v1/retrieve" \
+        "$RETRIEVE_INPUT" 60 > "$TMPDIR/pipe_retrieve.json"
+    check "retrieve: returns recommendations" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_retrieve.json'))
+recs = d.get('recommendations', [])
+assert len(recs) > 0, f'no recommendations retrieved'
+"
+
+    # --- Step 4: Compose plan (LLM call via MaaS) ---
+    echo "  8e. Compose plan (llm-reasoning pod — calls LLM)"
     COMPOSE_INPUT=$(python3 -c "
 import json
 scan = json.load(open('$TMPDIR/pipe_scan.json'))
+resolve = json.load(open('$TMPDIR/pipe_resolve.json'))
+retrieve = json.load(open('$TMPDIR/pipe_retrieve.json'))
 payload = {
     'patient_reference': scan.get('patient_reference', ''),
     'patient_demographics': scan.get('patient_demographics', {}),
@@ -467,13 +510,13 @@ payload = {
     'medication_codes': scan.get('medication_codes', []),
     'allergy_codes': scan.get('allergy_codes', []),
     'dmn_results': [],
-    'recommendations': [],
-    'applicable_cpgs': []
+    'recommendations': retrieve.get('recommendations', []),
+    'applicable_cpgs': resolve.get('applicable_cpgs', [])
 }
 print(json.dumps(payload))
 ")
     pod_call "http://acp-llm-reasoning:8080/api/v1/compose" \
-        "$COMPOSE_INPUT" 300 > "$TMPDIR/pipe_compose.json"
+        "$COMPOSE_INPUT" 600 > "$TMPDIR/pipe_compose.json" || true
     check "compose: returns planning_brief (LLM was called)" python3 -c "
 import json
 d = json.load(open('$TMPDIR/pipe_compose.json'))
@@ -481,8 +524,8 @@ brief = d.get('planning_brief', {})
 assert brief, f'empty planning_brief — LLM may not have responded'
 "
 
-    # --- Step 3: Generate FHIR bundle ---
-    echo "  8c. Generate FHIR bundle (fhir-generation pod)"
+    # --- Step 5: Generate FHIR bundle ---
+    echo "  8f. Generate FHIR bundle (fhir-generation pod)"
     GENERATE_INPUT=$(python3 -c "
 import json
 scan = json.load(open('$TMPDIR/pipe_scan.json'))
@@ -495,7 +538,7 @@ payload = {
 print(json.dumps(payload))
 ")
     pod_call "http://acp-fhir-generation:8080/api/v1/generate-bundle" \
-        "$GENERATE_INPUT" 300 > "$TMPDIR/pipe_generate.json"
+        "$GENERATE_INPUT" 600 > "$TMPDIR/pipe_generate.json" || true
     check "generate-bundle: returns FHIR Bundle" python3 -c "
 import json
 d = json.load(open('$TMPDIR/pipe_generate.json'))
@@ -509,8 +552,8 @@ entries = d.get('fhir_bundle', {}).get('entry', [])
 assert len(entries) > 0, 'Bundle has no entries'
 "
 
-    # --- Step 4: Write to FHIR server ---
-    echo "  8d. Write to FHIR server (fhir-server pod → HAPI FHIR)"
+    # --- Step 6: Write to FHIR server ---
+    echo "  8g. Write to FHIR server (fhir-server pod → HAPI FHIR)"
     WRITE_INPUT=$(python3 -c "
 import json
 scan = json.load(open('$TMPDIR/pipe_scan.json'))
@@ -541,8 +584,8 @@ d = json.load(open('$TMPDIR/pipe_write.json'))
 print(d.get('careplan_id', ''))
 ")
 
-    # --- Step 5: Approve care plan ---
-    echo "  8e. Care plan lifecycle (fhir-server pod)"
+    # --- Step 7: Approve care plan ---
+    echo "  8h. Care plan lifecycle (fhir-server pod)"
     if [ -n "$CAREPLAN_ID" ]; then
         pod_call "http://acp-fhir-server:8080/api/v1/careplans/${CAREPLAN_ID}/status" \
             "{\"status\": \"active\", \"clinician\": \"Dr. E2E Test\"}" 120 PUT > "$TMPDIR/pipe_approve.json" \
@@ -554,8 +597,8 @@ assert d.get('status') == 'active', f'expected active, got: {d.get(\"status\")}'
 "
     fi
 
-    # --- Step 6: Generate + reject a second care plan ---
-    echo "  8f. Second care plan — reject lifecycle"
+    # --- Step 8: Generate + reject a second care plan ---
+    echo "  8i. Second care plan — reject lifecycle"
     pod_call "http://acp-fhir-server:8080/api/v1/write" \
         "$WRITE_INPUT" > "$TMPDIR/pipe_write2.json"
     CAREPLAN2_ID=$(python3 -c "

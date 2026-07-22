@@ -26,28 +26,28 @@ spec:
     functions:
       - name: scanpatient
         type: custom
-        operation: rest:post:${PATIENT_DATA_URL}/api/v1/scan
+        operation: rest:post:http://acp-patient-data:8080/api/v1/scan
       - name: resolveguidelines
         type: custom
-        operation: rest:post:${LLM_REASONING_URL}/api/v1/resolve
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/resolve
       - name: executedmn
         type: custom
-        operation: rest:post:${DECISION_ENGINE_URL}/api/v1/execute
+        operation: rest:post:http://acp-decision-engine:8080/api/v1/execute
       - name: retrieverecommendations
         type: custom
-        operation: rest:post:${LLM_REASONING_URL}/api/v1/retrieve
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/retrieve
       - name: composeplan
         type: custom
-        operation: rest:post:${LLM_REASONING_URL}/api/v1/compose
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/compose
       - name: generatebundle
         type: custom
-        operation: rest:post:${FHIR_GENERATION_URL}/api/v1/generate-bundle
+        operation: rest:post:http://acp-fhir-generation:8080/api/v1/generate-bundle
       - name: reviewfhir
         type: custom
-        operation: rest:post:${LLM_REASONING_URL}/api/v1/review-fhir
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/review-fhir
       - name: writefhir
         type: custom
-        operation: rest:post:${FHIR_SERVER_URL}/api/v1/write
+        operation: rest:post:http://acp-fhir-server:8080/api/v1/write
     states:
       - name: ScanPatient
         type: operation
