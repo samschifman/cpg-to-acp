@@ -1,14 +1,24 @@
 """LLM Reasoning pod service — Guideline Resolver, Recommendation Retriever,
 Plan Composer with Brief Reviewer loop, FHIR Semantic Reviewer.
 
+Also handles CPG artifact management (guidelines, recommendations) since
+the vector store and guidelines registry live in this pod's process.
+
 Security profile: LLM inference + vector store, no FHIR server access.
 """
 
 import logging
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
+from cpg_contracts import (
+    CPGMetadata,
+    Recommendation,
+    RecommendationBundle,
+    RecommendationSearchRequest,
+)
+from acp_writer.api import _guidelines_store, _vector_store
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
 from acp_writer.nodes.plan_composer import plan_composer
@@ -28,6 +38,40 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "sk-change-me")
 @app.get("/health")
 def health():
     return {"status": "UP", "service": "llm-reasoning"}
+
+
+# --- CPG artifact management (used by cpg-ingester Delivery) ---
+
+
+@app.post("/api/v1/guidelines", status_code=201)
+async def register_guideline(request: Request):
+    data = await request.json()
+    metadata = CPGMetadata.model_validate(data)
+    result = _guidelines_store.register(metadata)
+    return result.model_dump(mode="json")
+
+
+@app.post("/api/v1/knowledge/recommendations/batch", status_code=201)
+async def ingest_recommendation_batch(request: Request):
+    data = await request.json()
+    bundle = RecommendationBundle.model_validate(data)
+    _vector_store.add_batch(bundle.recommendations)
+    return {
+        "source_cpg": bundle.source_cpg,
+        "count": len(bundle.recommendations),
+        "status": "ingested",
+    }
+
+
+@app.post("/api/v1/knowledge/search")
+async def search_knowledge(request: Request):
+    data = await request.json()
+    search_req = RecommendationSearchRequest.model_validate(data)
+    result = _vector_store.search(search_req)
+    return result.model_dump(mode="json")
+
+
+# --- Pipeline execution endpoints ---
 
 
 @app.post("/api/v1/resolve")

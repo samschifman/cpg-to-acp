@@ -406,8 +406,57 @@ assert '59621000' in codes, f'hypertension SNOMED 59621000 not found in: {codes}
     # Extract scan fields for downstream steps
     SCAN_RESULT=$(cat "$TMPDIR/pipe_scan.json")
 
+    # --- Pre-load CPG artifacts into pod-split services ---
+    # Load guidelines + recommendations into LLM Reasoning pod and
+    # DMN model into Decision Engine pod via their management endpoints.
+    echo "  8b. Load CPG artifacts into pod-split services"
+
+    python3 -c "
+import json
+data = json.load(open('$FIXTURES'))
+json.dump(data['metadata'], open('$TMPDIR/pipe_metadata.json', 'w'))
+json.dump(data['recommendation_bundle'], open('$TMPDIR/pipe_rec_bundle.json', 'w'))
+"
+
+    PIPE_METADATA=$(cat "$TMPDIR/pipe_metadata.json")
+    pod_call "http://acp-llm-reasoning:8080/api/v1/guidelines" \
+        "$PIPE_METADATA" > "$TMPDIR/pipe_reg.json"
+    check "Load guideline into llm-reasoning pod" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_reg.json'))
+assert d.get('cpg_id'), f'no cpg_id: {d}'
+"
+
+    PIPE_REC_BUNDLE=$(cat "$TMPDIR/pipe_rec_bundle.json")
+    pod_call "http://acp-llm-reasoning:8080/api/v1/knowledge/recommendations/batch" \
+        "$PIPE_REC_BUNDLE" > "$TMPDIR/pipe_ingest.json"
+    check "Load recommendations into llm-reasoning pod" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_ingest.json'))
+assert d.get('status') == 'ingested', f'got: {d}'
+"
+
+    DMN_XML_ESCAPED=$(cat "$DMN_FILE" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+    oc exec deploy/acp-writer-mcp -n "$NAMESPACE" -- python3 -c "
+import urllib.request, sys
+dmn_xml = ${DMN_XML_ESCAPED}
+req = urllib.request.Request(
+    'http://acp-decision-engine:8080/api/v1/decisions/models',
+    data=dmn_xml.encode(),
+    headers={'Content-Type': 'application/xml'},
+    method='POST'
+)
+resp = urllib.request.urlopen(req, timeout=30)
+sys.stdout.write(resp.read().decode())
+" 2>/dev/null > "$TMPDIR/pipe_dmn.json"
+    check "Deploy DMN model into decision-engine pod" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_dmn.json'))
+assert d.get('id'), f'no model id: {d}'
+"
+
     # --- Step 2: Compose plan (LLM call via MaaS) ---
-    echo "  8b. Compose plan (llm-reasoning pod — calls LLM)"
+    echo "  8c. Compose plan (llm-reasoning pod — calls LLM)"
     COMPOSE_INPUT=$(python3 -c "
 import json
 scan = json.load(open('$TMPDIR/pipe_scan.json'))

@@ -1,12 +1,16 @@
 """Decision Engine pod service — DMN Executor proxy to Kogito.
 
+Also handles DMN model management (deploy, list) since the model
+registry lives in this pod's process.
+
 Security profile: Kogito runtime access only.
 """
 
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
+from acp_writer.api import _dynamic_models, _parse_dmn_metadata
 from acp_writer.nodes.dmn_executor import dmn_executor
 
 logger = logging.getLogger(__name__)
@@ -17,6 +21,26 @@ app = FastAPI(title="acp-writer-decision-engine", version="0.1.0")
 @app.get("/health")
 def health():
     return {"status": "UP", "service": "decision-engine"}
+
+
+# --- DMN model management (used by cpg-ingester Delivery) ---
+
+
+@app.post("/api/v1/decisions/models", status_code=201)
+async def deploy_decision_model(request: Request):
+    body = await request.body()
+    dmn_xml = body.decode("utf-8")
+    summary = _parse_dmn_metadata(dmn_xml)
+    _dynamic_models[summary.id] = {"summary": summary, "dmn_xml": dmn_xml}
+    return summary.model_dump(mode="json")
+
+
+@app.get("/api/v1/decisions/models")
+def list_decision_models():
+    return [m["summary"].model_dump(mode="json") for m in _dynamic_models.values()]
+
+
+# --- Pipeline execution ---
 
 
 @app.post("/api/v1/execute")
