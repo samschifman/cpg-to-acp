@@ -5,7 +5,7 @@ metadata:
   annotations:
     sonataflow.org/profile: dev
     sonataflow.org/description: "ACP Writer pipeline orchestration"
-    sonataflow.org/version: "0.1.0"
+    sonataflow.org/version: "0.2.0"
 spec:
   podTemplate:
     container:
@@ -23,7 +23,18 @@ spec:
   flow:
     specVersion: "0.8"
     start: ScanPatient
+    events:
+      - name: composeDone
+        source: ""
+        type: compose-done
+      - name: generateDone
+        source: ""
+        type: generate-done
+      - name: reviewDone
+        source: ""
+        type: review-done
     functions:
+      # Sync functions (fast, <10s)
       - name: scanpatient
         type: custom
         operation: rest:post:http://acp-patient-data:8080/api/v1/scan
@@ -36,19 +47,22 @@ spec:
       - name: retrieverecommendations
         type: custom
         operation: rest:post:http://acp-llm-reasoning:8080/api/v1/retrieve
-      - name: composeplan
-        type: custom
-        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/compose
-      - name: generatebundle
-        type: custom
-        operation: rest:post:http://acp-fhir-generation:8080/api/v1/generate-bundle
-      - name: reviewfhir
-        type: custom
-        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/review-fhir
       - name: writefhir
         type: custom
         operation: rest:post:http://acp-fhir-server:8080/api/v1/write
+      # Async functions (LLM-heavy, 30-120s)
+      - name: composeplanasynch
+        type: custom
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/compose-async
+      - name: generatebundleasync
+        type: custom
+        operation: rest:post:http://acp-fhir-generation:8080/api/v1/generate-bundle-async
+      - name: reviewfhirasync
+        type: custom
+        operation: rest:post:http://acp-llm-reasoning:8080/api/v1/review-fhir-async
     states:
+      # --- Phase 1: Data collection (sync) ---
+
       - name: ScanPatient
         type: operation
         actions:
@@ -109,25 +123,28 @@ spec:
               toStateData: "${ .recData }"
         transition: ComposePlan
 
+      # --- Phase 2: LLM composition (async callbacks) ---
+
       - name: ComposePlan
-        type: operation
-        actions:
-          - name: callCompose
-            functionRef:
-              refName: composeplan
-              arguments:
-                patient_reference: "${ .patientData.patient_reference }"
-                patient_demographics: "${ .patientData.patient_demographics }"
-                condition_codes: "${ .patientData.condition_codes }"
-                medication_codes: "${ .patientData.medication_codes }"
-                allergy_codes: "${ .patientData.allergy_codes }"
-                dmn_results: "${ .dmnData.dmn_results }"
-                recommendations_ref: "${ .recData.recommendations_ref }"
-                applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
-                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
-            actionDataFilter:
-              results: "${ . }"
-              toStateData: "${ .composerData }"
+        type: callback
+        action:
+          functionRef:
+            refName: composeplanasynch
+            arguments:
+              callback_url: "http://acpwriter:80/wait-compose"
+              process_instance_id: "$WORKFLOW.instanceId"
+              patient_reference: "${ .patientData.patient_reference }"
+              patient_demographics: "${ .patientData.patient_demographics }"
+              condition_codes: "${ .patientData.condition_codes }"
+              medication_codes: "${ .patientData.medication_codes }"
+              allergy_codes: "${ .patientData.allergy_codes }"
+              dmn_results: "${ .dmnData.dmn_results }"
+              recommendations_ref: "${ .recData.recommendations_ref }"
+              applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
+        eventRef: composeDone
+        eventDataFilter:
+          data: "${ . }"
+          toStateData: "${ .composerData }"
         transition: InitFHIRReview
 
       - name: InitFHIRReview
@@ -138,37 +155,41 @@ spec:
           fhirReviewFeedback: ""
         transition: GenerateBundle
 
+      # --- Phase 3: FHIR generation + review loop (async callbacks) ---
+
       - name: GenerateBundle
-        type: operation
-        actions:
-          - name: callGenerate
-            functionRef:
-              refName: generatebundle
-              arguments:
-                planning_brief_ref: "${ .composerData.planning_brief_ref }"
-                patient_demographics: "${ .patientData.patient_demographics }"
-                fhir_review_feedback: "${ .fhirReviewFeedback }"
-                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
-            actionDataFilter:
-              results: "${ . }"
-              toStateData: "${ .fhirGenData }"
+        type: callback
+        action:
+          functionRef:
+            refName: generatebundleasync
+            arguments:
+              callback_url: "http://acpwriter:80/wait-generate"
+              process_instance_id: "$WORKFLOW.instanceId"
+              planning_brief_ref: "${ .composerData.planning_brief_ref }"
+              patient_demographics: "${ .patientData.patient_demographics }"
+              fhir_review_feedback: "${ .fhirReviewFeedback }"
+        eventRef: generateDone
+        eventDataFilter:
+          data: "${ . }"
+          toStateData: "${ .fhirGenData }"
         transition: ReviewFHIR
 
       - name: ReviewFHIR
-        type: operation
-        actions:
-          - name: callReview
-            functionRef:
-              refName: reviewfhir
-              arguments:
-                fhir_bundle_ref: "${ .fhirGenData.fhir_bundle_ref }"
-                terminology_issues: "${ .fhirGenData.terminology_issues }"
-                syntax_errors: "${ .fhirGenData.syntax_errors }"
-                fhir_review_count: "${ .fhirReviewCount }"
-                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
-            actionDataFilter:
-              results: "${ . }"
-              toStateData: "${ .fhirReviewData }"
+        type: callback
+        action:
+          functionRef:
+            refName: reviewfhirasync
+            arguments:
+              callback_url: "http://acpwriter:80/wait-review"
+              process_instance_id: "$WORKFLOW.instanceId"
+              fhir_bundle_ref: "${ .fhirGenData.fhir_bundle_ref }"
+              terminology_issues: "${ .fhirGenData.terminology_issues }"
+              syntax_errors: "${ .fhirGenData.syntax_errors }"
+              fhir_review_count: "${ .fhirReviewCount }"
+        eventRef: reviewDone
+        eventDataFilter:
+          data: "${ . }"
+          toStateData: "${ .fhirReviewData }"
         transition: IncrementFHIRReview
 
       - name: IncrementFHIRReview
@@ -189,6 +210,8 @@ spec:
             transition: WriteFHIR
         defaultCondition:
           transition: GenerateBundle
+
+      # --- Phase 4: Write to FHIR server (sync) ---
 
       - name: WriteFHIR
         type: operation

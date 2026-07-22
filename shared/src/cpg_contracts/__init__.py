@@ -29,6 +29,7 @@ from cpg_contracts.search import (
     RecommendationSearchResult,
 )
 from cpg_contracts.fhir import PatientSummary
+from cpg_contracts.cloud_events import post_callback
 from cpg_contracts.artifact_store import (  # noqa: F401 — lazy boto3 import
     ArtifactStore,
     get_artifact_store,
@@ -66,6 +67,8 @@ __all__ = [
     "RecommendationSearchResult",
     # FHIR
     "PatientSummary",
+    # Cloud events
+    "post_callback",
     # Artifact store
     "ArtifactStore",
     "get_artifact_store",
