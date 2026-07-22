@@ -12,11 +12,13 @@ spec:
     - Egress
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to:
         - podSelector:
@@ -40,11 +42,13 @@ spec:
     - Egress
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to: []
       ports:
@@ -72,11 +76,13 @@ spec:
     - Egress
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to:
         - podSelector:
@@ -107,11 +113,13 @@ spec:
     - Egress
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to: []
       ports:
@@ -139,11 +147,13 @@ spec:
     - Egress
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to:
         - podSelector:
@@ -177,11 +187,13 @@ spec:
     - {}
   egress:
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
       ports:
-        - port: 53
+        - port: 5353
           protocol: UDP
-        - port: 53
+        - port: 5353
           protocol: TCP
     - to: []
       ports:
