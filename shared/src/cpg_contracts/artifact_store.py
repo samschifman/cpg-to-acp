@@ -25,33 +25,41 @@ class ArtifactStore:
         access_key: str = "minioadmin",
         secret_key: str = "minioadmin",
     ):
-        import boto3
-        from botocore.config import Config
-
         self.bucket = bucket
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            config=Config(signature_version="s3v4"),
-            region_name="us-east-1",
-        )
-        self._ensure_bucket()
+        self._endpoint_url = endpoint_url
+        self._access_key = access_key
+        self._secret_key = secret_key
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            import boto3
+            from botocore.config import Config
+
+            self._client = boto3.client(
+                "s3",
+                endpoint_url=self._endpoint_url,
+                aws_access_key_id=self._access_key,
+                aws_secret_access_key=self._secret_key,
+                config=Config(signature_version="s3v4"),
+                region_name="us-east-1",
+            )
+            self._ensure_bucket()
+        return self._client
 
     def _ensure_bucket(self):
         try:
-            self.client.head_bucket(Bucket=self.bucket)
+            self._client.head_bucket(Bucket=self.bucket)
         except Exception:
             try:
-                self.client.create_bucket(Bucket=self.bucket)
+                self._client.create_bucket(Bucket=self.bucket)
                 logger.info("Created artifact bucket: %s", self.bucket)
             except Exception:
                 pass
 
     def put(self, key: str, data: dict) -> str:
         """Store a JSON artifact. Returns the key for later retrieval."""
-        self.client.put_object(
+        self._get_client().put_object(
             Bucket=self.bucket,
             Key=key,
             Body=json.dumps(data).encode(),
@@ -62,7 +70,7 @@ class ArtifactStore:
 
     def get(self, key: str) -> dict:
         """Fetch a JSON artifact by key."""
-        obj = self.client.get_object(Bucket=self.bucket, Key=key)
+        obj = self._get_client().get_object(Bucket=self.bucket, Key=key)
         data = json.loads(obj["Body"].read().decode())
         logger.debug("Fetched artifact: %s/%s", self.bucket, key)
         return data

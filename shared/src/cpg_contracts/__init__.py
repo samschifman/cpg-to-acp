@@ -29,7 +29,7 @@ from cpg_contracts.search import (
     RecommendationSearchResult,
 )
 from cpg_contracts.fhir import PatientSummary
-from cpg_contracts.artifact_store import (
+from cpg_contracts.artifact_store import (  # noqa: F401 — lazy boto3 import
     ArtifactStore,
     get_artifact_store,
     resolve_ref,
