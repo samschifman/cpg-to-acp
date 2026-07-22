@@ -16,7 +16,8 @@ cpg-to-acp/
 ├── mock-EHR/        # HAPI FHIR server + simple EHR client (dev/test infrastructure)
 ├── platform/        # Shared infrastructure services (MaaS, MLflow)
 ├── shared/          # Cross-component contracts and utilities (use sparingly)
-└── dev_docs/        # Project proposals, design docs (point-in-time references)
+├── docs/            # User-facing documentation (architecture, security, deployment)
+└── dev_docs/        # Internal dev docs: design docs, spikes, project plan (point-in-time references)
 ```
 
 ## Architectural Boundaries
@@ -66,8 +67,10 @@ Producers must not assume a specific consumer runtime. Consumers are pluggable b
 - See `platform/mlflow/README.md` for the full tracing inventory.
 
 ### Documentation
-- `dev_docs/` contains point-in-time design documents. They may not reflect current state — always verify against the code.
+- `docs/` contains user-facing documentation (architecture, security, deployment guides). Keep this up to date when making changes that affect how the system works or is deployed.
+- `dev_docs/` contains internal development documents (design docs, spikes, project plan). Point-in-time references — may not reflect current state.
 - Each component has its own README describing its purpose, setup, and usage.
+- Use **Mermaid** for all diagrams in documentation. Do not use ASCII art, image files, or external diagramming tools for new diagrams.
 
 ## Technology Context
 
