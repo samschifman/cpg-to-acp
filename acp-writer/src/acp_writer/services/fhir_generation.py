@@ -1,9 +1,10 @@
 """FHIR Generation pod service — Bundle Generator + validators.
 
-Security profile: terminology API access only (SNOMED, LOINC, RxNorm, ICD-10).
+Security profile: terminology API access + LLM inference (bundle generation).
 """
 
 import logging
+import os
 
 from fastapi import FastAPI, Request
 
@@ -14,6 +15,10 @@ from acp_writer.nodes.fhir_syntax_validator import fhir_syntax_validator
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-fhir-generation", version="0.1.0")
+
+LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
+LLM_MODEL = os.environ.get("LLM_MODEL", "default")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "sk-change-me")
 
 
 @app.get("/health")
@@ -29,6 +34,9 @@ async def generate_bundle(request: Request):
         "planning_brief": data.get("planning_brief", {}),
         "patient_demographics": data.get("patient_demographics", {}),
         "fhir_review_feedback": data.get("fhir_review_feedback", ""),
+        "litellm_url": LITELLM_URL,
+        "llm_model": LLM_MODEL,
+        "llm_api_key": LLM_API_KEY,
     }
 
     gen_result = fhir_bundle_generator(state)

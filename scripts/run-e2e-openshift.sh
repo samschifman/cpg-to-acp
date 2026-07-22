@@ -352,6 +352,194 @@ assert names == expected, f'expected {expected}, got {names}'
 "
 
 # ═══════════════════════════════════════════════════════════════════
+# 8. Pipeline execution — real LLM, FHIR generation, server lifecycle
+# ═══════════════════════════════════════════════════════════════════
+if [ "${RUN_PIPELINE:-}" = "1" ]; then
+    echo ""
+    echo "8. Pipeline execution (LLM via MaaS — may take 2-3 minutes)"
+
+    PATIENT_BUNDLE="$ROOT_DIR/mock-EHR/data/patient-bundle-medication.json"
+    PATIENT_JSON=$(cat "$PATIENT_BUNDLE")
+
+    # Helper: call a pod-split service from inside the cluster
+    pod_call() {
+        local service_url="$1"
+        local payload="$2"
+        local timeout="${3:-120}"
+        local method="${4:-POST}"
+        oc exec deploy/acp-writer-mcp -n "$NAMESPACE" -- python3 -c "
+import urllib.request, json, sys
+req = urllib.request.Request(
+    '${service_url}',
+    data=json.dumps(${payload}).encode(),
+    headers={'Content-Type': 'application/json'},
+    method='${method}'
+)
+try:
+    resp = urllib.request.urlopen(req, timeout=${timeout})
+    sys.stdout.write(resp.read().decode())
+except urllib.error.HTTPError as e:
+    sys.stderr.write(f'HTTP {e.code}: {e.read().decode()[:500]}')
+    sys.exit(1)
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+" 2>/dev/null
+    }
+
+    # --- Step 1: Scan patient ---
+    echo "  8a. Scan patient (patient-data pod)"
+    pod_call "http://acp-patient-data:8080/api/v1/scan" \
+        "{\"ips_bundle\": ${PATIENT_JSON}}" > "$TMPDIR/pipe_scan.json"
+    check "scan: returns patient_reference" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_scan.json'))
+assert d.get('patient_reference'), f'no patient_reference: {list(d.keys())}'
+"
+    check "scan: condition_codes include hypertension" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_scan.json'))
+codes = [c.get('code','') for c in d.get('condition_codes', [])]
+assert '59621000' in codes, f'hypertension SNOMED 59621000 not found in: {codes}'
+"
+
+    # Extract scan fields for downstream steps
+    SCAN_RESULT=$(cat "$TMPDIR/pipe_scan.json")
+
+    # --- Step 2: Compose plan (LLM call via MaaS) ---
+    echo "  8b. Compose plan (llm-reasoning pod — calls LLM)"
+    COMPOSE_INPUT=$(python3 -c "
+import json
+scan = json.load(open('$TMPDIR/pipe_scan.json'))
+payload = {
+    'patient_reference': scan.get('patient_reference', ''),
+    'patient_demographics': scan.get('patient_demographics', {}),
+    'condition_codes': scan.get('condition_codes', []),
+    'medication_codes': scan.get('medication_codes', []),
+    'allergy_codes': scan.get('allergy_codes', []),
+    'dmn_results': [],
+    'recommendations': [],
+    'applicable_cpgs': []
+}
+print(json.dumps(payload))
+")
+    pod_call "http://acp-llm-reasoning:8080/api/v1/compose" \
+        "$COMPOSE_INPUT" 300 > "$TMPDIR/pipe_compose.json"
+    check "compose: returns planning_brief (LLM was called)" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_compose.json'))
+brief = d.get('planning_brief', {})
+assert brief, f'empty planning_brief — LLM may not have responded'
+"
+
+    # --- Step 3: Generate FHIR bundle ---
+    echo "  8c. Generate FHIR bundle (fhir-generation pod)"
+    GENERATE_INPUT=$(python3 -c "
+import json
+scan = json.load(open('$TMPDIR/pipe_scan.json'))
+compose = json.load(open('$TMPDIR/pipe_compose.json'))
+payload = {
+    'planning_brief': compose.get('planning_brief', {}),
+    'patient_demographics': scan.get('patient_demographics', {}),
+    'fhir_review_feedback': ''
+}
+print(json.dumps(payload))
+")
+    pod_call "http://acp-fhir-generation:8080/api/v1/generate-bundle" \
+        "$GENERATE_INPUT" 300 > "$TMPDIR/pipe_generate.json"
+    check "generate-bundle: returns FHIR Bundle" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_generate.json'))
+bundle = d.get('fhir_bundle', {})
+assert bundle.get('resourceType') == 'Bundle', f'not a Bundle: {bundle.get(\"resourceType\")}'
+"
+    check "generate-bundle: Bundle has entries" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_generate.json'))
+entries = d.get('fhir_bundle', {}).get('entry', [])
+assert len(entries) > 0, 'Bundle has no entries'
+"
+
+    # --- Step 4: Write to FHIR server ---
+    echo "  8d. Write to FHIR server (fhir-server pod → HAPI FHIR)"
+    WRITE_INPUT=$(python3 -c "
+import json
+scan = json.load(open('$TMPDIR/pipe_scan.json'))
+gen = json.load(open('$TMPDIR/pipe_generate.json'))
+payload = {
+    'fhir_bundle': gen.get('fhir_bundle', {}),
+    'patient_reference': scan.get('patient_reference', '')
+}
+print(json.dumps(payload))
+")
+    pod_call "http://acp-fhir-server:8080/api/v1/write" \
+        "$WRITE_INPUT" > "$TMPDIR/pipe_write.json"
+    check "write: returns careplan_id" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_write.json'))
+assert d.get('careplan_id'), f'no careplan_id: {list(d.keys())}'
+"
+    check "write: delivery_status is delivered or stored_locally" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_write.json'))
+status = d.get('delivery_status', '')
+assert status in ('delivered', 'stored_locally'), f'unexpected status: {status}'
+"
+
+    CAREPLAN_ID=$(python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_write.json'))
+print(d.get('careplan_id', ''))
+")
+
+    # --- Step 5: Approve care plan ---
+    echo "  8e. Care plan lifecycle (fhir-server pod)"
+    if [ -n "$CAREPLAN_ID" ]; then
+        pod_call "http://acp-fhir-server:8080/api/v1/careplans/${CAREPLAN_ID}/status" \
+            "{\"status\": \"active\", \"clinician\": \"Dr. E2E Test\"}" 120 PUT > "$TMPDIR/pipe_approve.json" \
+            || true
+        check "approve: status changed to active" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_approve.json'))
+assert d.get('status') == 'active', f'expected active, got: {d.get(\"status\")}'
+"
+    fi
+
+    # --- Step 6: Generate + reject a second care plan ---
+    echo "  8f. Second care plan — reject lifecycle"
+    pod_call "http://acp-fhir-server:8080/api/v1/write" \
+        "$WRITE_INPUT" > "$TMPDIR/pipe_write2.json"
+    CAREPLAN2_ID=$(python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_write2.json'))
+print(d.get('careplan_id', ''))
+")
+    if [ -n "$CAREPLAN2_ID" ]; then
+        pod_call "http://acp-fhir-server:8080/api/v1/careplans/${CAREPLAN2_ID}/status" \
+            "{\"status\": \"entered-in-error\", \"reason\": \"E2E test rejection\"}" 120 PUT > "$TMPDIR/pipe_reject.json" \
+            || true
+        check "reject: status changed to entered-in-error" python3 -c "
+import json
+d = json.load(open('$TMPDIR/pipe_reject.json'))
+assert d.get('status') == 'entered-in-error', f'expected entered-in-error, got: {d.get(\"status\")}'
+"
+    fi
+
+    echo ""
+    echo "  Pipeline summary:"
+    echo "    Patient: $(python3 -c "import json; d=json.load(open('$TMPDIR/pipe_scan.json')); print(d.get('patient_demographics',{}).get('name','?'))")"
+    echo "    Conditions: $(python3 -c "import json; d=json.load(open('$TMPDIR/pipe_scan.json')); print(len(d.get('condition_codes',[])))")"
+    echo "    Bundle entries: $(python3 -c "import json; d=json.load(open('$TMPDIR/pipe_generate.json')); print(len(d.get('fhir_bundle',{}).get('entry',[])))")"
+    echo "    Care plan 1: $CAREPLAN_ID → approved"
+    echo "    Care plan 2: ${CAREPLAN2_ID:-?} → entered-in-error"
+
+else
+    echo ""
+    echo "8. Pipeline execution (skipped — set RUN_PIPELINE=1 to enable)"
+    echo "   Requires MaaS LLM inference. Takes 2-3 minutes."
+fi
+
+# ═══════════════════════════════════════════════════════════════════
 # Summary
 # ═══════════════════════════════════════════════════════════════════
 echo ""
