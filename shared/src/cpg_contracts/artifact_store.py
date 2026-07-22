@@ -74,6 +74,22 @@ class ArtifactStore:
         logger.debug("Stored artifact: %s", ref)
         return ref
 
+    def get_raw(self, ref: str) -> bytes:
+        """Fetch raw bytes from the artifact store (for binary files like PDFs)."""
+        if ":" in ref and not ref.startswith("s3://"):
+            bucket, key = ref.split(":", 1)
+        else:
+            bucket, key = self.bucket, ref
+        obj = self._get_client().get_object(Bucket=bucket, Key=key)
+        return obj["Body"].read()
+
+    def put_raw(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        """Store raw bytes. Returns a qualified ref: 'bucket:key'."""
+        self._get_client().put_object(
+            Bucket=self.bucket, Key=key, Body=data, ContentType=content_type,
+        )
+        return f"{self.bucket}:{key}"
+
     def get(self, ref: str) -> dict | list:
         """Fetch a JSON artifact by qualified ref ('bucket:key') or plain key."""
         if ":" in ref and not ref.startswith("s3://"):

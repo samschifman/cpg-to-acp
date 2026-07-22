@@ -9,7 +9,7 @@ import os
 import tempfile
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Request, UploadFile
 
 from cpg_contracts import get_artifact_store, post_callback, store_artifact
 from cpg_ingester.nodes.docling_agent import docling_agent
@@ -28,39 +28,29 @@ def health():
 @app.post("/api/v1/parse")
 async def parse_pdf(file: UploadFile = File(...)):
     """Parse a CPG PDF into markdown and Docling JSON (sync)."""
-    result = _do_parse(file)
-    return result
+    pdf_bytes = await file.read()
+    return _do_parse_bytes(pdf_bytes, file.filename or "input.pdf")
 
 
 @app.post("/api/v1/parse-async")
-async def parse_pdf_async(
-    file: UploadFile = File(...),
-    callback_url: str = Form(""),
-    process_instance_id: str = Form(""),
-    background_tasks: BackgroundTasks = None,
-):
-    """Async version: accept immediately, parse in background, POST callback."""
-    pdf_bytes = await file.read()
-    filename = file.filename or "input.pdf"
+async def parse_pdf_async(request: Request, background_tasks: BackgroundTasks):
+    """Async version: accept JSON with pdf_ref (MinIO key), parse in background."""
+    data = await request.json()
+    callback_url = data.get("callback_url", "")
+    process_instance_id = data.get("process_instance_id", "")
+    pdf_ref = data.get("pdf_ref", "")
     background_tasks.add_task(
-        _run_parse_background, pdf_bytes, filename, callback_url, process_instance_id
+        _run_parse_background, pdf_ref, callback_url, process_instance_id
     )
     return {"status": "accepted"}
 
 
-def _do_parse(file_or_bytes, filename="input.pdf"):
-    """Run Docling parsing. Used by both sync and async endpoints."""
+def _do_parse_bytes(pdf_bytes: bytes, filename: str = "input.pdf") -> dict:
+    """Run Docling parsing on raw bytes."""
     with tempfile.TemporaryDirectory() as tmpdir:
         pdf_path = os.path.join(tmpdir, filename)
-        if isinstance(file_or_bytes, bytes):
-            with open(pdf_path, "wb") as f:
-                f.write(file_or_bytes)
-        else:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            data = loop.run_until_complete(file_or_bytes.read())
-            with open(pdf_path, "wb") as f:
-                f.write(data)
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
 
         output_dir = os.path.join(tmpdir, "output")
         os.makedirs(output_dir)
@@ -82,10 +72,18 @@ def _do_parse(file_or_bytes, filename="input.pdf"):
 
 
 def _run_parse_background(
-    pdf_bytes: bytes, filename: str, callback_url: str, process_instance_id: str
+    pdf_ref: str, callback_url: str, process_instance_id: str
 ):
     try:
-        result = _do_parse(pdf_bytes, filename)
+        if _store and pdf_ref:
+            pdf_bytes = _store.get_raw(pdf_ref)
+        else:
+            logger.error("No artifact store or pdf_ref — cannot parse")
+            post_callback(callback_url, process_instance_id, "parse-done",
+                          {"error": "No pdf_ref provided"})
+            return
+
+        result = _do_parse_bytes(pdf_bytes)
     except Exception as e:
         logger.error("Parse background task failed: %s", e)
         result = {"error": str(e)}

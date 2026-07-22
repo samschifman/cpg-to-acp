@@ -54,7 +54,7 @@ spec:
             arguments:
               callback_url: "http://cpgingester:80/wait-parse"
               process_instance_id: "$WORKFLOW.instanceId"
-              pdfData: "${ .pdfData }"
+              pdf_ref: "${ .pdf_ref }"
         eventRef: parseDone
         eventDataFilter:
           data: "${ . }"
