@@ -6,7 +6,7 @@ COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
 COPY cpg-ingester/pyproject.toml .
 COPY cpg-ingester/src/ src/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir boto3 python-multipart .
 COPY cpg-ingester/data/ data/
 RUN chmod -R g=u /app
 USER 1001

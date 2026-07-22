@@ -5,7 +5,7 @@ metadata:
   annotations:
     sonataflow.org/profile: dev
     sonataflow.org/description: "CPG Ingester pipeline orchestration"
-    sonataflow.org/version: "0.1.0"
+    sonataflow.org/version: "0.2.0"
 spec:
   podTemplate:
     container:
@@ -21,13 +21,22 @@ spec:
   flow:
     specVersion: "0.8"
     start: Parse
+    events:
+      - name: parseDone
+        source: ""
+        type: parse-done
+      - name: analyzeDone
+        source: ""
+        type: analyze-done
     functions:
-      - name: parsepdf
+      # Async functions (long-running: Docling ML + LLM calls)
+      - name: parsepdfasync
         type: custom
-        operation: rest:post:http://cpg-ing-ingestion:8080/api/v1/parse
-      - name: analyze
+        operation: rest:post:http://cpg-ing-ingestion:8080/api/v1/parse-async
+      - name: analyzeasync
         type: custom
-        operation: rest:post:http://cpg-ing-llm-analysis:8080/api/v1/analyze
+        operation: rest:post:http://cpg-ing-llm-analysis:8080/api/v1/analyze-async
+      # Sync functions (fast: deterministic + bounded REST)
       - name: assemble
         type: custom
         operation: rest:post:http://cpg-ing-assembly:8080/api/v1/assemble
@@ -35,34 +44,41 @@ spec:
         type: custom
         operation: rest:post:http://cpg-ing-delivery:8080/api/v1/deliver
     states:
+      # --- Phase 1: PDF parsing (async callback — Docling ML, 30-120s) ---
+
       - name: Parse
-        type: operation
-        actions:
-          - name: callParse
-            functionRef:
-              refName: parsepdf
-              arguments:
-                file: "${ .pdfData }"
-                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
-            actionDataFilter:
-              results: "${ {markdown: .markdown, docling_json: .docling_json} }"
-              toStateData: "${ .parseResult }"
+        type: callback
+        action:
+          functionRef:
+            refName: parsepdfasync
+            arguments:
+              callback_url: "http://cpgingester:80/wait-parse"
+              process_instance_id: "$WORKFLOW.instanceId"
+              pdfData: "${ .pdfData }"
+        eventRef: parseDone
+        eventDataFilter:
+          data: "${ . }"
+          toStateData: "${ .parseResult }"
         transition: Analyze
 
+      # --- Phase 2: LLM analysis (async callback — 2-30+ minutes) ---
+
       - name: Analyze
-        type: operation
-        actions:
-          - name: callAnalyze
-            functionRef:
-              refName: analyze
-              arguments:
-                markdown: "${ .parseResult.markdown }"
-                docling_json: "${ .parseResult.docling_json }"
-                HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
-            actionDataFilter:
-              results: "${ {cpg_metadata: .cpg_metadata, item_manifest: .item_manifest, dmn_results: .dmn_results, recommendation_results: .recommendation_results} }"
-              toStateData: "${ .analysisResult }"
+        type: callback
+        action:
+          functionRef:
+            refName: analyzeasync
+            arguments:
+              callback_url: "http://cpgingester:80/wait-analyze"
+              process_instance_id: "$WORKFLOW.instanceId"
+              parse_result_ref: "${ .parseResult.parse_result_ref }"
+        eventRef: analyzeDone
+        eventDataFilter:
+          data: "${ . }"
+          toStateData: "${ .analysisResult }"
         transition: Assemble
+
+      # --- Phase 3: Assembly (sync — deterministic, <1s) ---
 
       - name: Assemble
         type: operation
@@ -71,15 +87,14 @@ spec:
             functionRef:
               refName: assemble
               arguments:
-                cpg_metadata: "${ .analysisResult.cpg_metadata }"
-                item_manifest: "${ .analysisResult.item_manifest }"
-                dmn_results: "${ .analysisResult.dmn_results }"
-                recommendation_results: "${ .analysisResult.recommendation_results }"
+                analysis_result_ref: "${ .analysisResult.analysis_result_ref }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
             actionDataFilter:
-              results: "${ {dmn_results: .dmn_results, recommendation_results: .recommendation_results, escalated_items: .escalated_items, assembly_report: .assembly_report} }"
+              results: "${ . }"
               toStateData: "${ .assemblyResult }"
         transition: Deliver
+
+      # --- Phase 4: Delivery to acp-writer (sync — bounded REST, 10-30s) ---
 
       - name: Deliver
         type: operation
@@ -88,14 +103,10 @@ spec:
             functionRef:
               refName: deliver
               arguments:
-                cpg_metadata: "${ .analysisResult.cpg_metadata }"
-                dmn_results: "${ .assemblyResult.dmn_results }"
-                recommendation_results: "${ .assemblyResult.recommendation_results }"
-                escalated_items: "${ .assemblyResult.escalated_items }"
-                assembly_report: "${ .assemblyResult.assembly_report }"
+                assembly_result_ref: "${ .assemblyResult.assembly_result_ref }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
             actionDataFilter:
-              results: "${ {delivery_status: .delivery_status} }"
+              results: "${ . }"
               toStateData: "${ .deliveryResult }"
         transition: Done
 

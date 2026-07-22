@@ -1,16 +1,17 @@
 """LLM Analysis pod service — all LLM-calling nodes with in-process LangGraph review loops.
 
+Consumes: parse_result_ref. Produces: analysis_result_ref.
 Security profile: LLM inference endpoint only (via MaaS on OpenShift).
-Runs structure analysis, item identification with classification review,
-metadata extraction, and DMN/Rec generation with review loops.
 """
 
 import logging
 import os
 import tempfile
+from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 
+from cpg_contracts import get_artifact_store, post_callback, resolve_ref, store_artifact
 from cpg_ingester.nodes.content_filter import content_filter
 from cpg_ingester.nodes.item_identifier import item_identifier
 from cpg_ingester.nodes.classification_reviewer import classification_reviewer
@@ -20,6 +21,7 @@ from cpg_ingester.nodes.structure_analyzer import structure_analyzer
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="cpg-ingester-llm-analysis", version="0.1.0")
+_store = get_artifact_store()
 
 MAX_CLASSIFICATION_REVIEWS = 2
 
@@ -33,15 +35,20 @@ def health():
     return {"status": "UP", "service": "llm-analysis"}
 
 
-@app.post("/api/v1/analyze")
-async def analyze(request: Request):
-    """Run the full LLM analysis phase: structure -> filter -> identify -> review -> metadata -> generate."""
-    data = await request.json()
+def _do_analyze(data: dict) -> dict:
+    """Run the full LLM analysis. Used by both sync and async endpoints."""
+    parse_result = resolve_ref(data, "parse_result", _store)
+    if isinstance(parse_result, dict) and "markdown" in parse_result:
+        markdown = parse_result["markdown"]
+        docling_json = parse_result.get("docling_json", {})
+    else:
+        markdown = data.get("markdown", "")
+        docling_json = data.get("docling_json", {})
 
     with tempfile.TemporaryDirectory() as output_dir:
         state = {
-            "markdown": data.get("markdown", ""),
-            "docling_json": data.get("docling_json", {}),
+            "markdown": markdown,
+            "docling_json": docling_json,
             "output_dir": output_dir,
             "litellm_url": LITELLM_URL,
             "llm_model": LLM_MODEL,
@@ -73,7 +80,7 @@ async def analyze(request: Request):
         updates = _generate_all(state)
         state.update(updates)
 
-        return {
+        result = {
             "section_map": state.get("section_map", []),
             "abbreviations": state.get("abbreviations", {}),
             "grading_definitions": state.get("grading_definitions", ""),
@@ -83,3 +90,37 @@ async def analyze(request: Request):
             "dmn_results": state.get("dmn_results", []),
             "recommendation_results": state.get("recommendation_results", []),
         }
+
+        _, ref = store_artifact(_store, f"{uuid4()}/analysis_result.json", result)
+        if ref:
+            return {"analysis_result_ref": ref}
+        return result
+
+
+@app.post("/api/v1/analyze")
+async def analyze(request: Request):
+    """Run the full LLM analysis phase (sync)."""
+    data = await request.json()
+    return _do_analyze(data)
+
+
+@app.post("/api/v1/analyze-async")
+async def analyze_async(request: Request, background_tasks: BackgroundTasks):
+    """Async version: accept immediately, run analysis in background, POST callback."""
+    data = await request.json()
+    callback_url = data.pop("callback_url", "")
+    process_instance_id = data.pop("process_instance_id", "")
+    background_tasks.add_task(
+        _run_analyze_background, data, callback_url, process_instance_id
+    )
+    return {"status": "accepted"}
+
+
+def _run_analyze_background(data: dict, callback_url: str, process_instance_id: str):
+    try:
+        result = _do_analyze(data)
+    except Exception as e:
+        logger.error("Analyze background task failed: %s", e)
+        result = {"error": str(e)}
+
+    post_callback(callback_url, process_instance_id, "analyze-done", result)
