@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import mlflow
 import requests
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from cpg_contracts import (
     CPGMetadata,
@@ -41,7 +42,13 @@ _vector_store = InMemoryVectorStore(_embedding_provider)
 _guidelines_store = GuidelinesStore(_vector_store)
 _dynamic_models: dict[str, dict] = {}
 
-mcp = FastMCP("acp-writer")
+mcp = FastMCP(
+    "acp-writer",
+    host="0.0.0.0",
+    port=8090,
+    json_response=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
