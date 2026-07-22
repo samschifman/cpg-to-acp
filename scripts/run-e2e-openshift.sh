@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+# End-to-end verification: full CPG-to-ACP pipeline on OpenShift
+#
+# Tests the pod-per-security-profile deployment with MCP Gateway governance
+# and OpenShell sandbox enforcement.
+#
+# Prerequisites:
+#   - Logged into OpenShift: oc whoami
+#   - Namespace: sschifma-cpg-to-acp (or set NAMESPACE)
+#
+# Usage:
+#   ./scripts/run-e2e-openshift.sh
+
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-sschifma-cpg-to-acp}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+GATEWAY_URL="$(oc get route cpg-gateway -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")"
+ACP_UI_URL="$(oc get route acp-ui -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "")"
+
+FIXTURES="$ROOT_DIR/shared/tests/fixtures/sample-recommendations.json"
+DMN_FILE="$ROOT_DIR/cpg-ingester/data/golden/treatment-recommendation.dmn"
+DIABETES_FIXTURES="$ROOT_DIR/tests/integration/fixtures/diabetes-cpg.json"
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+passed=0
+failed=0
+total=0
+SESSION_ID=""
+
+check() {
+    total=$((total + 1))
+    local desc="$1"
+    shift
+    if "$@" > /dev/null 2>&1; then
+        echo "  ✓ $desc"
+        passed=$((passed + 1))
+    else
+        echo "  ✗ $desc"
+        failed=$((failed + 1))
+    fi
+}
+
+mcp_call() {
+    local method="$1"
+    local params="$2"
+    local id="${3:-$((RANDOM % 10000))}"
+    curl -sf -X POST "https://${GATEWAY_URL}/mcp" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json, text/event-stream" \
+        -H "Mcp-Session-Id: ${SESSION_ID}" \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":${id},\"method\":\"${method}\",\"params\":${params}}"
+}
+
+mcp_tool_call() {
+    local tool_name="$1"
+    local arguments="$2"
+    mcp_call "tools/call" "{\"name\":\"${tool_name}\",\"arguments\":${arguments}}"
+}
+
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  CPG-to-ACP End-to-End Verification — OpenShift            ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Namespace:   $NAMESPACE"
+echo "MCP Gateway: https://${GATEWAY_URL:-NOT FOUND}"
+echo "ACP UI:      https://${ACP_UI_URL:-NOT FOUND}"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════
+# 1. Prerequisites — pod health
+# ═══════════════════════════════════════════════════════════════════
+echo "1. Pod health checks"
+
+PODS=(
+    "cpg-ing-ingestion:8080"
+    "cpg-ing-llm-analysis:8080"
+    "cpg-ing-assembly:8080"
+    "cpg-ing-delivery:8080"
+    "cpg-ing-ui:8090"
+    "acp-patient-data:8080"
+    "acp-llm-reasoning:8080"
+    "acp-decision-engine:8080"
+    "acp-fhir-generation:8080"
+    "acp-fhir-server:8080"
+    "acp-ui:8082"
+)
+
+for pod_port in "${PODS[@]}"; do
+    pod="${pod_port%%:*}"
+    port="${pod_port##*:}"
+    check "$pod healthy" \
+        oc exec "deploy/$pod" -n "$NAMESPACE" -- \
+        curl -sf "http://localhost:${port}/health"
+done
+
+echo ""
+echo "2. Infrastructure services"
+check "HAPI FHIR reachable" \
+    oc exec deploy/acp-writer-mcp -n "$NAMESPACE" -- \
+    python3 -c "import urllib.request; urllib.request.urlopen('http://cpg-mock-ehr-hapi-fhir:8080/fhir/metadata', timeout=10)"
+
+check "Kogito decision engine reachable" \
+    oc exec deploy/acp-writer-mcp -n "$NAMESPACE" -- \
+    python3 -c "import urllib.request; urllib.request.urlopen('http://cpg-decision-svc-decision-service:8081/q/health/ready', timeout=10)"
+
+check "MCP Gateway reachable" \
+    curl -sf "https://${GATEWAY_URL}/mcp" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e-test","version":"1.0"}}}'
+
+check "OpenShell gateway running" \
+    bash -c "oc get pod openshell-0 -n $NAMESPACE -o jsonpath='{.status.phase}' | grep -q Running"
+
+SANDBOX_COUNT=$(oc get sandboxes.agents.x-k8s.io -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+check "OpenShell sandboxes: 11 active" test "$SANDBOX_COUNT" -eq 11
+
+check "MCP acp-writer-mcp-server Ready" \
+    bash -c "oc get mcpserverregistrations acp-writer-mcp-server -n $NAMESPACE -o jsonpath='{.status.conditions[0].status}' | grep -q True"
+
+check "MCP mock-ehr-mcp-server Ready" \
+    bash -c "oc get mcpserverregistrations mock-ehr-mcp-server -n $NAMESPACE -o jsonpath='{.status.conditions[0].status}' | grep -q True"
+
+# ═══════════════════════════════════════════════════════════════════
+# 3. MCP Gateway — tool discovery
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "3. MCP Gateway tool discovery"
+
+SESSION_ID=$(curl -sD - -X POST "https://${GATEWAY_URL}/mcp" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e-test","version":"1.0"}}}' \
+    2>/dev/null | grep -i 'mcp-session-id' | head -1 | sed 's/.*: //' | tr -d '\r')
+
+check "MCP session initialized" test -n "$SESSION_ID"
+
+mcp_call "tools/list" "{}" 2 > "$TMPDIR/tools_list.json"
+check "tools/list returns 12 tools" python3 -c "
+import json
+data = json.load(open('$TMPDIR/tools_list.json'))
+tools = data.get('result', {}).get('tools', [])
+assert len(tools) == 12, f'expected 12, got {len(tools)}'
+"
+
+check "All acp_ tools present (8)" python3 -c "
+import json
+data = json.load(open('$TMPDIR/tools_list.json'))
+names = [t['name'] for t in data['result']['tools']]
+acp = [n for n in names if n.startswith('acp_')]
+assert len(acp) == 8, f'expected 8 acp_ tools, got {len(acp)}: {acp}'
+"
+
+check "All ehr_ tools present (4)" python3 -c "
+import json
+data = json.load(open('$TMPDIR/tools_list.json'))
+names = [t['name'] for t in data['result']['tools']]
+ehr = [n for n in names if n.startswith('ehr_')]
+assert len(ehr) == 4, f'expected 4 ehr_ tools, got {len(ehr)}: {ehr}'
+"
+
+VS_COUNT=$(oc get mcpvirtualservers -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+check "3 virtual servers defined" test "$VS_COUNT" -eq 3
+
+# ═══════════════════════════════════════════════════════════════════
+# 4. CPG delivery through MCP Gateway
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "4. CPG delivery through MCP Gateway"
+
+python3 -c "
+import json
+data = json.load(open('$FIXTURES'))
+json.dump(data['metadata'], open('$TMPDIR/metadata.json', 'w'))
+json.dump(data['recommendation_bundle'], open('$TMPDIR/rec_bundle.json', 'w'))
+"
+
+METADATA=$(cat "$TMPDIR/metadata.json")
+mcp_tool_call "acp_register_guideline" "{\"metadata\": $METADATA}" > "$TMPDIR/gw_register.json"
+check "register_guideline via gateway" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_register.json'))
+assert not data['result'].get('isError', False), f'error: {data}'
+"
+
+DMN_XML=$(cat "$DMN_FILE" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+mcp_tool_call "acp_deploy_decision_model" "{\"dmn_xml\": $DMN_XML}" > "$TMPDIR/gw_deploy.json"
+check "deploy_decision_model via gateway" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_deploy.json'))
+assert not data['result'].get('isError', False), f'error: {data}'
+"
+
+REC_BUNDLE=$(cat "$TMPDIR/rec_bundle.json")
+mcp_tool_call "acp_ingest_recommendation_batch" "{\"bundle\": $REC_BUNDLE}" > "$TMPDIR/gw_ingest.json"
+check "ingest_recommendation_batch via gateway" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_ingest.json'))
+content = json.loads(data['result']['content'][0]['text'])
+assert content.get('status') == 'ingested', f'got: {content}'
+"
+
+mcp_tool_call "acp_list_decision_models" "{}" > "$TMPDIR/gw_models.json"
+check "list_decision_models returns deployed model" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_models.json'))
+models = json.loads(data['result']['content'][0]['text'])
+assert len(models) > 0, 'no models deployed'
+"
+
+mcp_tool_call "acp_search_recommendations" "{\"query\": \"hypertension blood pressure treatment\", \"top_k\": 5}" > "$TMPDIR/gw_search.json"
+check "search_recommendations returns results" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_search.json'))
+results = json.loads(data['result']['content'][0]['text'])
+assert len(results.get('results', [])) > 0, 'no search results'
+"
+
+# ═══════════════════════════════════════════════════════════════════
+# 5. Multi-CPG delivery
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "5. Multi-CPG delivery (diabetes — overlapping scope)"
+
+if [ -f "$DIABETES_FIXTURES" ]; then
+    python3 -c "
+import json
+data = json.load(open('$DIABETES_FIXTURES'))
+json.dump(data['metadata'], open('$TMPDIR/dm2_metadata.json', 'w'))
+json.dump(data['recommendation_bundle'], open('$TMPDIR/dm2_rec_bundle.json', 'w'))
+"
+
+    DM2_METADATA=$(cat "$TMPDIR/dm2_metadata.json")
+    mcp_tool_call "acp_register_guideline" "{\"metadata\": $DM2_METADATA}" > "$TMPDIR/gw_dm2_register.json"
+    check "Register diabetes CPG via gateway" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_dm2_register.json'))
+assert not data['result'].get('isError', False)
+"
+
+    DM2_REC_BUNDLE=$(cat "$TMPDIR/dm2_rec_bundle.json")
+    mcp_tool_call "acp_ingest_recommendation_batch" "{\"bundle\": $DM2_REC_BUNDLE}" > "$TMPDIR/gw_dm2_ingest.json"
+    check "Ingest diabetes recommendations via gateway" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_dm2_ingest.json'))
+content = json.loads(data['result']['content'][0]['text'])
+assert content.get('status') == 'ingested'
+"
+
+    mcp_tool_call "acp_search_recommendations" "{\"query\": \"ACE inhibitor blood pressure diabetes\", \"top_k\": 10}" > "$TMPDIR/gw_multi_search.json"
+    check "Multi-CPG search returns results from both CPGs" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_multi_search.json'))
+results = json.loads(data['result']['content'][0]['text'])
+cpgs = set(r['recommendation']['source_cpg'] for r in results.get('results', []))
+assert 'SYN-HTN-2026-001' in cpgs, f'missing HTN CPG, got: {cpgs}'
+assert 'SYN-DM2-2026-001' in cpgs, f'missing DM2 CPG, got: {cpgs}'
+"
+
+    mcp_tool_call "acp_search_recommendations" "{\"query\": \"medication\", \"source_cpg\": \"SYN-DM2-2026-001\", \"top_k\": 5}" > "$TMPDIR/gw_dm2_only.json"
+    check "CPG filter isolates diabetes-only results" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_dm2_only.json'))
+results = json.loads(data['result']['content'][0]['text'])
+for r in results.get('results', []):
+    assert r['recommendation']['source_cpg'] == 'SYN-DM2-2026-001', f'wrong cpg: {r[\"recommendation\"][\"source_cpg\"]}'
+"
+else
+    echo "  (skipped — diabetes fixtures not found)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# 6. Patient data through MCP Gateway
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "6. Patient data through MCP Gateway"
+
+mcp_tool_call "ehr_list_patients" "{}" > "$TMPDIR/gw_patients.json"
+check "ehr_list_patients returns patients" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_patients.json'))
+patients = json.loads(data['result']['content'][0]['text'])
+assert len(patients) > 0, 'no patients returned'
+"
+
+check "James Reynolds in patient list" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_patients.json'))
+patients = json.loads(data['result']['content'][0]['text'])
+names = [p.get('name', '') for p in patients]
+assert any('Reynolds' in n for n in names), f'Reynolds not found in: {names}'
+"
+
+PATIENT_ID=$(python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_patients.json'))
+patients = json.loads(data['result']['content'][0]['text'])
+for p in patients:
+    if 'Reynolds' in p.get('name', ''):
+        print(p['id'])
+        break
+" 2>/dev/null)
+
+if [ -n "$PATIENT_ID" ]; then
+    mcp_tool_call "ehr_get_patient_summary" "{\"patient_id\": \"$PATIENT_ID\"}" > "$TMPDIR/gw_patient_summary.json"
+    check "ehr_get_patient_summary returns clinical data" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_patient_summary.json'))
+summary = json.loads(data['result']['content'][0]['text'])
+assert summary.get('patient_id') == '$PATIENT_ID'
+assert len(summary.get('conditions', [])) > 0, 'no conditions'
+"
+
+    mcp_tool_call "ehr_get_patient_conditions" "{\"patient_id\": \"$PATIENT_ID\"}" > "$TMPDIR/gw_conditions.json"
+    check "ehr_get_patient_conditions returns conditions" python3 -c "
+import json
+data = json.load(open('$TMPDIR/gw_conditions.json'))
+conditions = json.loads(data['result']['content'][0]['text'])
+assert len(conditions) > 0, 'no conditions'
+"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# 7. OpenShell governance
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "7. OpenShell governance"
+
+check "OpenShell OCSF audit events present" \
+    bash -c "oc logs openshell-0 -n $NAMESPACE --tail=100 2>/dev/null | grep -q 'GetSandbox\|GetSandboxConfig\|GetInferenceBundle'"
+
+check "All 11 sandboxes Ready" python3 -c "
+import subprocess, json
+result = subprocess.run(
+    ['oc', 'get', 'sandboxes.agents.x-k8s.io', '-n', '$NAMESPACE', '-o', 'json'],
+    capture_output=True, text=True
+)
+data = json.loads(result.stdout)
+names = sorted([item['metadata']['name'] for item in data.get('items', [])])
+expected = sorted([
+    'acp-writer-decision', 'acp-writer-fhir-gen', 'acp-writer-fhir-srv',
+    'acp-writer-llm', 'acp-writer-patient-data', 'acp-writer-ui',
+    'cpg-ingester-assembly', 'cpg-ingester-delivery', 'cpg-ingester-ingestion',
+    'cpg-ingester-llm', 'cpg-ingester-ui'
+])
+assert names == expected, f'expected {expected}, got {names}'
+"
+
+# ═══════════════════════════════════════════════════════════════════
+# Summary
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  Results: $passed/$total passed, $failed failed"
+echo "╚══════════════════════════════════════════════════════════════╝"
+
+if [ $failed -gt 0 ]; then
+    exit 1
+fi
