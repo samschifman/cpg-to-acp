@@ -84,7 +84,7 @@ spec:
             functionRef:
               refName: executedmn
               arguments:
-                ips_bundle: "${ .ips_bundle }"
+                ips_bundle_ref: "${ .patientData.ips_bundle_ref }"
                 applicable_dmn_models: "${ .guidelineData.applicable_dmn_models }"
                 dmn_dependency_graph: "${ .guidelineData.dmn_dependency_graph }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
@@ -122,7 +122,7 @@ spec:
                 medication_codes: "${ .patientData.medication_codes }"
                 allergy_codes: "${ .patientData.allergy_codes }"
                 dmn_results: "${ .dmnData.dmn_results }"
-                recommendations: "${ .recData.recommendations }"
+                recommendations_ref: "${ .recData.recommendations_ref }"
                 applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
             actionDataFilter:
@@ -145,7 +145,7 @@ spec:
             functionRef:
               refName: generatebundle
               arguments:
-                planning_brief: "${ .composerData.planning_brief }"
+                planning_brief_ref: "${ .composerData.planning_brief_ref }"
                 patient_demographics: "${ .patientData.patient_demographics }"
                 fhir_review_feedback: "${ .fhirReviewFeedback }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
@@ -161,7 +161,7 @@ spec:
             functionRef:
               refName: reviewfhir
               arguments:
-                fhir_bundle: "${ .fhirGenData.fhir_bundle }"
+                fhir_bundle_ref: "${ .fhirGenData.fhir_bundle_ref }"
                 terminology_issues: "${ .fhirGenData.terminology_issues }"
                 syntax_errors: "${ .fhirGenData.syntax_errors }"
                 fhir_review_count: "${ .fhirReviewCount }"
@@ -197,7 +197,7 @@ spec:
             functionRef:
               refName: writefhir
               arguments:
-                fhir_bundle: "${ .fhirGenData.fhir_bundle }"
+                fhir_bundle_ref: "${ .fhirGenData.fhir_bundle_ref }"
                 patient_reference: "${ .patientData.patient_reference }"
                 HEADER_X-MLflow-Run-ID: "${ .mlflowRunId }"
             actionDataFilter:

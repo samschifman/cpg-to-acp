@@ -1,5 +1,6 @@
 """FHIR Server pod service — Writer + status management.
 
+Consumes: fhir_bundle_ref.
 Security profile: FHIR server access only.
 """
 
@@ -7,6 +8,7 @@ import logging
 
 from fastapi import FastAPI, Request
 
+from cpg_contracts import get_artifact_store, resolve_ref
 from acp_writer.nodes.fhir_server_writer import (
     approve_care_plan,
     fhir_server_writer,
@@ -18,6 +20,7 @@ from acp_writer.nodes.fhir_server_writer import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-fhir-server", version="0.1.0")
+_store = get_artifact_store()
 
 
 @app.get("/health")
@@ -29,8 +32,9 @@ def health():
 async def write(request: Request):
     """Write FHIR Bundle to HAPI FHIR server."""
     data = await request.json()
+    fhir_bundle = resolve_ref(data, "fhir_bundle", _store)
     state = {
-        "fhir_bundle": data.get("fhir_bundle", {}),
+        "fhir_bundle": fhir_bundle,
         "patient_reference": data.get("patient_reference", ""),
     }
     result = fhir_server_writer(state)

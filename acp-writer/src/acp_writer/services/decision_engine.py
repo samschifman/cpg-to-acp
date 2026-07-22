@@ -2,6 +2,7 @@
 
 Also handles DMN model management (deploy, list) since the model
 registry lives in this pod's process.
+Consumes: ips_bundle_ref (fetches patient bundle from artifact store).
 
 Security profile: Kogito runtime access only.
 """
@@ -10,12 +11,14 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 
+from cpg_contracts import get_artifact_store, resolve_ref
 from acp_writer.api import _dynamic_models, _parse_dmn_metadata
 from acp_writer.nodes.dmn_executor import dmn_executor
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-decision-engine", version="0.1.0")
+_store = get_artifact_store()
 
 
 @app.get("/health")
@@ -47,8 +50,9 @@ def list_decision_models():
 async def execute(request: Request):
     """Execute DMN models against patient data."""
     data = await request.json()
+    ips_bundle = resolve_ref(data, "ips_bundle", _store)
     state = {
-        "ips_bundle": data.get("ips_bundle", {}),
+        "ips_bundle": ips_bundle,
         "applicable_dmn_models": data.get("applicable_dmn_models", []),
         "dmn_dependency_graph": data.get("dmn_dependency_graph", []),
     }

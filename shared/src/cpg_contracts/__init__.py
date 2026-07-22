@@ -29,6 +29,12 @@ from cpg_contracts.search import (
     RecommendationSearchResult,
 )
 from cpg_contracts.fhir import PatientSummary
+from cpg_contracts.artifact_store import (
+    ArtifactStore,
+    get_artifact_store,
+    resolve_ref,
+    store_artifact,
+)
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -59,4 +65,9 @@ __all__ = [
     "RecommendationSearchResult",
     # FHIR
     "PatientSummary",
+    # Artifact store
+    "ArtifactStore",
+    "get_artifact_store",
+    "resolve_ref",
+    "store_artifact",
 ]

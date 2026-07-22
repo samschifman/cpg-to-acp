@@ -9,6 +9,7 @@ Security profile: LLM inference + vector store, no FHIR server access.
 
 import logging
 import os
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -17,6 +18,9 @@ from cpg_contracts import (
     Recommendation,
     RecommendationBundle,
     RecommendationSearchRequest,
+    get_artifact_store,
+    resolve_ref,
+    store_artifact,
 )
 from acp_writer.api import _guidelines_store, _vector_store
 from acp_writer.nodes.guideline_resolver import guideline_resolver
@@ -29,6 +33,7 @@ from acp_writer.pipeline import MAX_BRIEF_REVIEWS
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="acp-writer-llm-reasoning", version="0.1.0")
+_store = get_artifact_store()
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
 LLM_MODEL = os.environ.get("LLM_MODEL", "default")
@@ -102,13 +107,19 @@ async def retrieve(request: Request):
         "applicable_cpgs": data.get("applicable_cpgs", []),
     }
     result = recommendation_retriever(state)
-    return {"recommendations": result.get("recommendations", [])}
+    recs = result.get("recommendations", [])
+
+    _, ref = store_artifact(_store, f"{uuid4()}/recommendations.json", recs)
+    if ref:
+        return {"recommendations_ref": ref}
+    return {"recommendations": recs}
 
 
 @app.post("/api/v1/compose")
 async def compose(request: Request):
     """Run Plan Composer with Brief Reviewer loop."""
     data = await request.json()
+    recommendations = resolve_ref(data, "recommendations", _store)
     state = {
         "patient_reference": data.get("patient_reference", ""),
         "patient_demographics": data.get("patient_demographics", {}),
@@ -116,7 +127,7 @@ async def compose(request: Request):
         "medication_codes": data.get("medication_codes", []),
         "allergy_codes": data.get("allergy_codes", []),
         "dmn_results": data.get("dmn_results", []),
-        "recommendations": data.get("recommendations", []),
+        "recommendations": recommendations if isinstance(recommendations, list) else [],
         "applicable_cpgs": data.get("applicable_cpgs", []),
         "litellm_url": LITELLM_URL,
         "llm_model": LLM_MODEL,
@@ -137,15 +148,20 @@ async def compose(request: Request):
         if state.get("brief_review_count", 0) >= MAX_BRIEF_REVIEWS:
             break
 
-    return {"planning_brief": state.get("planning_brief", {})}
+    brief = state.get("planning_brief", {})
+    _, ref = store_artifact(_store, f"{uuid4()}/planning_brief.json", brief)
+    if ref:
+        return {"planning_brief_ref": ref}
+    return {"planning_brief": brief}
 
 
 @app.post("/api/v1/review-fhir")
 async def review_fhir(request: Request):
     """Run FHIR Semantic Reviewer."""
     data = await request.json()
+    fhir_bundle = resolve_ref(data, "fhir_bundle", _store)
     state = {
-        "fhir_bundle": data.get("fhir_bundle", {}),
+        "fhir_bundle": fhir_bundle,
         "terminology_issues": data.get("terminology_issues", []),
         "syntax_errors": data.get("syntax_errors", []),
         "fhir_review_count": data.get("fhir_review_count", 0),
