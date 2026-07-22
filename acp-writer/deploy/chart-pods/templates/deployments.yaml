@@ -29,6 +29,7 @@ spec:
       containers:
         - name: {{ $name }}
           image: "{{ $.Values.image.registry }}/{{ $.Values.image.namespace }}/{{ $pod.image }}:{{ $pod.tag }}"
+          imagePullPolicy: Always
           ports:
             - containerPort: {{ $pod.port }}
               protocol: TCP
