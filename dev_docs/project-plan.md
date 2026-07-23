@@ -14,7 +14,16 @@ Both cpg-ingester and acp-writer are multi-agent LangGraph pipelines with advers
 - **cpg-ingester:** Full pipeline (Docling → Structure Analysis → Content Filter → Item Identification with adversarial review → Metadata Extraction → DMN Creation with syntax + semantic review → Recommendation Extraction with schema + semantic review → Assembly → Delivery). Minimal web UI for upload and artifact browsing.
 - **acp-writer:** Full 11-node pipeline (Condition Scanner → Guideline Resolver → DMN Executor → Recommendation Retriever → Plan Composer → Brief Reviewer → FHIR Bundle Generator → Terminology Validator → FHIR Syntax Validator → FHIR Semantic Reviewer → FHIR Server Writer). Vector store with pluggable embedding model. Guidelines CRUD + recommendation ingestion endpoints. AI Transparency IG compliance (AIAST/CLINAST_AIRPT). Care plan approval workflow. 205 unit tests + 3 E2E tests.
 
-**What doesn't exist yet:** acp-writer minimal UI (Step 18), real CPG testing at scale, BPMN output, automation service, full OpenShell sandboxing, MCP Gateway governance, pod-per-security-profile deployment.
+**What's been added in Phase 3.3 (in progress):**
+- Pod-per-security-profile deployment: 11 pod groups (5 cpg-ingester + 6 acp-writer)
+- SonataFlow orchestration with async callbacks for LLM-heavy steps
+- MinIO artifact store with PHI-segmented buckets (cpg-artifacts + cpg-phi)
+- API gateway (Nginx) for unified acp-writer REST interface
+- MCP Gateway with 12 tools, 3 virtual servers, tool prefixing
+- OpenShell sandboxes with per-pod network policies
+- MaaS inference via gateway to OpenAI (gpt-5.6-terra)
+
+**What doesn't exist yet:** Production UIs (current are minimal Python/Jinja), BPMN output, automation service, identity/auth, multi-CPG at scale.
 
 ---
 
@@ -212,11 +221,57 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 
 ---
 
-### Phase 4 — BPMN + Automation
+### Phase 4 — UI + UX + Demo-Ready
+
+**Goal:** Replace the minimal Python/Jinja UIs with production-quality React/PatternFly applications. Make the system demo-ready with a mock-EHR that launches the acp-writer via SMART on FHIR.
+
+> **Re-prioritized:** UI work was moved from Phase 7 to Phase 4. After Phase 3.3, the backend is functionally complete (CPG → care plan → FHIR server with governance), but invisible without proper UIs. Demo readiness is the highest priority. See `working/prompts/planning_260722_analysis.md` for the full analysis.
+
+> **Important:** The UI must never display the Red Hat logo or name. PatternFly supports white-labeling.
+
+#### Spikes
+
+| Spike | Focus | Deliverable |
+|---|---|---|
+| **A. UI Technology & Design System** | PatternFly 6 + React + TypeScript (matches all Red Hat AI UIs). Evaluate PatternFly AI components (ChatBot). Build tooling (Vite vs Next.js). | Technology decision doc + starter template |
+| **B. UI ↔ Backend Interaction Pattern** | Async communication (the backend uses SonataFlow callbacks — UI must not block). WebSocket vs SSE vs polling. Should UI talk to SonataFlow directly or through a BFF? How does human-in-the-loop work (clinician review pauses workflow)? | Interaction pattern decision + sequence diagrams |
+| **C. cpg-ingester UX Design** | Upload flow, CPG → section → decision/recommendation lineage, item manifest review, DMN visualization (read-only), recommendation review, approval workflow | Wireframes + flow diagram |
+| **D. acp-writer UX Design** | Patient context display, care plan visualization (goals, activities, medications), conflict display for multi-CPG, AI Transparency display, approval/rejection with clinician notes | Wireframes + flow diagram |
+| **E. mock-EHR Research** | Evaluate: (1) Full Medplum — replaces HAPI FHIR + EHR UI, has built-in SMART on FHIR OAuth. (2) HAPI FHIR + Medplum React components — keep existing data store, use Medplum UI components. (3) HAPI FHIR + custom PatternFly UI. Also evaluate SMART-EHR-Launcher (CSIRO). Key question: can Medplum React components work against a HAPI FHIR backend? | Comparison matrix + recommendation |
+
+#### Work Items (staged)
+
+| Stage | Area | Work | Auth needed? |
+|---|---|---|---|
+| 4.0 | **research** | Complete Spikes A-E | No |
+| 4.1 | **cpg-ingester** | Rebuild cpg-ingester UI in React/PatternFly — upload, review, approve flow. Show CPG-to-recommendation lineage. | No |
+| 4.2 | **mock-EHR** | Evaluate and set up mock-EHR (Medplum vs HAPI+components vs custom). Patient list, basic EHR UI. | No |
+| 4.3 | **acp-writer** | Rebuild acp-writer UI in React/PatternFly — care plan review, FHIR Bundle visualization, approve/reject. Standalone initially (mock patient context). | No |
+| 4.4 | **platform** | Lightweight SMART on FHIR auth — Medplum built-in OAuth, Keycloak minimal (single realm, one user), or mock OAuth stub. Just enough for the launch flow. | Minimal |
+| 4.5 | **integration** | Connect acp-writer UI to mock-EHR via SMART on FHIR launch. Clinician clicks patient → acp-writer launches in context → care plan generated. | Minimal |
+
+#### Deferred to later phases
+
+- Interactive editing of DMN (Phase 8 — needs DMN editor or chat interaction)
+- Interactive editing of recommendations (Phase 8)
+- Interactive editing of care plan activities (Phase 8)
+- User-added clinical documentation for care plan context (Phase 8)
+- Interactive conflict resolution (Phase 8 — needs structured conflict types)
+
+#### Exit Criteria
+
+- Both cpg-ingester and acp-writer have React/PatternFly UIs
+- cpg-ingester UI shows CPG → decision/recommendation lineage
+- acp-writer UI visualizes care plans and supports approve/reject
+- mock-EHR launches acp-writer via SMART on FHIR with patient context
+- UIs communicate with backend asynchronously (no blocking calls)
+- Demo-ready: 5-minute walkthrough of full pipeline through the UIs
+
+---
+
+### Phase 5 — BPMN + Automation
 
 **Goal:** Add BPMN generation to make care plans actionable. Connect acp-writer to the automation service.
-
-> **Note:** This phase may be reordered relative to Phase 5 depending on project priorities. If governance and evaluation are more urgent, Phase 5 can proceed first.
 
 #### Work Items
 
@@ -227,7 +282,7 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 | **acp-writer** | Publish BPMN to automation service on care plan approval | — |
 | **automation** | Implement automation service that accepts BPMN from acp-writer | Receives BPMN over API |
 | **shared** | Define the BPMN contract in shared/ | — |
-| **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer |
+| **acp-writer UI** | Add BPMN visualization within care plan review | BPMN renderer in React UI |
 
 #### Exit Criteria
 
@@ -237,7 +292,7 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 
 ---
 
-### Phase 5 — Governance + Safety + Evaluation
+### Phase 6 — Governance + Safety + Evaluation
 
 **Goal:** Quality gates, guardrails, and evaluation pipelines.
 
@@ -265,20 +320,22 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 
 ---
 
-### Phase 6 — Identity, Auth & Access Control
+### Phase 7 — Identity, Auth & Access Control
 
-**Goal:** Establish user authentication, role-based access control, and agent credential scoping so that every action — human or agent — is tied to an authenticated identity with appropriate permissions.
+**Goal:** Establish full user authentication, role-based access control, and agent credential scoping. Replace the lightweight Phase 4 auth with production-grade identity infrastructure.
+
+> **Note:** Phase 4 uses lightweight SMART on FHIR auth (Medplum built-in, Keycloak minimal, or mock stub) for demos. This phase adds production identity: RBAC, SPIFFE/SPIRE agent credentials, audit trails, and multi-user auth.
 
 #### Work Items
 
 | Area | Work | Technology |
 |---|---|---|
-| **platform** | Deploy Keycloak on OpenShift, configure OIDC provider | Keycloak |
+| **platform** | Deploy Keycloak on OpenShift (full), configure OIDC provider | Keycloak |
 | **platform** | Define roles (clinician, admin, reviewer) and map to permissions | Keycloak RBAC |
 | **platform** | Agent identity via SPIFFE/SPIRE | SPIFFE/SPIRE |
 | **platform** | OpenShell credential scoping — agents run with user-scoped tokens, not shared service accounts | OpenShell + Keycloak |
 | **platform** | Audit trail linking actions to authenticated identities | MLflow + OpenShell |
-| **acp-writer** | Integrate OIDC auth into UI and API | — |
+| **acp-writer** | Integrate OIDC auth into UI and API (upgrade from Phase 4 lightweight auth) | — |
 | **cpg-ingester** | Integrate OIDC auth into UI and API | — |
 | **mock-EHR** | Configure HAPI FHIR for token-based access | — |
 
@@ -292,57 +349,28 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 
 ---
 
-### Phase 7 — Full UIs + Scale + Demo-Ready
+### Phase 8 — Scale + Polish
 
-**Goal:** Full user interfaces, multiple CPGs, polished demo.
+**Goal:** Multiple CPGs at scale, interactive editing, conflict resolution, and production polish.
 
-#### cpg-ingester UI (enhanced)
+#### Work Items
 
-| Work | Notes |
-|---|---|
-| Review DMN after conversion — side-by-side with CPG source | Visual comparison |
-| Review recommendations before push to acp-writer | — |
-| Interactive editing at each step | — |
-| Reference back to CPG source for verification | — |
-
-#### acp-writer UI (enhanced)
-
-| Work | Notes |
-|---|---|
-| Launchable via SMART on FHIR inside supporting EHR | SMART App Launch |
-| Pull patient data as IPS from FHIR server for patient in context | — |
-| Allow user to add notes about current situation | Free text input |
-| Interactive editing of care plan | — |
-| Approve → publish to FHIR server + automation service | — |
-
-#### mock-EHR
-
-| Work | Notes |
-|---|---|
-| Basic EHR UI that supports SMART on FHIR app launch | Consider SMART-EHR-Launcher (CSIRO) |
-| Launch acp-writer UI in patient context | EHR launch flow |
-| Multiple synthetic patients with varied conditions | — |
-
-#### Scale
-
-| Work | Notes |
-|---|---|
-| Expand to 3-5 real CPGs (VA/DoD) | — |
-| Multi-plan merging when multiple CPGs apply | Conflict detection |
-| Conflict resolution with clinician input | — |
-
-#### automation (enhanced)
-
-| Work | Notes |
-|---|---|
-| Add BPMN execution engine or BPMN-to-Ansible converter | Ansible/SonataFlow |
+| Area | Work | Notes |
+|---|---|---|
+| **integration** | Expand to 3-5 real CPGs (VA/DoD) | — |
+| **acp-writer** | Multi-plan merging when multiple CPGs apply | Conflict detection |
+| **acp-writer** | Conflict resolution with clinician input | Interactive UI, structured types, Provenance tracking |
+| **cpg-ingester UI** | Interactive DMN editing (chat-based or visual editor) | — |
+| **cpg-ingester UI** | Interactive recommendation editing | — |
+| **acp-writer UI** | Interactive care plan editing | — |
+| **acp-writer UI** | User-added clinical documentation for care plan context | Free text input |
+| **automation** | Add BPMN execution engine or BPMN-to-Ansible converter | Ansible/SonataFlow |
 
 #### Exit Criteria
 
-- Full UIs for both cpg-ingester and acp-writer
-- Mock-EHR launches acp-writer via SMART on FHIR
-- 3-5 CPGs with multi-plan merging
-- Presentation-ready
+- 3-5 CPGs with multi-plan merging and conflict resolution
+- Interactive editing in both UIs
+- Production-ready
 
 ---
 
@@ -355,11 +383,12 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 | Phase 3.0 | Complete | cpg-contracts v1.0 (recommendations, guidelines, search) |
 | Phase 3.1 | Complete | LangGraph (cpg-ingester agents) |
 | Phase 3.2 | Complete | pgvector, LangGraph (acp-writer agents), AI Transparency IG |
-| Phase 3.3 | In progress | MCP Gateway, SonataFlow, pod-per-security-profile (integration and governance) |
-| Phase 4 | Not started | — (BPMN generation, no new platform tech) |
-| Phase 5 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
-| Phase 6 | Not started | Keycloak, SPIFFE/SPIRE |
-| Phase 7 | Not started | SMART on FHIR |
+| Phase 3.3 | In progress | MCP Gateway, SonataFlow, MinIO, async callbacks, API gateway, pod-per-security-profile |
+| Phase 4 | Not started | React, PatternFly 6, TypeScript, SMART on FHIR (lightweight), Medplum (evaluate) |
+| Phase 5 | Not started | — (BPMN generation, no new platform tech) |
+| Phase 6 | Not started | NeMo Guardrails, EvalHub, Garak, vLLM, Praxis |
+| Phase 7 | Not started | Keycloak (full), SPIFFE/SPIRE |
+| Phase 8 | Not started | — (scale and polish, no new platform tech) |
 
 ## Parallel Development Tracks
 
@@ -368,8 +397,9 @@ Each area can advance semi-independently within a phase. Cross-cutting dependenc
 1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3. Decision: LangGraph (see `dev_docs/spike-agent-framework.md`).
 2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS
 3. **Recommendation contract (Phase 3.0)** — blocks both Phase 3.1 and Phase 3.2. This is the single gate before cpg-ingester and acp-writer can advance independently.
-4. **BPMN contract in shared/ (Phase 4)** — blocks automation service integration
-5. **Keycloak + OIDC (Phase 6)** — blocks SMART on FHIR launch in Phase 7
+4. **UI technology decision (Phase 4 Spike A)** — blocks all UI development in Phase 4.
+5. **BPMN contract in shared/ (Phase 5)** — blocks automation service integration
+6. **Keycloak full deployment (Phase 7)** — blocks production auth. Lightweight SMART on FHIR auth in Phase 4 does not require full Keycloak.
 
 Within Phase 3, the cpg-ingester track (3.1) and acp-writer track (3.2) are designed to advance independently after the shared contracts (3.0) are defined. Neither blocks the other — cpg-ingester validates recommendations against the contract schema, acp-writer tests against hand-crafted recommendation data.
 
@@ -394,13 +424,21 @@ Work that can be picked up at any time, independent of the current phase. These 
 
 ## Open Spikes and Research Items
 
-| Item | Phase | Notes |
-|---|---|---|
-| Agent framework evaluation | 2 | Compare LangGraph, CrewAI, Rookery, and other options for multi-agent orchestration |
-| Praxis investigation | 2 | Emerging inference gateway. Investigate fit and timeline for adoption. |
-| Effective FHIR CarePlan goals | 3 | Research what makes clinically meaningful goals — clinical + FHIR standard input needed |
-| AI Transparency on FHIR IG | 3 | HL7 STU1 ballot. Defines how to tag FHIR resources generated/influenced by AI |
-| Recommendation contract format | 3 | No established standard (unlike DMN/BPMN/FHIR). Design needed. |
-| Self-hosted models vs. frontier | 5 | Evaluate using smaller models (via vLLM) for cost, latency, and data locality |
-| BPMN-to-Ansible conversion | 7 | Feasibility and approach |
-| SMART-EHR-Launcher (CSIRO) | 7 | Open-source EHR simulator for SMART app launch — evaluate for mock-EHR |
+| Item | Phase | Status | Notes |
+|---|---|---|---|
+| Agent framework evaluation | 2 | ✅ Complete | LangGraph selected. See `dev_docs/spike-agent-framework.md` |
+| Praxis investigation | 2 | ✅ Complete | Too early. Track for Phase 6. See `dev_docs/spike-praxis.md` |
+| Effective FHIR CarePlan goals | 3 | ✅ Complete | Implemented in acp-writer Plan Composer |
+| AI Transparency on FHIR IG | 3 | ✅ Complete | AIAST/CLINAST_AIRPT implemented |
+| Recommendation contract format | 3 | ✅ Complete | `cpg_contracts.recommendations` v1.0 |
+| SonataFlow orchestration | 3.3 | ✅ Complete | Async callbacks, HTTP CloudEvents. See `dev_docs/spike-sonataflow-orchestration.md` |
+| MCP Gateway governance | 3.3 | ✅ Complete | 12 tools, 3 virtual servers. See `dev_docs/spike-mcp-gateway.md` |
+| Artifact store (MinIO) | 3.3 | ✅ Complete | PHI-segmented buckets. See `dev_docs/spike-artifact-store.md` |
+| Async callback pattern | 3.3 | ✅ Complete | HTTP CloudEvents, no Kafka. See `dev_docs/spike-async-callback.md` |
+| UI technology + design system | 4 | Not started | PatternFly 6 + React + TypeScript. Spike A. |
+| UI ↔ backend interaction pattern | 4 | Not started | Async communication, human-in-the-loop. Spike B. |
+| cpg-ingester UX design | 4 | Not started | Wireframes + flow diagrams. Spike C. |
+| acp-writer UX design | 4 | Not started | Wireframes + flow diagrams. Spike D. |
+| mock-EHR research (Medplum) | 4 | Not started | Medplum vs HAPI+components vs custom. Spike E. |
+| Self-hosted models vs. frontier | 6 | Not started | Evaluate using smaller models (via vLLM) for cost, latency, and data locality |
+| BPMN-to-Ansible conversion | 8 | Not started | Feasibility and approach |
