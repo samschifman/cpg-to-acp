@@ -73,31 +73,68 @@ Start polling at 2-second intervals. After 30 seconds with no state change, slow
 
 ## Human-in-the-Loop Pattern
 
-For steps that need clinician input (approve/reject care plan, review recommendations), the UI calls service endpoints directly — NOT through SonataFlow.
+Human review is part of the core workflow, not an afterthought. Both pipelines have steps where the workflow must **pause and wait for human input** before continuing.
 
-**Why:** SonataFlow orchestrates the automated pipeline. Human review is outside the workflow — the care plan is already written to the FHIR server, and approval changes its status. The UI calls `PUT /api/v1/careplans/{id}/status` directly through the API gateway.
+### cpg-ingester review points
 
-If future phases need human-in-the-loop WITHIN the pipeline (e.g., clinician reviews recommendations before compose), that would use a SonataFlow Callback state where the callback comes from the UI (the clinician's action sends the CloudEvent). This is the same pattern as the LLM async callbacks but with a human providing the response instead of a service.
+1. **After item identification** — the user reviews and edits the manifest of decisions and recommendations before DMN/recommendation generation begins. If the classification is wrong, everything downstream is wrong. This is a quality gate.
+
+2. **After generation, before delivery** — the user reviews the extracted DMN tables and recommendations before they're sent to acp-writer. Final approval before artifacts enter the system.
+
+### acp-writer review points
+
+3. **After care plan written** — the clinician reviews the generated care plan and approves or rejects it. This changes the FHIR status (draft → active or entered-in-error).
+
+### Implementation: SonataFlow Callback states driven by the UI
+
+Human review uses the **same Callback state pattern** as the LLM async callbacks — the only difference is that the "async work" is a human making a decision instead of a model generating text. The workflow pauses, the UI shows the review screen, and when the user acts, the UI sends the CloudEvent to resume the workflow.
 
 ```
 SonataFlow                    UI (React)
     │                           │
-    │ POST /review-step-async   │
-    │ {callback_url, data...}   │
-    │──────────(to service)────>│
+    │ (workflow reaches          │
+    │  ReviewManifest state)     │
     │                           │
-    │ (workflow WAITING)        │ (UI shows review screen)
+    │ POST /notify-ui           │
+    │ {callback_url,            │
+    │  manifest_ref,            │
+    │  process_instance_id}     │
+    │──────────(to UI backend)──>│
     │                           │
-    │                           │ User clicks "Approve"
+    │ (workflow WAITING)        │ (UI shows manifest review)
+    │                           │ (user edits classifications)
+    │                           │ (user clicks "Approve")
     │                           │
-    │ POST /wait-review         │
-    │ CloudEvent {approved}     │
+    │ POST /wait-manifest-review│
+    │ CloudEvent {              │
+    │   type: "manifest-reviewed",│
+    │   kogitoprocrefid: "...", │
+    │   data: {                 │
+    │     approved: true,       │
+    │     manifest_ref: "..."   │
+    │   }                       │
+    │ }                         │
     │<──────────────────────────│
     │                           │
-    │ (workflow RESUMES)        │
+    │ (workflow RESUMES →       │
+    │  generate DMN/Recs)       │
 ```
 
-This pattern is designed but **deferred** — Phase 4 UIs use the simpler post-pipeline approve/reject pattern.
+### How the UI knows to show a review screen
+
+The UI polls the workflow state (`GET /cpgingester/{id}`). When the workflow reaches a human review Callback state, the state data includes a marker (e.g., `awaiting_review: "manifest"` or `awaiting_review: "pre-delivery"`). The UI transitions to the appropriate review screen.
+
+When the user completes the review, the UI POSTs a CloudEvent to the callback URL (stored in the workflow state). This is the same `post_callback()` pattern used by the LLM services, but called from the UI's backend-for-frontend (BFF) or directly from the browser.
+
+### Three tiers of human interaction
+
+| Tier | Pattern | When |
+|---|---|---|
+| **Observe** | Poll workflow state, display progress | Pipeline is running (automated steps) |
+| **Review & approve** | Workflow pauses at Callback state, UI shows review, user sends callback | Quality gates (manifest review, pre-delivery review) |
+| **Post-pipeline action** | Direct API call (not through SonataFlow) | Care plan approve/reject (already on FHIR server) |
+
+All three tiers use polling as the primary communication channel. The difference is whether the user's action resumes the workflow (tier 2) or modifies a completed artifact (tier 3).
 
 ## API Endpoints the UI Calls
 

@@ -14,13 +14,19 @@ No authentication needed for the Phase 4 demo. No patient data involved — all 
 graph LR
     A[Upload PDF] --> B[Parsing]
     B --> C[Review Structure]
-    C --> D[Review Items]
-    D --> E[Review DMN]
-    E --> F[Review Recommendations]
+    C --> D["Review Item Manifest ⏸️"]
+    D --> E[Generate DMN + Recs]
+    E --> F["Review Artifacts ⏸️"]
     F --> G[Approve & Deliver]
 ```
 
-The flow mirrors the pipeline steps. Each screen shows the AI's output for that step and lets the user review before proceeding. The pipeline runs via SonataFlow async callbacks — the UI polls for progress (see Spike B).
+The ⏸️ steps are **human review gates** where the SonataFlow workflow pauses and waits for the user to approve before continuing (Callback state pattern — see Spike B). The pipeline does NOT run to completion automatically — it stops at each review point.
+
+1. **Parse + Analyze structure** — automated (async callbacks)
+2. **Review item manifest** — ⏸️ HUMAN: user reviews/edits the list of decisions and recommendations before generation begins. If classifications are wrong, everything downstream is wrong.
+3. **Generate DMN + Recommendations** — automated (async callbacks, LLM-heavy)
+4. **Review artifacts** — ⏸️ HUMAN: user reviews extracted DMN tables and recommendations before delivery. Final quality gate.
+5. **Deliver to acp-writer** — automated (sync REST calls)
 
 ## Screens
 
@@ -176,17 +182,16 @@ CPG: Hypertension Management v1.0
 
 ## Async Interaction Pattern
 
-Per Spike B, the UI polls the SonataFlow workflow:
+Per Spike B, the UI uses all three interaction tiers:
 
-1. Upload PDF → store in MinIO → trigger `cpgingester` workflow → get workflow ID
-2. Poll `GET /cpgingester/{id}` every 5 seconds
-3. As each step's data appears in the workflow state (parseResult, analysisResult, etc.), unlock that review screen
-4. User reviews each step's output at their own pace
-5. Delivery is triggered by the workflow automatically (sync step), or could be gated on user approval
+1. **Upload PDF** → store in MinIO → trigger `cpgingester` workflow → get workflow ID
+2. **Observe (Tier 1):** Poll `GET /cpgingester/{id}` — show parsing and structure analysis progress
+3. **Review manifest (Tier 2):** Workflow pauses at the manifest review Callback state. UI detects `awaiting_review: "manifest"` in the state. User reviews/edits the item classifications. User clicks "Approve" → UI sends CloudEvent to resume workflow.
+4. **Observe (Tier 1):** Poll again — show DMN and recommendation generation progress (LLM calls)
+5. **Review artifacts (Tier 2):** Workflow pauses at the pre-delivery review Callback state. UI detects `awaiting_review: "pre-delivery"`. User reviews DMN tables and recommendations. User clicks "Deliver" → UI sends CloudEvent to resume workflow.
+6. **Observe (Tier 1):** Poll — show delivery progress to acp-writer
 
-### Future: Human-in-the-Loop (Phase 8)
-
-In a future phase, the user could pause the pipeline between steps to make corrections. This would use SonataFlow Callback states where the "callback" comes from the UI (user clicks "Approve and Continue"). For Phase 4, the pipeline runs to completion automatically and the user reviews afterward.
+This means the cpg-ingester workflow has **5 states** from the user's perspective: automated → pause → automated → pause → automated. The SonataFlow workflow needs 2 additional Callback states for the human reviews (in addition to the 2 async callbacks for Parse and Analyze).
 
 ## PatternFly Components Used
 
