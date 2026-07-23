@@ -10,11 +10,11 @@ pods:
     port: 8080
     resources:
       requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        cpu: "1"
+        cpu: 500m
         memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
 
   llm-analysis:
     enabled: true
