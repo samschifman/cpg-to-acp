@@ -199,7 +199,12 @@ def _run_compose_background(data: dict, callback_url: str, process_instance_id: 
 
         brief = state.get("planning_brief", {})
         _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
-        result = {"planning_brief_ref": ref} if ref else {"planning_brief": brief}
+        if ref:
+            result = {"planning_brief_ref": ref}
+        elif _phi_store:
+            raise RuntimeError("Artifact store available but failed to store planning brief")
+        else:
+            result = {"planning_brief": brief}
     except Exception as e:
         logger.error("Compose background task failed: %s", e)
         result = {"error": str(e)}

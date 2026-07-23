@@ -94,6 +94,8 @@ def _do_analyze(data: dict) -> dict:
         _, ref = store_artifact(_store, f"{uuid4()}/analysis_result.json", result)
         if ref:
             return {"analysis_result_ref": ref}
+        if _store:
+            raise RuntimeError("Artifact store available but failed to store analysis result")
         return result
 
 

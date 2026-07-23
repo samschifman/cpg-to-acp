@@ -68,6 +68,8 @@ def _do_parse_bytes(pdf_bytes: bytes, filename: str = "input.pdf") -> dict:
         _, ref = store_artifact(_store, f"{uuid4()}/parse_result.json", parse_output)
         if ref:
             return {"parse_result_ref": ref}
+        if _store:
+            raise RuntimeError("Artifact store available but failed to store parse result")
         return parse_output
 
 
@@ -78,9 +80,8 @@ def _run_parse_background(
         if _store and pdf_ref:
             pdf_bytes = _store.get_raw(pdf_ref)
         else:
-            logger.error("No artifact store or pdf_ref — cannot parse")
             post_callback(callback_url, process_instance_id, "parse-done",
-                          {"error": "No pdf_ref provided"})
+                          {"error": "No artifact store or pdf_ref provided"})
             return
 
         result = _do_parse_bytes(pdf_bytes)

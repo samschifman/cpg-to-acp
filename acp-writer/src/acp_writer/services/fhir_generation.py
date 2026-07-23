@@ -101,10 +101,12 @@ def _run_generate_background(data: dict, callback_url: str, process_instance_id:
         }
         if ref:
             result["fhir_bundle_ref"] = ref
+        elif _phi_store:
+            raise RuntimeError("Artifact store available but failed to store FHIR bundle")
         else:
             result["fhir_bundle"] = fhir_bundle
     except Exception as e:
         logger.error("Generate-bundle background task failed: %s", e)
-        result = {"error": str(e), "fhir_bundle": {}, "terminology_issues": [], "syntax_errors": []}
+        result = {"error": str(e), "terminology_issues": [], "syntax_errors": []}
 
     post_callback(callback_url, process_instance_id, "generate-done", result)
