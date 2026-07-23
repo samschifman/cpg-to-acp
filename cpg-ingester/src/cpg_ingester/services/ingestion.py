@@ -14,6 +14,8 @@ from fastapi import BackgroundTasks, FastAPI, File, Request, UploadFile
 from cpg_contracts import get_artifact_store, post_callback, store_artifact
 from cpg_ingester.nodes.docling_agent import docling_agent
 
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)-5s %(name)s: %(message)s", force=True)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="cpg-ingester-ingestion", version="0.1.0")
