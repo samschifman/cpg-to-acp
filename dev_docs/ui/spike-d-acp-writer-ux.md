@@ -30,39 +30,78 @@ For the Phase 4 demo without full SMART on FHIR, the patient can be selected fro
 
 ## Screens
 
-### 1. Patient Summary
+### 1. IPS (International Patient Summary) View
 
-First screen after launch. Shows the patient's clinical context — what the AI will use to generate the care plan.
+First screen after launch. Shows the complete IPS that will be sent to the backend for care plan generation. The clinician should see everything the AI will use — no hidden inputs.
+
+The IPS is a standardized FHIR Bundle containing all clinically relevant patient data. The UI renders it in a readable format organized by IPS section:
 
 ```
-┌────────────────────────────────────────────┐
-│  Care Plan Generator                       │
-├────────────────────────────────────────────┤
-│  Patient: James Reynolds                   │
-│  DOB: 1971-03-15 (55M)                    │
-│  MRN: P001                                │
-├────────────────────────────────────────────┤
-│  Active Conditions                         │
-│  ┌──────────────────────────────────────┐  │
-│  │ Essential hypertension (I10)    active│  │
-│  │ Type 2 diabetes mellitus (E11)  active│  │
-│  └──────────────────────────────────────┘  │
-│                                            │
-│  Current Medications                       │
-│  ┌──────────────────────────────────────┐  │
-│  │ Metformin 500mg BID                  │  │
-│  └──────────────────────────────────────┘  │
-│                                            │
-│  Recent Vitals                             │
-│  ┌──────────────────────────────────────┐  │
-│  │ BP: 142/92 mmHg (2026-07-01)        │  │
-│  └──────────────────────────────────────┘  │
-│                                            │
-│  [Generate Care Plan]                      │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  Care Plan Generator                              │
+├──────────────────────────────────────────────────┤
+│  Patient International Patient Summary (IPS)      │
+│  This data will be sent to generate the care plan │
+├──────────────────────────────────────────────────┤
+│  Demographics                                     │
+│  ┌────────────────────────────────────────────┐   │
+│  │ Name: James Reynolds                       │   │
+│  │ DOB: 1971-03-15 (55M) | Gender: Male      │   │
+│  │ MRN: P001 (http://example.org/fhir/ids)   │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  Active Conditions                                 │
+│  ┌────────────────────────────────────────────┐   │
+│  │ Essential hypertension                     │   │
+│  │   SNOMED: 59621000 | ICD-10: I10          │   │
+│  │   Status: active | Onset: 2026-06-01      │   │
+│  │                                            │   │
+│  │ Type 2 diabetes mellitus                   │   │
+│  │   SNOMED: 44054006 | ICD-10: E11          │   │
+│  │   Status: active | Onset: 2022-08-15      │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  Medications                                       │
+│  ┌────────────────────────────────────────────┐   │
+│  │ Metformin hydrochloride 500 MG Oral Tablet │   │
+│  │   RxNorm: 860975                           │   │
+│  │   Dosage: 500mg twice daily                │   │
+│  │   Since: 2022-09-01                        │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  Observations / Vitals                             │
+│  ┌────────────────────────────────────────────┐   │
+│  │ Blood Pressure (2026-07-01)                │   │
+│  │   Systolic: 142 mmHg | Diastolic: 92 mmHg │   │
+│  │   LOINC: 85354-9                           │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  Allergies                                         │
+│  ┌────────────────────────────────────────────┐   │
+│  │ (none recorded)                            │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  Immunizations                                     │
+│  ┌────────────────────────────────────────────┐   │
+│  │ (none in IPS)                              │   │
+│  └────────────────────────────────────────────┘   │
+│                                                    │
+│  [Generate Care Plan]     [View FHIR Bundle JSON] │
+└──────────────────────────────────────────────────┘
 ```
 
-Data comes from the FHIR server (existing patient bundle). Uses PatternFly DescriptionList for demographics, DataList for conditions/medications.
+The UI renders ALL IPS sections present in the FHIR Bundle — not just a filtered summary. Each section uses PatternFly DataList with expandable detail panels. Sections with no data show "(none recorded)" rather than being hidden. A "View FHIR Bundle JSON" toggle shows the raw IPS Bundle for verification.
+
+IPS sections to display (per the IPS IG):
+- Demographics (Patient resource)
+- Active conditions (Condition resources)
+- Medications (MedicationStatement/MedicationRequest resources)
+- Allergies (AllergyIntolerance resources)
+- Observations / vitals (Observation resources)
+- Immunizations (Immunization resources)
+- Procedures (Procedure resources)
+- Problems (from the problem list)
+- Any other resources present in the Bundle
 
 ### 2. Generation Progress
 
