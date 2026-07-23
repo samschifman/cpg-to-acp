@@ -164,14 +164,32 @@ The main review screen. Shows the complete care plan in a clinician-readable for
 
 #### Care Plan Sections (left nav tabs)
 
-| Tab | Content |
-|---|---|
-| **Goals** | Treatment goals with target values and timelines |
-| **Activities** | Medications, procedures, lifestyle, monitoring — grouped by goal |
-| **Medications** | Medication-specific activities with dosing, route, frequency |
-| **Monitoring** | Lab orders, vital checks, follow-up schedules |
-| **AI Info** | AI Transparency: which parts were AI-generated, model used, confidence |
-| **Conflicts** | Multi-CPG conflicts (if applicable) — overlapping recommendations |
+The FHIR CarePlan structure has Goals and Activities. Activities reference other FHIR resources (MedicationRequest, ServiceRequest, etc.) and can have different kinds and statuses. The UI organizes by these FHIR structures:
+
+| Tab | FHIR Basis | Content |
+|---|---|---|
+| **Goals** | `CarePlan.goal` → `Goal` resources | Treatment targets with measurable outcomes and timelines |
+| **Activities** | `CarePlan.activity` | All planned activities, each referencing a specific resource |
+| **AI Info** | `Provenance`, `Device` resources | AI Transparency: which parts were AI-generated, model, confidence |
+| **Conflicts** | Derived from multi-CPG overlap | Overlapping recommendations from different guidelines |
+
+#### Activity Types (from FHIR CarePlan.activity)
+
+Each activity in the CarePlan references a planned action. The UI groups and renders them by the type of referenced resource:
+
+| Activity Kind | FHIR Reference | Display |
+|---|---|---|
+| **Medication** | `activity.reference` → `MedicationRequest` | Drug name, dose, route, frequency, start date |
+| **Procedure / Referral** | `activity.reference` → `ServiceRequest` | Procedure name, specialty, urgency |
+| **Monitoring** | `activity.reference` → `ServiceRequest` (with lab/vital codes) | What to measure, frequency, target values |
+| **Lifestyle** | `activity.reference` → `ServiceRequest` or `CarePlan.activity.detail` | Exercise, diet, behavioral changes |
+| **Appointment** | `activity.reference` → `ServiceRequest` (follow-up) | Follow-up schedule, provider |
+
+Activities can have:
+- `status`: not-started, scheduled, in-progress, completed, cancelled
+- `detail.kind`: Appointment, CommunicationRequest, DeviceRequest, MedicationRequest, NutritionOrder, Task, ServiceRequest, VisionPrescription
+- `detail.scheduledTiming` or `detail.scheduledPeriod`: when the activity should occur
+- `outcomeReference`: what happened when the activity was performed
 
 #### Activity Detail
 
