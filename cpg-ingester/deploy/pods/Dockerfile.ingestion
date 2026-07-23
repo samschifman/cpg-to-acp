@@ -1,7 +1,7 @@
 FROM registry.access.redhat.com/ubi9/python-312:latest
 USER 0
 WORKDIR /app
-RUN dnf install -y gcc gcc-c++ make && dnf clean all
+RUN dnf install -y gcc gcc-c++ make mesa-libGL && dnf clean all
 COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
 COPY cpg-ingester/pyproject.toml .
