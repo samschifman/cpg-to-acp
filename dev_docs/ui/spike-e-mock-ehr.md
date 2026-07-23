@@ -72,80 +72,100 @@ Use `@medplum/react` components against our existing HAPI FHIR backend.
 
 Build the mock-EHR from scratch using PatternFly components.
 
-**Verdict: Unnecessary effort.** SMART-EHR-Launcher already provides the patient list, clinical data display, and SMART launch flow. Building this from scratch in PatternFly would duplicate existing open-source work. We can customize SMART-EHR-Launcher's styling if needed (it's React/TypeScript).
+**Verdict: Wrong approach.** The mock-EHR is NOT a Red Hat product — it represents a generic hospital EHR. It should NOT use PatternFly. Using PatternFly would make it look like the same product as the acp-writer, which defeats the purpose of showing the acp-writer launching inside a third-party system.
+
+## Key Design Principle
+
+> **The mock-EHR and the acp-writer UI are deliberately different products with different visual identities.**
+>
+> - **mock-EHR** = a generic hospital EHR (Medplum's look, or clinical dashboard styling). Not a Red Hat product.
+> - **acp-writer UI** = a SMART on FHIR app that launches INSIDE the EHR. This IS the Red Hat AI product. Uses PatternFly.
+>
+> The demo story: *"Here's a clinician working in their hospital's EHR. They select a patient, click 'Generate Care Plan,' and our SMART app launches. The clinician reviews the AI-generated plan, makes adjustments, approves it, and returns to their EHR."*
+
+## The Workflow
+
+```mermaid
+sequenceDiagram
+    participant C as Clinician
+    participant EHR as mock-EHR (Medplum)
+    participant APP as acp-writer SMART App (PatternFly)
+    participant FHIR as FHIR Server
+
+    C->>EHR: Search for patient
+    C->>EHR: Open patient chart
+    Note over EHR: Shows conditions, meds, vitals
+    C->>EHR: Click "Generate Care Plan"
+    EHR->>APP: SMART on FHIR launch (patient context)
+    Note over APP: acp-writer opens in panel/tab
+    APP->>APP: Trigger SonataFlow pipeline
+    APP->>APP: Show generation progress
+    APP->>APP: Display care plan for review
+    C->>APP: Review goals, activities, conflicts
+    C->>APP: Click "Approve"
+    APP->>FHIR: Update CarePlan status → active
+    APP-->>EHR: Close / return to EHR
+    C->>EHR: See care plan in patient timeline
+```
 
 ## Decision
 
-**Two viable approaches — evaluate both in Phase 4.0 implementation spike:**
+**Full Medplum as the mock-EHR.**
 
-### Approach A: Full Medplum (recommended for fastest demo)
-
-Replace HAPI FHIR with Medplum. Get patient search, charting, care coordination, SMART on FHIR, and EHR UI out of the box. The mock-EHR IS Medplum.
+Medplum provides a complete EHR experience (patient search, charting, care coordination, SMART on FHIR) out of the box. Its UI does NOT use PatternFly — which is exactly what we want. It looks like a generic clinical system, distinct from the acp-writer.
 
 | Pro | Con |
 |---|---|
-| Complete EHR UI for free (patient search, chart, care plans) | Replace a working HAPI FHIR with a new system |
-| SMART on FHIR built in (no Keycloak, no smart-launcher-v2) | Medplum's UI doesn't use PatternFly (different look) |
-| Self-hostable (Docker, Helm) | Need to validate FHIR R4 compatibility with our bundles |
-| Less total work than building a custom EHR | Adds a dependency on Medplum's ecosystem |
+| Complete EHR UI for free (patient search, chart, care plans) | Replace HAPI FHIR with Medplum's FHIR server |
+| SMART on FHIR built in (no Keycloak needed) | Need to validate FHIR R4 compatibility with our bundles |
+| Does NOT look like PatternFly (correct — it's a different product) | Adds a dependency on Medplum's ecosystem |
+| Self-hostable (Docker, Helm) | Learning curve for Medplum configuration |
+| Clinician sees care plan appear in the EHR after approval | Migration effort from HAPI FHIR |
 
-### Approach B: HAPI FHIR + custom PatternFly EHR + smart-launcher-v2
-
-Keep HAPI FHIR. Build the EHR shell in PatternFly. Use smart-launcher-v2 for SMART on FHIR OAuth.
-
-| Pro | Con |
-|---|---|
-| Matches Red Hat AI design system | Significant frontend dev to build EHR features |
-| HAPI FHIR unchanged, all tests pass | Need to build patient search, chart, clinical views |
-| Full control over look and feel | smart-launcher-v2 is another service to deploy |
-
-### Recommendation
-
-**Start with Approach A (Medplum) for the fastest path to a demo.** If Medplum's look doesn't align with the demo's visual needs, or if FHIR compatibility issues arise, fall back to Approach B. The smart-launcher-v2 proxy is the common element — it works with both approaches.
+**Fallback:** If Medplum doesn't work out, use SMART-EHR-Launcher (CSIRO) as the EHR shell + smart-launcher-v2 for OAuth. This is lighter but provides fewer EHR features.
 
 SMART-EHR-Launcher is useful as a reference and for early testing, but the demo EHR needs to be built with PatternFly to match the Red Hat AI look and feel and to provide adequate clinical functionality.
 
-### mock-EHR Features Needed
+### mock-EHR Features (provided by Medplum)
 
-| Feature | Priority | Notes |
+| Feature | Medplum provides? | Notes |
 |---|---|---|
-| Patient search | Must have | Search by name, MRN, condition |
-| Patient list / worklist | Must have | Clinician's active patients |
-| Patient demographics | Must have | Name, DOB, gender, identifiers |
-| Conditions list | Must have | Active conditions with SNOMED/ICD codes |
-| Medications list | Must have | Active medications with dosing |
-| Observations / vitals | Must have | Recent BP, labs, HbA1c |
-| Allergies | Should have | Active allergies |
-| Care plan list | Must have | Show existing care plans from HAPI FHIR |
-| SMART app launch | Must have | "Generate Care Plan" button launches acp-writer |
-| Encounter context | Nice to have | Current encounter for the SMART launch |
+| Patient search | Yes | Built-in FHIR search |
+| Patient list / worklist | Yes | Configurable |
+| Patient demographics | Yes | Standard patient view |
+| Conditions list | Yes | Charting module |
+| Medications list | Yes | Charting module |
+| Observations / vitals | Yes | Charting module |
+| Allergies | Yes | Charting module |
+| Care plan list | Yes | Care coordination module |
+| SMART app launch | Yes | Built-in OAuth + app management |
+| Encounter context | Yes | SMART launch context |
 
 ### What Gets Built vs What Gets Reused
 
 | Component | Build or Reuse |
 |---|---|
-| PatternFly EHR shell (layout, navigation) | Build |
-| Patient search | Build (FHIR search API) |
-| Patient chart view | Build (FHIR read API) |
-| Clinical data display (conditions, meds, vitals) | Build with PatternFly Table/DataList |
-| SMART on FHIR OAuth flow | Reuse smart-launcher-v2 proxy |
-| Patient data | Reuse existing HAPI FHIR + synthetic patients |
+| EHR UI (patient search, chart, clinical views) | Reuse Medplum app |
+| SMART on FHIR OAuth flow | Reuse Medplum built-in |
+| FHIR server | Reuse Medplum (replaces HAPI FHIR) |
+| acp-writer SMART app (PatternFly) | Build (Phase 4 step 4.3) |
+| Patient data | Load into Medplum (same FHIR bundles) |
 
 ## Deployment on OpenShift
 
 | Component | Pod | Image |
 |---|---|---|
-| **mock-EHR UI** | `mock-ehr-ui` | Custom PatternFly React app (Nginx SPA) |
-| **smart-launcher-v2** | `mock-ehr-auth` | Build from [smart-on-fhir/smart-launcher-v2](https://github.com/smart-on-fhir/smart-launcher-v2) (Node.js) |
-| **HAPI FHIR** | `cpg-mock-ehr-hapi-fhir` | Already deployed, keep as-is |
+| **Medplum server** | `mock-ehr-server` | [Medplum](https://github.com/medplum/medplum) (Node.js + PostgreSQL) |
+| **Medplum app** | `mock-ehr-app` | Medplum frontend (React, NOT PatternFly) |
+| **acp-writer SMART app** | `acp-writer-ui` | Our React/PatternFly app (launches via SMART) |
+
+Note: Medplum replaces both HAPI FHIR and the mock-EHR UI in one package.
 
 ## Look and Feel
 
-PatternFly EHR shell with clinical dashboard layout:
-- Left nav: patient worklist
-- Main area: patient chart (tabbed: summary, conditions, medications, vitals, care plans)
-- "Generate Care Plan" action button launches acp-writer SMART app in embedded view or new tab
-- No Red Hat logo or name
+- **mock-EHR (Medplum):** Clinical dashboard — Medplum's own design. Looks like a generic hospital EHR. NOT PatternFly, NOT Red Hat branded.
+- **acp-writer SMART app:** PatternFly 6 design system. Clearly a different product that launched inside the EHR. Red Hat AI look and feel (without Red Hat logo/name).
+- The visual contrast between the two is intentional — it demonstrates that the acp-writer works as a SMART app inside ANY EHR.
 
 ## Phase 4 Integration Steps
 
