@@ -419,6 +419,14 @@ Work that can be picked up at any time, independent of the current phase. These 
 | Improve conflict resolution in care plans | Not started | acp-writer | Current conflict handling is placeholder detection only. Needs interactive clinician resolution UI, structured conflict types (same target, contradictory, overlapping), resolution tracking in Provenance, multi-CPG conflict support. See design doc § Conflict Resolution. |
 | FHIR transaction bundle patient reference | Phase 3.3 | acp-writer | Transaction bundle references Patient by ID but doesn't include the Patient resource. Normally the patient exists on the FHIR server (IPS originated from there), but need to handle the case where it doesn't — either include Patient in the transaction or use conditional references. |
 | Approval workflow should POST/update on FHIR server | Phase 3.3 | acp-writer | Care plan should be POSTed to FHIR in "draft" status on creation. Approval updates status to "active" on the FHIR server; rejection updates to "entered-in-error". AIAST → CLINAST_AIRPT transition should be reflected on the server, not just in-memory. |
+| FHIR server-side validation ($validate) | Not started | acp-writer | Use HAPI FHIR's $validate operation to validate generated Bundles before writing. Currently only client-side validation. |
+| Embedding model tuning for clinical domain | Not started | acp-writer | Current vector store uses FakeEmbeddingProvider. Evaluate clinical-domain embedding models (NeuML/pubmedbert-base-embeddings or similar) for recommendation retrieval quality. |
+| PatientSummary allergies field | Not started | acp-writer | The PatientSummary Pydantic model doesn't include allergies. Add AllergyIntolerance extraction from IPS Bundle. |
+| Rename technology-specific variables | Not started | all | Variables like LITELLM_URL, litellm_url should use role-based names (LLM_BASE_URL, INFERENCE_URL). Technology names create confusion during provider transitions (LiteLLM → MaaS). |
+| Transition from LiteLLM to MaaS | Not started | platform | Phase 2 deployed LiteLLM on-cluster as the inference proxy. MaaS gateway is now operational but LiteLLM references remain in code and config. Complete the transition. |
+| MinIO IAM policies for PHI bucket access | Not started | platform | Currently all pods share one MinIO credential. Add per-pod IAM policies so pods only access the buckets they need (cpg-artifacts vs cpg-phi). |
+| cpg-ingester: images/charts/diagrams | Not started | cpg-ingester | Extract and interpret visual content from CPGs (treatment algorithm flowcharts, dosing charts, diagrams). Requires a vision model — Docling detects image regions but doesn't interpret content. |
+| cpg-ingester: OCR for scanned PDFs | Not started | cpg-ingester | Add tesseract or EasyOCR support for scanned PDF pages. Docling's text extraction works for digital-native PDFs but older/scanned guidelines need OCR. |
 
 ---
 
