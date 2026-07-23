@@ -8,7 +8,7 @@
 
 This is not a choice — it's a constraint. PatternFly is Red Hat's design system, used by all Red Hat AI products including the OpenShift console. Deviating would look out of place alongside other Red Hat UIs.
 
-> **Important:** The UI must never display the Red Hat logo or name. PatternFly is designed for white-labeling — components are styled by the design system, not branded to Red Hat.
+> **Important:** The UI must never display the Red Hat logo or name. PatternFly is designed for white-labeling — components are styled by the design system, not branded to Red Hat. It is ok for things to look like OpenShift and other Red Hat products; they just need to not include the name or logo.
 
 ## Technology Stack
 
