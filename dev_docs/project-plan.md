@@ -78,11 +78,11 @@ Phase 3 is split into sub-phases that can advance independently. Phase 3.0 estab
 
 | Area | Work | Notes |
 |---|---|---|
-| **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | `cpg_contracts.recommendations`: `Recommendation`, `RecommendationBundle`, `CertaintyGrade`, `CrossReference`, 6 validated enums. Contract version 1.0. See `dev_docs/contract-proposal-ingester-writer.md`. |
+| **shared** | Define recommendation contract in `shared/` — Pydantic models for recommendations pushed from cpg-ingester to acp-writer | `cpg_contracts.recommendations`: `Recommendation`, `RecommendationBundle`, `CertaintyGrade`, `CrossReference`, 6 validated enums. Contract version 1.0. See `dev_docs/design/contract-proposal-ingester-writer.md`. |
 | **shared** | Define CPG metadata contract — guideline-level information | `cpg_contracts.guidelines`: `CPGMetadata`, `GradingSystem`. Registered once per CPG; all artifacts reference by `cpg_id`. |
 | **shared** | Define knowledge ingestion API contract — the REST/MCP interface acp-writer exposes for receiving recommendations | OpenAPI v0.2.0: guidelines CRUD, recommendation ingestion (single + batch), search with type/strength filters. MCP tools updated. |
 | **shared** | Refine decision model contract | `DecisionCategory` enum, `description`/`codes` on variables, `modifies` list for subpopulation overrides. |
-| **research** | CPG structural analysis | Analyzed 42 CPGs from 7 organizations. See `dev_docs/cpg-analysis.md`. |
+| **research** | CPG structural analysis | Analyzed 42 CPGs from 7 organizations. See `dev_docs/design/cpg-analysis.md`. |
 
 ##### Exit Criteria
 
@@ -126,7 +126,7 @@ Can proceed independently after Phase 3.0 contracts are defined. Does not depend
 
 **Goal:** Replace the hardcoded care plan composition with a multi-agent system that uses DMN decisions, retrieved recommendations, and FHIR expertise to produce clinically complete care plans.
 
-**Design:** `dev_docs/acp-writer-design.md` | **Plan:** `working/phase3.2-implementation.md`
+**Design:** `dev_docs/design/acp-writer-design.md` | **Plan:** `working/phase3.2-implementation.md`
 
 | Work | Status |
 |---|---|
@@ -192,8 +192,8 @@ Requires Phase 3.1 and Phase 3.2 to be substantially complete. This is where the
 | **integration** | Validate recommendation indexing and retrieval | Recommendations produced by cpg-ingester are correctly embedded, indexed, and retrieved by acp-writer's vector store |
 | **integration** | Test with the synthetic CPG end-to-end on OpenShift | Full pipeline on-cluster |
 | **integration** | Add a second CPG for multi-CPG testing | Prepare or find a second CPG with overlapping scope. Pipeline should handle multiple CPGs producing a single care plan with duplicates and conflicts present (conflict resolution is deferred — just let them through). |
-| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/cpg-ingester-design.md` § Deployment Model |
-| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/acp-writer-design.md` § Deployment Model |
+| **cpg-ingester** | Split cpg-ingester into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/design/cpg-ingester-design.md` § Deployment Model |
+| **acp-writer** | Split acp-writer into pod-per-security-profile with orchestrator * | OpenShell fine-grained sandboxing. See `dev_docs/design/acp-writer-design.md` § Deployment Model |
 | **platform** | OpenShell policies per agent (network, filesystem, credential scoping) | Requires pod split — policies are per-pod, not per-function within a pod |
 | **platform** | MCP Gateway integration | Based on spike findings. Demonstrate governed tool access as a Red Hat AI capability. |
 | **testing** | Golden test cases for the full pipeline (CPG → DMN + recommendations → CarePlan) | Regression suite for future phases. Include both single-CPG and multi-CPG scenarios. |
@@ -394,7 +394,7 @@ Full conflict resolution (interactive clinician UI, structured conflict types, r
 
 Each area can advance semi-independently within a phase. Cross-cutting dependencies are noted in the phase tables. The key synchronization points are:
 
-1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3. Decision: LangGraph (see `dev_docs/spike-agent-framework.md`).
+1. **Agent framework selection (Phase 2 spike)** — blocks all multi-agent work in Phase 3. Decision: LangGraph (see `dev_docs/spikes/spike-agent-framework.md`).
 2. **OpenShift deployment (Phase 2)** — blocks OpenShell, MaaS
 3. **Recommendation contract (Phase 3.0)** — blocks both Phase 3.1 and Phase 3.2. This is the single gate before cpg-ingester and acp-writer can advance independently.
 4. **UI technology decision (Phase 4 Spike A)** — blocks all UI development in Phase 4.
@@ -435,15 +435,15 @@ Work that can be picked up at any time, independent of the current phase. These 
 
 | Item | Phase | Status | Notes |
 |---|---|---|---|
-| Agent framework evaluation | 2 | ✅ Complete | LangGraph selected. See `dev_docs/spike-agent-framework.md` |
-| Praxis investigation | 2 | ✅ Complete | Too early. Track for Phase 6. See `dev_docs/spike-praxis.md` |
+| Agent framework evaluation | 2 | ✅ Complete | LangGraph selected. See `dev_docs/spikes/spike-agent-framework.md` |
+| Praxis investigation | 2 | ✅ Complete | Too early. Track for Phase 6. See `dev_docs/spikes/spike-praxis.md` |
 | Effective FHIR CarePlan goals | 3 | ✅ Complete | Implemented in acp-writer Plan Composer |
 | AI Transparency on FHIR IG | 3 | ✅ Complete | AIAST/CLINAST_AIRPT implemented |
 | Recommendation contract format | 3 | ✅ Complete | `cpg_contracts.recommendations` v1.0 |
-| SonataFlow orchestration | 3.3 | ✅ Complete | Async callbacks, HTTP CloudEvents. See `dev_docs/spike-sonataflow-orchestration.md` |
-| MCP Gateway governance | 3.3 | ✅ Complete | 12 tools, 3 virtual servers. See `dev_docs/spike-mcp-gateway.md` |
-| Artifact store (MinIO) | 3.3 | ✅ Complete | PHI-segmented buckets. See `dev_docs/spike-artifact-store.md` |
-| Async callback pattern | 3.3 | ✅ Complete | HTTP CloudEvents, no Kafka. See `dev_docs/spike-async-callback.md` |
+| SonataFlow orchestration | 3.3 | ✅ Complete | Async callbacks, HTTP CloudEvents. See `dev_docs/spikes/spike-sonataflow-orchestration.md` |
+| MCP Gateway governance | 3.3 | ✅ Complete | 12 tools, 3 virtual servers. See `dev_docs/spikes/spike-mcp-gateway.md` |
+| Artifact store (MinIO) | 3.3 | ✅ Complete | PHI-segmented buckets. See `dev_docs/spikes/spike-artifact-store.md` |
+| Async callback pattern | 3.3 | ✅ Complete | HTTP CloudEvents, no Kafka. See `dev_docs/spikes/spike-async-callback.md` |
 | UI technology + design system | 4 | Not started | PatternFly 6 + React + TypeScript. Spike A. |
 | UI ↔ backend interaction pattern | 4 | Not started | Async communication, human-in-the-loop. Spike B. |
 | cpg-ingester UX design | 4 | Not started | Wireframes + flow diagrams. Spike C. |

@@ -194,4 +194,4 @@ const { data: workflow } = useQuery({
 - [SonataFlow REST API](https://sonataflow.org/serverlessworkflow/latest/) — workflow instance query
 - [TanStack Query](https://tanstack.com/query/latest) — React data fetching with polling
 - [PatternFly ChatBot](https://www.patternfly.org/patternfly-ai/chatbot/about-chatbot/) — for displaying pipeline progress as a conversation
-- `dev_docs/spike-async-callback.md` — the backend async pattern this UI consumes
+- `dev_docs/spikes/spike-async-callback.md` — the backend async pattern this UI consumes
