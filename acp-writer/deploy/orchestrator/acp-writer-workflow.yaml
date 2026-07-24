@@ -143,8 +143,10 @@ spec:
               applicable_cpgs: "${ .guidelineData.applicable_cpgs }"
         eventRef: composeDone
         eventDataFilter:
-          data: "${ . }"
+          data: "${ {planning_brief_ref: .planning_brief_ref} }"
           toStateData: "${ .composerData }"
+        stateDataFilter:
+          output: "${ del(.ips_bundle) }"
         transition: InitFHIRReview
 
       - name: InitFHIRReview
@@ -170,7 +172,7 @@ spec:
               fhir_review_feedback: "${ .fhirReviewFeedback }"
         eventRef: generateDone
         eventDataFilter:
-          data: "${ . }"
+          data: "${ {fhir_bundle_ref: .fhir_bundle_ref, terminology_issues: .terminology_issues, syntax_errors: .syntax_errors} }"
           toStateData: "${ .fhirGenData }"
         transition: ReviewFHIR
 
@@ -188,7 +190,7 @@ spec:
               fhir_review_count: "${ .fhirReviewCount }"
         eventRef: reviewDone
         eventDataFilter:
-          data: "${ . }"
+          data: "${ {fhir_review_feedback: .fhir_review_feedback, fhir_review_count: .fhir_review_count} }"
           toStateData: "${ .fhirReviewData }"
         transition: IncrementFHIRReview
 

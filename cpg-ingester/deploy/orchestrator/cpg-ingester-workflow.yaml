@@ -57,8 +57,10 @@ spec:
               pdf_ref: "${ .pdf_ref }"
         eventRef: parseDone
         eventDataFilter:
-          data: "${ . }"
+          data: "${ {parse_result_ref: .parse_result_ref} }"
           toStateData: "${ .parseResult }"
+        stateDataFilter:
+          output: "${ del(.pdf_ref) }"
         transition: Analyze
 
       # --- Phase 2: LLM analysis (async callback — 2-30+ minutes) ---
@@ -74,7 +76,7 @@ spec:
               parse_result_ref: "${ .parseResult.parse_result_ref }"
         eventRef: analyzeDone
         eventDataFilter:
-          data: "${ . }"
+          data: "${ {analysis_result_ref: .analysis_result_ref} }"
           toStateData: "${ .analysisResult }"
         transition: Assemble
 
