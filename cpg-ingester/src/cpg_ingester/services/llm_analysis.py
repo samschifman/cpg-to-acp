@@ -76,8 +76,8 @@ def _do_analyze(data: dict) -> dict:
         updates = metadata_extractor(state)
         state.update(updates)
 
-        from cpg_ingester.pipeline import _generate_all
-        updates = _generate_all(state)
+        from cpg_ingester.generation import generate_all
+        updates = generate_all(state)
         state.update(updates)
 
         result = {
