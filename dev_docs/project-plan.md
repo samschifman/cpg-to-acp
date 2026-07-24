@@ -428,6 +428,7 @@ Work that can be picked up at any time, independent of the current phase. These 
 | cpg-ingester: images/charts/diagrams | Not started | cpg-ingester | Extract and interpret visual content from CPGs (treatment algorithm flowcharts, dosing charts, diagrams). Requires a vision model — Docling detects image regions but doesn't interpret content. |
 | cpg-ingester: OCR for scanned PDFs | Not started | cpg-ingester | Add tesseract or EasyOCR support for scanned PDF pages. Docling's text extraction works for digital-native PDFs but older/scanned guidelines need OCR. |
 | Review `_extract_section_text` robustness | Not started | cpg-ingester | Current implementation in `generation.py` uses heading-level matching to extract section text. It now skips non-numbered headings (e.g., "Decision Table 1:", "Key principles:") but may still be brittle for CPGs with inconsistent heading structures, deeply nested sections, or non-standard numbering. Consider using the section_map page ranges as a fallback or combining heading-based and page-based extraction. |
+| SonataFlow callback timeouts and retry | Not started | automation | Async callback states (Parse, Analyze in cpg-ingester; ComposePlan, GenerateBundle, ReviewFHIR in acp-writer) hang forever if the service pod dies mid-work. Add `timeouts.eventTimeout` to each callback state so SonataFlow transitions to an error/retry path instead. Design the retry flow: re-trigger the async call with the same MinIO ref, track attempt count, escalate after N failures. |
 
 ---
 
