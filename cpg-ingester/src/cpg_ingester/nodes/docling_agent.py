@@ -57,10 +57,12 @@ def docling_agent(state: dict) -> dict:
     output_dir = state.get("output_dir", "output")
 
     logger.info("Parsing PDF with Docling: %s", pdf_path)
+    from docling.document_converter import PdfFormatOption
     from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.datamodel.base_models import InputFormat
     pipeline_options = PdfPipelineOptions(do_ocr=False)
     converter = DocumentConverter(
-        format_options={"pdf": {"pipeline_options": pipeline_options}}
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
     )
     result = converter.convert(str(pdf_path))
     doc = result.document
