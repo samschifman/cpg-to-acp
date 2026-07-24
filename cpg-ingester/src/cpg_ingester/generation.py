@@ -6,6 +6,7 @@ no Docling, no structure analyzer, no assembly/delivery.
 """
 
 import logging
+import re
 
 from langgraph.graph import END, START, StateGraph
 
@@ -55,8 +56,10 @@ def _extract_section_text(markdown: str, section_map: list, section_id: str) -> 
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
             if level <= heading_level:
-                end_idx = i
-                break
+                text_after_hash = line.lstrip("#").strip()
+                if re.match(r"\d", text_after_hash):
+                    end_idx = i
+                    break
 
     return "\n".join(lines[start_idx:end_idx]).strip()
 MAX_REC_REVIEWS = 2

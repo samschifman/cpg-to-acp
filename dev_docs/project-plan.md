@@ -427,6 +427,7 @@ Work that can be picked up at any time, independent of the current phase. These 
 | MinIO IAM policies for PHI bucket access | Not started | platform | Currently all pods share one MinIO credential. Add per-pod IAM policies so pods only access the buckets they need (cpg-artifacts vs cpg-phi). |
 | cpg-ingester: images/charts/diagrams | Not started | cpg-ingester | Extract and interpret visual content from CPGs (treatment algorithm flowcharts, dosing charts, diagrams). Requires a vision model — Docling detects image regions but doesn't interpret content. |
 | cpg-ingester: OCR for scanned PDFs | Not started | cpg-ingester | Add tesseract or EasyOCR support for scanned PDF pages. Docling's text extraction works for digital-native PDFs but older/scanned guidelines need OCR. |
+| Review `_extract_section_text` robustness | Not started | cpg-ingester | Current implementation in `generation.py` uses heading-level matching to extract section text. It now skips non-numbered headings (e.g., "Decision Table 1:", "Key principles:") but may still be brittle for CPGs with inconsistent heading structures, deeply nested sections, or non-standard numbering. Consider using the section_map page ranges as a fallback or combining heading-based and page-based extraction. |
 
 ---
 

@@ -154,4 +154,5 @@ class TestRecSemanticReviewer:
     def test_checks_content_faithfulness(self):
         from cpg_ingester.prompts.rec_semantic_reviewer import REC_SEMANTIC_REVIEWER_SYSTEM
         assert "faithful" in REC_SEMANTIC_REVIEWER_SYSTEM.lower()
-        assert "softened" in REC_SEMANTIC_REVIEWER_SYSTEM.lower() or "soften" in REC_SEMANTIC_REVIEWER_SYSTEM.lower()
+        assert "critical" in REC_SEMANTIC_REVIEWER_SYSTEM.lower()
+        assert "minor" in REC_SEMANTIC_REVIEWER_SYSTEM.lower()
