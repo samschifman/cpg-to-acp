@@ -20,6 +20,45 @@ from cpg_ingester.state import CPGIngesterState, DMNPipelineState, RecPipelineSt
 logger = logging.getLogger(__name__)
 
 MAX_DMN_REVIEWS = 2
+
+
+def _extract_section_text(markdown: str, section_map: list, section_id: str) -> str:
+    """Extract the markdown text for a section by matching its heading.
+
+    Finds the section heading in the markdown and returns all text from that
+    heading to the next heading of equal or higher level.
+    """
+    if not markdown or not section_id:
+        return ""
+
+    matching = [s for s in section_map if section_id in s.get("heading", "")]
+    if not matching:
+        return ""
+
+    heading = matching[0].get("heading", "")
+    lines = markdown.split("\n")
+
+    start_idx = None
+    heading_level = 0
+    for i, line in enumerate(lines):
+        if heading in line and line.strip().startswith("#"):
+            start_idx = i
+            heading_level = len(line) - len(line.lstrip("#"))
+            break
+
+    if start_idx is None:
+        return ""
+
+    end_idx = len(lines)
+    for i in range(start_idx + 1, len(lines)):
+        line = lines[i].strip()
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            if level <= heading_level:
+                end_idx = i
+                break
+
+    return "\n".join(lines[start_idx:end_idx]).strip()
 MAX_REC_REVIEWS = 2
 
 
@@ -147,6 +186,9 @@ def generate_all(state: dict) -> dict:
         logger.warning("Empty manifest — skipping generation")
         return {}
 
+    markdown = state.get("markdown", "")
+    section_map = state.get("section_map", [])
+
     shared = {
         "abbreviations": state.get("abbreviations", {}),
         "litellm_url": state.get("litellm_url", ""),
@@ -162,10 +204,11 @@ def generate_all(state: dict) -> dict:
     decisions = [i for i in manifest if i.get("type") == "decision"]
     for item in decisions:
         logger.info("Generating DMN for: %s", item.get("name", "?"))
+        source_text = _extract_section_text(markdown, section_map, item.get("section", ""))
         try:
             result = dmn_graph.invoke({
                 "item": item,
-                "source_pages": item.get("source_pages", ""),
+                "source_pages": source_text or item.get("source_pages", ""),
                 **shared,
             })
             if result.get("dmn_xml") and not result.get("escalated"):
@@ -187,10 +230,11 @@ def generate_all(state: dict) -> dict:
         seen_sections.add(section)
         section_items = [i for i in recommendations if i.get("section") == section]
         logger.info("Extracting recommendations for section: %s (%d items)", section, len(section_items))
+        source_text = _extract_section_text(markdown, section_map, section)
         try:
             result = rec_graph.invoke({
                 "items": section_items,
-                "source_pages": item.get("source_pages", ""),
+                "source_pages": source_text or item.get("source_pages", ""),
                 "grading_definitions": state.get("grading_definitions", ""),
                 **shared,
             })
