@@ -11,10 +11,10 @@ pods:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
 
   llm-reasoning:
     enabled: true
@@ -26,10 +26,10 @@ pods:
       llmModel: gpt-5-6
     resources:
       requests:
-        cpu: 100m
+        cpu: 500m
         memory: 256Mi
       limits:
-        cpu: 500m
+        cpu: "1"
         memory: 512Mi
 
   decision-engine:
@@ -42,10 +42,10 @@ pods:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
 
   fhir-generation:
     enabled: true
@@ -70,10 +70,10 @@ pods:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
 
   ui:
     enabled: true

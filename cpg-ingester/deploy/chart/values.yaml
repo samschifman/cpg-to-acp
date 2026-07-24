@@ -11,10 +11,10 @@ pods:
     resources:
       requests:
         cpu: 500m
-        memory: 1Gi
+        memory: 2Gi
       limits:
         cpu: "2"
-        memory: 2Gi
+        memory: 3Gi
 
   llm-analysis:
     enabled: true
@@ -27,10 +27,10 @@ pods:
     resources:
       requests:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
       limits:
         cpu: "2"
-        memory: 1Gi
+        memory: 2Gi
 
   assembly:
     enabled: true
@@ -40,10 +40,10 @@ pods:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
 
   delivery:
     enabled: true
@@ -55,10 +55,10 @@ pods:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
 
   ui:
     enabled: true
