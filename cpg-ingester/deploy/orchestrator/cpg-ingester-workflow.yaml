@@ -56,8 +56,8 @@ spec:
               process_instance_id: "$WORKFLOW.instanceId"
               pdf_ref: "${ .pdf_ref }"
         eventRef: parseDone
+        eventRef: parseDone
         eventDataFilter:
-          data: "${ {parse_result_ref: .parse_result_ref} }"
           toStateData: "${ .parseResult }"
         stateDataFilter:
           output: "${ del(.pdf_ref) }"
@@ -76,7 +76,6 @@ spec:
               parse_result_ref: "${ .parseResult.parse_result_ref }"
         eventRef: analyzeDone
         eventDataFilter:
-          data: "${ {analysis_result_ref: .analysis_result_ref} }"
           toStateData: "${ .analysisResult }"
         transition: Assemble
 
