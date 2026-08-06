@@ -81,7 +81,6 @@ PODS=(
     "cpg-ing-llm-analysis:8080"
     "cpg-ing-assembly:8080"
     "cpg-ing-delivery:8080"
-    "cpg-ing-ui:8090"
     "acp-patient-data:8080"
     "acp-llm-reasoning:8080"
     "acp-decision-engine:8080"

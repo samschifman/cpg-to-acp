@@ -271,19 +271,5 @@ services:
     profiles:
       - ingester-pods
 
-  cpg-ingester-ui:
-    build:
-      context: .
-      dockerfile: cpg-ingester/deploy/pods/Containerfile.ui
-    ports:
-      - "8095:8090"
-    depends_on:
-      mlflow:
-        condition: service_healthy
-    environment:
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
-    profiles:
-      - ingester-pods
-
 volumes:
   medplum-postgres-data:

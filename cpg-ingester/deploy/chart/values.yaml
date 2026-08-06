@@ -60,19 +60,5 @@ pods:
         cpu: 200m
         memory: 512Mi
 
-  ui:
-    enabled: true
-    image: cpg-ingester-ui
-    tag: phase3
-    port: 8090
-    route: true
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-
 mlflow:
   trackingUri: https://mlflow-redhat-ods-applications.apps.rosa.agentic-mcp.jolf.p3.openshiftapps.com
