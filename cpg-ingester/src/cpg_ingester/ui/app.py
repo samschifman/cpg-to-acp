@@ -33,7 +33,7 @@ def health():
 
 
 OUTPUT_BASE = Path(os.environ.get("OUTPUT_DIR", "output"))
-INGESTION_URL = os.environ.get("INGESTION_URL", "")
+ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_URL", "")
 _active_runs: dict[str, dict] = {}
 
 
@@ -100,32 +100,85 @@ def _list_artifacts(run_dir: Path) -> list[dict]:
     return artifacts
 
 
-def _run_via_service(run_id: str, pdf_path: str, output_dir: str):
-    """Send PDF to the Ingestion pod service for processing."""
+def _run_via_orchestrator(run_id: str, pdf_path: str, output_dir: str):
+    """Upload PDF to MinIO, trigger SonataFlow, poll until complete."""
+    import time
+    from cpg_contracts.artifact_store import get_artifact_store
+
     try:
+        store = get_artifact_store()
+        if not store:
+            raise RuntimeError("ARTIFACT_STORE_URL not set — cannot upload PDF")
+
+        pdf_name = Path(pdf_path).name
         with open(pdf_path, "rb") as f:
-            r = http_requests.post(
-                f"{INGESTION_URL}/api/v1/parse",
-                files={"file": (Path(pdf_path).name, f, "application/pdf")},
-                timeout=600,
+            pdf_ref = store.put_raw(
+                f"runs/{run_id}/{pdf_name}", f.read(), "application/pdf"
             )
-        if r.status_code == 200:
-            _active_runs[run_id] = {"status": "complete"}
-            result = r.json()
-            from cpg_ingester.output import write_artifact
-            write_artifact(output_dir, "run-summary.json", {
-                "run_id": run_id,
-                "pdf_path": pdf_path,
-                "manifest_items": 0,
-                "dmn_results": 0,
-                "recommendations": 0,
-                "escalated_items": 0,
-            })
-            logger.info("Ingestion service returned for run %s", run_id)
-        else:
-            _active_runs[run_id] = {"status": "failed", "error": f"Service returned {r.status_code}"}
+        logger.info("Uploaded PDF to artifact store: %s", pdf_ref)
+
+        r = http_requests.post(
+            ORCHESTRATOR_URL,
+            json={"pdf_ref": pdf_ref},
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        if r.status_code not in (200, 201):
+            raise RuntimeError(f"Orchestrator returned {r.status_code}: {r.text}")
+
+        workflow = r.json()
+        instance_id = workflow["id"]
+        status_url = f"{ORCHESTRATOR_URL}/{instance_id}"
+        logger.info("Workflow started: %s", instance_id)
+        _active_runs[run_id] = {"status": "running", "workflow_id": instance_id}
+
+        deadline = time.monotonic() + 1800
+        while time.monotonic() < deadline:
+            time.sleep(5)
+            try:
+                sr = http_requests.get(status_url, timeout=10)
+                if sr.status_code == 404:
+                    wf_data = workflow.get("workflowdata", {})
+                    if wf_data.get("status") == "accepted":
+                        continue
+                    break
+                wf_data = sr.json().get("workflowdata", {})
+                if wf_data.get("status") == "completed":
+                    break
+            except http_requests.RequestException:
+                continue
+
+        from cpg_ingester.output import write_artifact
+        assembly_ref = None
+        if isinstance(wf_data, dict):
+            ar = wf_data.get("assemblyResult", {})
+            assembly_ref = ar.get("assembly_result_ref") if isinstance(ar, dict) else None
+
+        summary = {
+            "run_id": run_id,
+            "pdf_path": pdf_path,
+            "workflow_id": instance_id,
+            "manifest_items": 0,
+            "dmn_results": 0,
+            "recommendations": 0,
+            "escalated_items": 0,
+        }
+
+        if assembly_ref and store:
+            try:
+                assembly = store.get(assembly_ref)
+                summary["dmn_results"] = len(assembly.get("dmn_results", []))
+                summary["recommendations"] = len(assembly.get("recommendation_results", []))
+                summary["manifest_items"] = len(assembly.get("item_manifest", []))
+            except Exception as e:
+                logger.warning("Could not fetch assembly result: %s", e)
+
+        write_artifact(output_dir, "run-summary.json", summary)
+        _active_runs[run_id] = {"status": "complete"}
+        logger.info("Orchestrated run %s complete (workflow %s)", run_id, instance_id)
+
     except Exception as e:
-        logger.error("Service call failed for run %s: %s", run_id, e)
+        logger.error("Orchestrated run %s failed: %s", run_id, e)
         _active_runs[run_id] = {"status": "failed", "error": str(e)}
 
 
@@ -195,8 +248,9 @@ async def upload_cpg(pdf: UploadFile = File(...)):
     _active_runs[run_id] = {"status": "running"}
 
     from threading import Thread
-    if INGESTION_URL:
-        target = _run_via_service
+    split_pod_mode = ORCHESTRATOR_URL and os.environ.get("ARTIFACT_STORE_URL")
+    if split_pod_mode:
+        target = _run_via_orchestrator
     else:
         target = _run_local
     thread = Thread(target=target, args=(run_id, str(pdf_path), str(output_dir)), daemon=True)
