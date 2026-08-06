@@ -271,5 +271,33 @@ services:
     profiles:
       - ingester-pods
 
+  cpg-ingester-bff:
+    build:
+      context: .
+      dockerfile: cpg-ingester/deploy/pods/Dockerfile.bff
+    ports:
+      - "8095:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles:
+      - ingester-pods
+
+  cpg-ingester-ui:
+    build:
+      context: ./cpg-ingester/ui
+      dockerfile: Dockerfile
+    ports:
+      - "3003:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles:
+      - ingester-pods
+
 volumes:
   medplum-postgres-data:
