@@ -67,6 +67,13 @@ export const api = {
     );
   },
 
+  async cancelRun(runId: string): Promise<void> {
+    await request(
+      `/api/v1/runs/${encodeURIComponent(runId)}`,
+      { method: 'DELETE' },
+    );
+  },
+
   async rerunPipeline(runId: string): Promise<{ runId: string }> {
     return request(
       `/api/v1/runs/${encodeURIComponent(runId)}/rerun`,

@@ -12,7 +12,7 @@ import {
   Tabs,
   Title,
 } from '@patternfly/react-core';
-import { ExclamationCircleIcon, RedoIcon } from '@patternfly/react-icons';
+import { ExclamationCircleIcon, RedoIcon, TimesCircleIcon } from '@patternfly/react-icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
@@ -50,6 +50,15 @@ export function RunDetailPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] });
       navigate(`/runs/${data.runId}`);
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => api.cancelRun(runId ?? ''),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+      queryClient.invalidateQueries({ queryKey: ['run', runId] });
+      navigate('/');
     },
   });
 
@@ -103,6 +112,18 @@ export function RunDetailPage() {
                   ? ` (iteration ${run.reviewIteration})`
                   : ''}
               </Label>
+            )}
+            {run.status !== 'completed' && run.status !== 'failed' && (
+              <Button
+                variant="secondary"
+                isDanger
+                icon={<TimesCircleIcon />}
+                onClick={() => cancelMutation.mutate()}
+                isDisabled={cancelMutation.isPending}
+                isLoading={cancelMutation.isPending}
+              >
+                Cancel
+              </Button>
             )}
             {(run.status === 'completed' || run.status === 'failed') && (
               <Button

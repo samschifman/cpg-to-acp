@@ -129,6 +129,11 @@ export interface ReviewAction {
   overallComment?: string;
 }
 
+export interface StepError {
+  step: string;
+  message: string;
+}
+
 export interface RunDetail {
   id: string;
   status: RunStatus;
@@ -145,4 +150,5 @@ export interface RunDetail {
   assemblyReport?: AssemblyReport;
   deliveryStatus?: DeliveryStatus;
   escalatedItems?: EscalatedItem[];
+  errors?: StepError[];
 }

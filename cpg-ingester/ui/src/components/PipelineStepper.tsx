@@ -4,6 +4,18 @@ import {
 } from '@patternfly/react-core';
 import type { PipelineStep } from '../api/types';
 
+const pulseStyle = document.createElement('style');
+pulseStyle.textContent = `
+@keyframes stepPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pf-c-progress-stepper__step--pulse .pf-v6-c-progress-stepper__step-icon {
+  animation: stepPulse 1.8s ease-in-out infinite;
+}
+`;
+document.head.appendChild(pulseStyle);
+
 function stepVariant(status: PipelineStep['status']) {
   switch (status) {
     case 'completed': return 'success' as const;
@@ -41,6 +53,7 @@ export function PipelineStepperComponent({ steps }: PipelineStepperProps) {
             titleId={step.name}
             description={duration || undefined}
             isCurrent={step.status === 'active'}
+            className={step.status === 'active' ? 'pf-c-progress-stepper__step--pulse' : undefined}
           >
             {step.name}
           </ProgressStep>

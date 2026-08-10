@@ -1,4 +1,5 @@
 import {
+  Alert,
   Card,
   CardBody,
   CardTitle,
@@ -82,68 +83,75 @@ export function StructureReviewPage({ run }: StructureReviewPageProps) {
     }));
   }, [run.sectionMap, review.isReviewActive, review.gate, feedbackMap, handleFeedbackChange]);
 
-  if (!run.sectionMap || run.sectionMap.length === 0) {
-    return (
-      <Card style={{ marginTop: 16 }}>
-        <CardBody>
-          <Content component="p">No section structure available yet.</Content>
-        </CardBody>
-      </Card>
-    );
-  }
+  const hasSectionData = run.sectionMap && run.sectionMap.length > 0;
+  const analyzeError = run.errors?.find(e => e.step === 'Analyze');
 
   return (
     <div style={{ marginTop: 16 }}>
-      <Split hasGutter>
-        <SplitItem isFilled>
-          <Card>
-            <CardTitle>Section Structure</CardTitle>
-            <CardBody>
-              <TreeView data={treeData} />
-            </CardBody>
-          </Card>
-        </SplitItem>
+      {analyzeError && (
+        <Alert variant="danger" title="Analysis failed" isInline style={{ marginBottom: 16 }}>
+          {analyzeError.message}
+        </Alert>
+      )}
 
-        {run.metadata && (
-          <SplitItem style={{ width: 300 }}>
+      {hasSectionData ? (
+        <Split hasGutter>
+          <SplitItem isFilled>
             <Card>
-              <CardTitle>CPG Metadata</CardTitle>
+              <CardTitle>Section Structure</CardTitle>
               <CardBody>
-                <DescriptionList isCompact>
-                  <DescriptionListGroup>
-                    <DescriptionListTerm>Title</DescriptionListTerm>
-                    <DescriptionListDescription>{run.metadata.title}</DescriptionListDescription>
-                  </DescriptionListGroup>
-                  {run.metadata.version && (
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Version</DescriptionListTerm>
-                      <DescriptionListDescription>{run.metadata.version}</DescriptionListDescription>
-                    </DescriptionListGroup>
-                  )}
-                  {run.metadata.issuing_body && (
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Issuing Body</DescriptionListTerm>
-                      <DescriptionListDescription>{run.metadata.issuing_body}</DescriptionListDescription>
-                    </DescriptionListGroup>
-                  )}
-                  {run.metadata.grading_system && (
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Grading System</DescriptionListTerm>
-                      <DescriptionListDescription>{run.metadata.grading_system}</DescriptionListDescription>
-                    </DescriptionListGroup>
-                  )}
-                  {run.metadata.scope && (
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Scope</DescriptionListTerm>
-                      <DescriptionListDescription>{run.metadata.scope}</DescriptionListDescription>
-                    </DescriptionListGroup>
-                  )}
-                </DescriptionList>
+                <TreeView data={treeData} />
               </CardBody>
             </Card>
           </SplitItem>
-        )}
-      </Split>
+
+          {run.metadata && (
+            <SplitItem style={{ width: 300 }}>
+              <Card>
+                <CardTitle>CPG Metadata</CardTitle>
+                <CardBody>
+                  <DescriptionList isCompact>
+                    <DescriptionListGroup>
+                      <DescriptionListTerm>Title</DescriptionListTerm>
+                      <DescriptionListDescription>{run.metadata.title}</DescriptionListDescription>
+                    </DescriptionListGroup>
+                    {run.metadata.version && (
+                      <DescriptionListGroup>
+                        <DescriptionListTerm>Version</DescriptionListTerm>
+                        <DescriptionListDescription>{run.metadata.version}</DescriptionListDescription>
+                      </DescriptionListGroup>
+                    )}
+                    {run.metadata.issuing_body && (
+                      <DescriptionListGroup>
+                        <DescriptionListTerm>Issuing Body</DescriptionListTerm>
+                        <DescriptionListDescription>{run.metadata.issuing_body}</DescriptionListDescription>
+                      </DescriptionListGroup>
+                    )}
+                    {run.metadata.grading_system && (
+                      <DescriptionListGroup>
+                        <DescriptionListTerm>Grading System</DescriptionListTerm>
+                        <DescriptionListDescription>{run.metadata.grading_system}</DescriptionListDescription>
+                      </DescriptionListGroup>
+                    )}
+                    {run.metadata.scope && (
+                      <DescriptionListGroup>
+                        <DescriptionListTerm>Scope</DescriptionListTerm>
+                        <DescriptionListDescription>{run.metadata.scope}</DescriptionListDescription>
+                      </DescriptionListGroup>
+                    )}
+                  </DescriptionList>
+                </CardBody>
+              </Card>
+            </SplitItem>
+          )}
+        </Split>
+      ) : (
+        <Card>
+          <CardBody>
+            <Content component="p">No section structure available yet.</Content>
+          </CardBody>
+        </Card>
+      )}
 
       {review.isReviewActive && review.gate === 'manifest' && (
         <ReviewActionBar
