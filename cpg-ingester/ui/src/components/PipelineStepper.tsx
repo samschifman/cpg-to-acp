@@ -2,6 +2,7 @@ import {
   ProgressStep,
   ProgressStepper,
 } from '@patternfly/react-core';
+import { useEffect, useState } from 'react';
 import type { PipelineStep } from '../api/types';
 
 const pulseStyle = document.createElement('style');
@@ -41,6 +42,14 @@ interface PipelineStepperProps {
 }
 
 export function PipelineStepperComponent({ steps }: PipelineStepperProps) {
+  const hasActive = steps.some(s => s.status === 'active' && s.startedAt && !s.completedAt);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!hasActive) return;
+    const id = setInterval(() => tick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [hasActive]);
+
   return (
     <ProgressStepper isVertical>
       {steps.map((step) => {
