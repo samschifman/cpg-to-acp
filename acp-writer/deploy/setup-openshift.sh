@@ -5,12 +5,12 @@
 # Run this ONCE before the first `helm install` of the acp-writer chart.
 #
 # Usage:
-#   bash acp-writer/deploy/setup-openshift.sh [--namespace NS] [--branch BRANCH] [--tag TAG] [--mode pods|monolith]
+#   bash acp-writer/deploy/setup-openshift.sh [--namespace NS] [--repo URL] [--branch BRANCH] [--tag TAG] [--mode pods|monolith]
 
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-sschifma-cpg-to-acp}"
-GIT_REPO="https://github.com/samschifman/cpg-to-acp.git"
+GIT_REPO="${GIT_REPO:-https://github.com/samschifman/cpg-to-acp.git}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 MODE="${MODE:-pods}"
@@ -22,6 +22,7 @@ while [[ $# -gt 0 ]]; do
     --namespace) NAMESPACE="$2"; shift 2;;
     --branch) GIT_BRANCH="$2"; shift 2;;
     --tag) IMAGE_TAG="$2"; shift 2;;
+    --repo) GIT_REPO="$2"; shift 2;;
     --mode) MODE="$2"; shift 2;;
     *) echo "Unknown arg: $1"; exit 1;;
   esac
