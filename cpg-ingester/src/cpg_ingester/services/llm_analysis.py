@@ -182,12 +182,14 @@ async def analyze_async(request: Request, background_tasks: BackgroundTasks):
 
 
 def _run_analyze_background(data: dict, callback_url: str, process_instance_id: str):
+    iteration = data.pop("review_iteration", 0) or 0
     try:
         result = _do_analyze(data)
     except Exception as e:
         logger.error("Analyze background task failed: %s", e)
         result = {"error": str(e)}
 
+    result["iteration"] = iteration
     post_callback(callback_url, process_instance_id, "analyze-done", result)
 
 
@@ -211,10 +213,12 @@ async def generate_async(request: Request, background_tasks: BackgroundTasks):
 
 
 def _run_generate_background(data: dict, callback_url: str, process_instance_id: str):
+    iteration = data.pop("review_iteration", 0) or 0
     try:
         result = _do_generate(data)
     except Exception as e:
         logger.error("Generate background task failed: %s", e)
         result = {"error": str(e)}
 
+    result["iteration"] = iteration
     post_callback(callback_url, process_instance_id, "generate-done", result)
