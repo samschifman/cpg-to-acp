@@ -102,7 +102,29 @@ spec:
         eventRef: analyzeDone
         eventDataFilter:
           toStateData: "${ .analysisResult }"
-        transition: ReviewManifest
+        transition: ValidateAnalysisIteration
+
+      - name: ValidateAnalysisIteration
+        type: switch
+        dataConditions:
+          - name: iterationMatch
+            condition: "${ (.analysisResult.iteration // 0) == (.manifestReviewCount // 0) }"
+            transition: ReviewManifest
+        defaultCondition:
+          transition: DrainStaleAnalysis
+
+      - name: DrainStaleAnalysis
+        type: callback
+        action:
+          functionRef:
+            refName: notifymanifetreview
+            arguments:
+              process_instance_id: "$WORKFLOW.instanceId"
+              review_type: "drain"
+        eventRef: analyzeDone
+        eventDataFilter:
+          toStateData: "${ .analysisResult }"
+        transition: ValidateAnalysisIteration
 
       # --- Phase 3: Human review of manifest (structure, classifications) ---
 
@@ -158,7 +180,29 @@ spec:
         eventRef: generateDone
         eventDataFilter:
           toStateData: "${ .generateResult }"
-        transition: ReviewArtifacts
+        transition: ValidateGenerateIteration
+
+      - name: ValidateGenerateIteration
+        type: switch
+        dataConditions:
+          - name: iterationMatch
+            condition: "${ (.generateResult.iteration // 0) == (.artifactReviewCount // 0) }"
+            transition: ReviewArtifacts
+        defaultCondition:
+          transition: DrainStaleGenerate
+
+      - name: DrainStaleGenerate
+        type: callback
+        action:
+          functionRef:
+            refName: notifyartifactreview
+            arguments:
+              process_instance_id: "$WORKFLOW.instanceId"
+              review_type: "drain"
+        eventRef: generateDone
+        eventDataFilter:
+          toStateData: "${ .generateResult }"
+        transition: ValidateGenerateIteration
 
       # --- Phase 5: Human review of generated artifacts (DMN, recs) ---
 
