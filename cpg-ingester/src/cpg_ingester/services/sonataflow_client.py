@@ -55,12 +55,27 @@ def infer_current_state(data: dict, instance_status: str) -> str:
         return "Done"
     if "assemblyResult" in data:
         return "Deliver"
-    if data.get("artifactsReview", {}).get("action") == "approve":
+    artifact_review = data.get("artifactsReview", {})
+    if artifact_review.get("action") == "approve":
         return "Assemble"
+    if artifact_review.get("action") == "request_changes":
+        review_at = artifact_review.get("completed_at", "")
+        gen_at = data.get("generateResult", {}).get("completed_at", "")
+        if gen_at and gen_at > review_at:
+            return "ReviewArtifacts"
+        return "Generate"
     if "generateResult" in data:
         return "ReviewArtifacts"
-    if data.get("manifestReview", {}).get("action") == "approve":
+
+    manifest_review = data.get("manifestReview", {})
+    if manifest_review.get("action") == "approve":
         return "Generate"
+    if manifest_review.get("action") == "request_changes":
+        review_at = manifest_review.get("completed_at", "")
+        analysis_at = data.get("analysisResult", {}).get("completed_at", "")
+        if analysis_at and analysis_at > review_at:
+            return "ReviewManifest"
+        return "Analyze"
     if "analysisResult" in data:
         return "ReviewManifest"
     if "parseResult" in data:
@@ -115,6 +130,13 @@ def _step_timestamps(data: dict, created_at: str) -> dict[str, dict[str, str]]:
 def build_steps(current_state: str, data: dict | None = None, created_at: str = "") -> list[dict]:
     """Build the steps array the UI expects from the current state."""
     ts = _step_timestamps(data or {}, created_at) if data else {}
+    d = data or {}
+    manifest_count = d.get("manifestReviewCount", 0) or 0
+    artifact_count = d.get("artifactReviewCount", 0) or 0
+
+    in_manifest_loop = current_state in ("Analyze", "ReviewManifest") and manifest_count > 0
+    in_artifact_loop = current_state in ("Generate", "ReviewArtifacts") and artifact_count > 0
+
     steps = []
     reached = False
     for name in PIPELINE_STEPS:
@@ -127,6 +149,16 @@ def build_steps(current_state: str, data: dict | None = None, created_at: str = 
             step = {"name": name, "status": "pending"}
         if name in ts:
             step.update(ts[name])
+        if name in ("Analyze", "ReviewManifest"):
+            if in_manifest_loop:
+                step["iteration"] = manifest_count + 1
+            elif manifest_count > 1:
+                step["iteration"] = manifest_count
+        elif name in ("Generate", "ReviewArtifacts"):
+            if in_artifact_loop:
+                step["iteration"] = artifact_count + 1
+            elif artifact_count > 1:
+                step["iteration"] = artifact_count
         steps.append(step)
     if current_state == "Done":
         for s in steps:
