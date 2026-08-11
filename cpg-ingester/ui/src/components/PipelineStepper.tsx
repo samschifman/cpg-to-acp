@@ -64,7 +64,7 @@ export function PipelineStepperComponent({ steps }: PipelineStepperProps) {
             isCurrent={step.status === 'active'}
             className={step.status === 'active' ? 'pf-c-progress-stepper__step--pulse' : undefined}
           >
-            {step.name}
+            {step.name}{step.iteration && step.iteration > 1 ? ` (round ${step.iteration})` : ''}
           </ProgressStep>
         );
       })}

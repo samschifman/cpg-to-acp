@@ -22,6 +22,7 @@ export interface PipelineStep {
   status: 'pending' | 'active' | 'completed' | 'failed';
   startedAt?: string;
   completedAt?: string;
+  iteration?: number;
 }
 
 export interface CPGMetadata {
