@@ -48,7 +48,7 @@ export function ApprovalDeliveryPage({ run }: ApprovalDeliveryPageProps) {
                 </Tr>
               </Thead>
               <Tbody>
-                {ds.results.metadata && (
+                {ds.results?.metadata && (
                   <Tr>
                     <Td>Guidelines Metadata</Td>
                     <Td>
@@ -59,7 +59,7 @@ export function ApprovalDeliveryPage({ run }: ApprovalDeliveryPageProps) {
                     <Td>{ds.results.metadata.cpg_id}</Td>
                   </Tr>
                 )}
-                {ds.results.dmn_models?.map((model, i) => (
+                {ds.results?.dmn_models?.map((model, i) => (
                   <Tr key={i}>
                     <Td>DMN Model</Td>
                     <Td>
@@ -70,7 +70,7 @@ export function ApprovalDeliveryPage({ run }: ApprovalDeliveryPageProps) {
                     <Td>{model.name}</Td>
                   </Tr>
                 ))}
-                {ds.results.recommendations && (
+                {ds.results?.recommendations && (
                   <Tr>
                     <Td>Recommendations</Td>
                     <Td>
@@ -81,7 +81,7 @@ export function ApprovalDeliveryPage({ run }: ApprovalDeliveryPageProps) {
                     <Td>{ds.results.recommendations.count} recommendations</Td>
                   </Tr>
                 )}
-                {ds.results.errors.map((err, i) => (
+                {ds.results?.errors?.map((err, i) => (
                   <Tr key={`err-${i}`}>
                     <Td>Error</Td>
                     <Td><Label color="red" isCompact>Error</Label></Td>
