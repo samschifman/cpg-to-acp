@@ -10,7 +10,7 @@ import logging
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -143,9 +143,10 @@ if not _mock_mode:
         return enrich_run_detail(detail, _artifact_store)
 
     @app.post("/api/v1/runs/{run_id}/review/{gate}")
-    def submit_review(run_id: str, gate: str, review: dict | None = None):
+    async def submit_review(run_id: str, gate: str, request: Request):
         if gate not in ("manifest", "pre-delivery"):
             return JSONResponse(status_code=400, content={"error": f"Unknown gate: {gate}"})
+        review = await request.json()
         _sonataflow.send_review(run_id, gate, review or {})
         return {"status": "accepted"}
 
