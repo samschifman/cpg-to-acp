@@ -6,8 +6,12 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  Flex,
+  FlexItem,
   Label,
   PageSection,
+  Stack,
+  StackItem,
   Tab,
   Tabs,
   TabTitleText,
@@ -88,88 +92,104 @@ export function CarePlanReview() {
   };
 
   return (
-    <PageSection>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <Title headingLevel="h1">Care Plan Review</Title>
-          <span>
-            Patient: {patientRef} |{" "}
-            <Label color={statusColor[status] ?? "blue"}>{status}</Label>
-          </span>
-        </div>
-        {isDraft && (
-          <div>
-            <Button variant="primary" onClick={() => setApproveOpen(true)} style={{ marginRight: "0.5rem" }}>
-              Approve
-            </Button>
-            <Button variant="danger" onClick={() => setRejectOpen(true)}>
-              Reject
-            </Button>
-          </div>
-        )}
-      </div>
+    <>
+      <PageSection>
+        <Flex
+          direction={{ default: "row" }}
+          alignItems={{ default: "alignItemsCenter" }}
+          justifyContent={{ default: "justifyContentSpaceBetween" }}
+        >
+          <FlexItem>
+            <Title headingLevel="h1">Care Plan Review</Title>
+            <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
+              <FlexItem>Patient: {patientRef}</FlexItem>
+              <FlexItem>
+                <Label color={statusColor[status] ?? "blue"}>{status}</Label>
+              </FlexItem>
+            </Flex>
+          </FlexItem>
+          {isDraft && (
+            <FlexItem>
+              <Flex gap={{ default: "gapSm" }}>
+                <FlexItem>
+                  <Button variant="primary" onClick={() => setApproveOpen(true)}>
+                    Approve
+                  </Button>
+                </FlexItem>
+                <FlexItem>
+                  <Button variant="danger" onClick={() => setRejectOpen(true)}>
+                    Reject
+                  </Button>
+                </FlexItem>
+              </Flex>
+            </FlexItem>
+          )}
+        </Flex>
+      </PageSection>
 
-      <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key as number)}>
-        <Tab eventKey={0} title={<TabTitleText>Goals ({goals.length})</TabTitleText>}>
-          <PageSection padding={{ default: "noPadding" }}>
-            {goals.length === 0 ? (
-              <p>No goals defined.</p>
-            ) : (
-              goals.map((g, i) => <GoalCard key={i} goal={g} />)
-            )}
-          </PageSection>
-        </Tab>
+      <PageSection isFilled>
+        <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key as number)}>
+          <Tab eventKey={0} title={<TabTitleText>Goals ({goals.length})</TabTitleText>}>
+            <Stack hasGutter style={{ paddingTop: "1rem" }}>
+              {goals.length === 0 ? (
+                <StackItem><p>No goals defined.</p></StackItem>
+              ) : (
+                goals.map((g, i) => <StackItem key={i}><GoalCard goal={g} /></StackItem>)
+              )}
+            </Stack>
+          </Tab>
 
-        <Tab eventKey={1} title={<TabTitleText>Activities ({activities.length})</TabTitleText>}>
-          <PageSection padding={{ default: "noPadding" }}>
-            {activities.length === 0 ? (
-              <p>No activities defined.</p>
-            ) : (
-              activities.map((a, i) => <ActivityCard key={i} activity={a} />)
-            )}
-          </PageSection>
-        </Tab>
+          <Tab eventKey={1} title={<TabTitleText>Activities ({activities.length})</TabTitleText>}>
+            <Stack hasGutter style={{ paddingTop: "1rem" }}>
+              {activities.length === 0 ? (
+                <StackItem><p>No activities defined.</p></StackItem>
+              ) : (
+                activities.map((a, i) => <StackItem key={i}><ActivityCard activity={a} /></StackItem>)
+              )}
+            </Stack>
+          </Tab>
 
-        <Tab eventKey={2} title={<TabTitleText>AI Info</TabTitleText>}>
-          <PageSection padding={{ default: "noPadding" }}>
-            <DescriptionList isHorizontal>
-              {devices.map((d, i) => (
-                <DescriptionListGroup key={i}>
-                  <DescriptionListTerm>AI Device</DescriptionListTerm>
+          <Tab eventKey={2} title={<TabTitleText>AI Info</TabTitleText>}>
+            <div style={{ paddingTop: "1rem" }}>
+              <DescriptionList isHorizontal>
+                {devices.map((d, i) => (
+                  <DescriptionListGroup key={i}>
+                    <DescriptionListTerm>AI Device</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      {(d.deviceName as Array<{ name: string }>)?.[0]?.name ?? "Unknown model"}
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                ))}
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Provenance records</DescriptionListTerm>
+                  <DescriptionListDescription>{provenances.length}</DescriptionListDescription>
+                </DescriptionListGroup>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>AI Status</DescriptionListTerm>
                   <DescriptionListDescription>
-                    {(d.deviceName as Array<{ name: string }>)?.[0]?.name ?? "Unknown model"}
+                    <Label color={status === "active" ? "green" : "blue"}>
+                      {status === "active" ? "CLINAST_AIRPT" : "AIAST"}
+                    </Label>
                   </DescriptionListDescription>
                 </DescriptionListGroup>
-              ))}
-              <DescriptionListGroup>
-                <DescriptionListTerm>Provenance records</DescriptionListTerm>
-                <DescriptionListDescription>{provenances.length}</DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>AI Status</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <Label color={status === "active" ? "green" : "blue"}>
-                    {status === "active" ? "CLINAST_AIRPT" : "AIAST"}
-                  </Label>
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-            </DescriptionList>
-          </PageSection>
-        </Tab>
+              </DescriptionList>
+            </div>
+          </Tab>
 
-        <Tab eventKey={3} title={<TabTitleText>Conflicts ({conflicts.length})</TabTitleText>}>
-          <PageSection padding={{ default: "noPadding" }}>
-            {conflicts.length === 0 ? (
-              <p>No conflicts detected.</p>
-            ) : (
-              conflicts.map((c, i) => <ConflictAlert key={i} conflict={c} />)
-            )}
-          </PageSection>
-        </Tab>
-      </Tabs>
+          <Tab eventKey={3} title={<TabTitleText>Conflicts ({conflicts.length})</TabTitleText>}>
+            <Stack hasGutter style={{ paddingTop: "1rem" }}>
+              {conflicts.length === 0 ? (
+                <StackItem><p>No conflicts detected.</p></StackItem>
+              ) : (
+                conflicts.map((c, i) => <StackItem key={i}><ConflictAlert conflict={c} /></StackItem>)
+              )}
+            </Stack>
+          </Tab>
+        </Tabs>
 
-      <PageSection padding={{ default: "noPadding" }}>
-        <FhirJsonViewer json={fhirBundle} title="View FHIR Bundle JSON" />
+        <div style={{ marginTop: "1rem" }}>
+          <FhirJsonViewer json={fhirBundle} title="View FHIR Bundle JSON" />
+        </div>
       </PageSection>
 
       <ApprovalDialog
@@ -184,6 +204,6 @@ export function CarePlanReview() {
         onClose={() => setRejectOpen(false)}
         onRejected={handleStatusChange}
       />
-    </PageSection>
+    </>
   );
 }

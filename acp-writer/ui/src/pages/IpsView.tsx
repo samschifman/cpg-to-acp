@@ -14,8 +14,12 @@ import {
   DescriptionListGroup,
   DescriptionListTerm,
   FileUpload,
+  Flex,
+  FlexItem,
   Label,
   PageSection,
+  Stack,
+  StackItem,
   Title,
 } from "@patternfly/react-core";
 import { FhirJsonViewer } from "@cpg-to-acp/ui-shared";
@@ -171,76 +175,83 @@ export function IpsView() {
   const immunizations = bundle ? getResources(bundle, "Immunization") : [];
 
   return (
-    <PageSection>
-      <Title headingLevel="h1">Care Plan Generator</Title>
-      <p>Upload a FHIR IPS Bundle to generate a patient-specific care plan.</p>
-
-      <PageSection padding={{ default: "noPadding" }}>
-        <FileUpload
-          id="ips-upload"
-          accept=".json"
-          filename={bundle ? "IPS Bundle loaded" : ""}
-          onFileInputChange={handleFileUpload}
-          isLoading={uploading}
-          browseButtonText="Upload IPS Bundle"
-        />
-        {error && <p style={{ color: "var(--pf-t--global--color--status--danger--default)" }}>{error}</p>}
+    <>
+      <PageSection>
+        <Flex
+          direction={{ default: "row" }}
+          alignItems={{ default: "alignItemsCenter" }}
+          justifyContent={{ default: "justifyContentSpaceBetween" }}
+        >
+          <FlexItem>
+            <Title headingLevel="h1">Care Plan Generator</Title>
+            <p>Upload a FHIR IPS Bundle to generate a patient-specific care plan.</p>
+          </FlexItem>
+        </Flex>
       </PageSection>
 
-      {bundle && (
-        <>
-          <PageSection padding={{ default: "noPadding" }}>
-            <Title headingLevel="h2">Patient International Patient Summary (IPS)</Title>
-            <p>This data will be sent to generate the care plan.</p>
-          </PageSection>
+      <PageSection isFilled>
+        <Flex gap={{ default: "gapMd" }} alignItems={{ default: "alignItemsCenter" }} style={{ marginBottom: "1rem" }}>
+          <FlexItem grow={{ default: "grow" }}>
+            <FileUpload
+              id="ips-upload"
+              accept=".json"
+              filename={bundle ? "IPS Bundle loaded" : ""}
+              onFileInputChange={handleFileUpload}
+              isLoading={uploading}
+              browseButtonText="Upload IPS Bundle"
+            />
+          </FlexItem>
+        </Flex>
+        {error && <p style={{ color: "var(--pf-t--global--color--status--danger--default)" }}>{error}</p>}
 
-          {patients[0] && <PatientSection patient={patients[0]} />}
+        {bundle && (
+          <Stack hasGutter>
+            <StackItem>
+              <Title headingLevel="h2">Patient International Patient Summary (IPS)</Title>
+              <p>This data will be sent to generate the care plan.</p>
+            </StackItem>
 
-          <ResourceListSection
-            title="Active Conditions"
-            resources={conditions}
-            displayFn={codingDisplay}
-          />
-          <ResourceListSection
-            title="Medications"
-            resources={medications}
-            displayFn={codingDisplay}
-          />
-          <ResourceListSection
-            title="Allergies"
-            resources={allergies}
-            displayFn={(r) => {
-              const code = (r.code as { text?: string })?.text ?? "Unknown";
-              return { label: code };
-            }}
-          />
-          <ResourceListSection
-            title="Observations / Vitals"
-            resources={observations}
-            displayFn={codingDisplay}
-          />
-          <ResourceListSection
-            title="Immunizations"
-            resources={immunizations}
-            displayFn={(r) => {
-              const vaccine = (r.vaccineCode as { text?: string })?.text ?? "Unknown";
-              return { label: vaccine };
-            }}
-          />
+            {patients[0] && <StackItem><PatientSection patient={patients[0]} /></StackItem>}
 
-          <PageSection padding={{ default: "noPadding" }}>
-            <Button
-              variant="primary"
-              onClick={handleGenerate}
-              isLoading={generating}
-              isDisabled={generating}
-            >
-              Generate Care Plan
-            </Button>
-            <FhirJsonViewer json={bundle} title="View FHIR Bundle JSON" />
-          </PageSection>
-        </>
-      )}
-    </PageSection>
+            <StackItem>
+              <ResourceListSection title="Active Conditions" resources={conditions} displayFn={codingDisplay} />
+            </StackItem>
+            <StackItem>
+              <ResourceListSection title="Medications" resources={medications} displayFn={codingDisplay} />
+            </StackItem>
+            <StackItem>
+              <ResourceListSection
+                title="Allergies"
+                resources={allergies}
+                displayFn={(r) => ({ label: (r.code as { text?: string })?.text ?? "Unknown" })}
+              />
+            </StackItem>
+            <StackItem>
+              <ResourceListSection title="Observations / Vitals" resources={observations} displayFn={codingDisplay} />
+            </StackItem>
+            <StackItem>
+              <ResourceListSection
+                title="Immunizations"
+                resources={immunizations}
+                displayFn={(r) => ({ label: (r.vaccineCode as { text?: string })?.text ?? "Unknown" })}
+              />
+            </StackItem>
+
+            <StackItem>
+              <Flex gap={{ default: "gapMd" }}>
+                <FlexItem>
+                  <Button variant="primary" onClick={handleGenerate} isLoading={generating} isDisabled={generating}>
+                    Generate Care Plan
+                  </Button>
+                </FlexItem>
+              </Flex>
+            </StackItem>
+            <StackItem>
+              <FhirJsonViewer json={bundle} title="View FHIR Bundle JSON" />
+            </StackItem>
+          </Stack>
+        )}
+      </PageSection>
+    </>
   );
 }
