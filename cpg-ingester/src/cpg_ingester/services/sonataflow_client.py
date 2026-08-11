@@ -38,6 +38,11 @@ _REVIEW_EVENT_TYPE = {
     "pre-delivery": "artifacts-reviewed",
 }
 
+_REVIEW_WAIT_PATH = {
+    "manifest": "wait-manifest-review",
+    "pre-delivery": "wait-artifact-review",
+}
+
 
 def infer_current_state(data: dict, instance_status: str) -> str:
     """Determine the active pipeline step from workflow data."""
@@ -191,11 +196,59 @@ def map_to_run_detail(instance: dict) -> dict[str, Any]:
     return detail
 
 
+_GRAPHQL_LIST = """
+query {
+  ProcessInstances(where: {processId: {equal: "%s"}}, orderBy: {start: DESC}) {
+    id state start end variables
+  }
+}
+""" % WORKFLOW_NAME
+
+_GRAPHQL_GET = """
+query ($id: String!) {
+  ProcessInstances(where: {id: {equal: $id}}) {
+    id state start end variables
+  }
+}
+"""
+
+
+def _graphql_to_instance(pi: dict) -> dict:
+    """Normalize a GraphQL ProcessInstance to match REST API shape."""
+    variables = pi.get("variables") or {}
+    if isinstance(variables, str):
+        import json as _json
+        variables = _json.loads(variables)
+    return {
+        "id": pi["id"],
+        "status": pi["state"],
+        "startDate": pi.get("start", ""),
+        "workflowdata": variables.get("workflowdata", {}),
+    }
+
+
 class SonataFlowClient:
-    """REST client for the SonataFlow cpgingester workflow."""
+    """Client for the SonataFlow cpgingester workflow.
+
+    Uses GraphQL (embedded Data Index) for queries so completed instances
+    are included.  Uses REST for mutations (start, abort, send review).
+    """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
+
+    def _graphql(self, query: str, variables: dict | None = None) -> dict:
+        payload: dict = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        resp = requests.post(
+            f"{self.base_url}/graphql",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     def start_workflow(self, pdf_ref: str, cpg_name: str) -> dict:
         resp = requests.post(
@@ -212,20 +265,18 @@ class SonataFlowClient:
         return resp.json()
 
     def list_instances(self) -> list[dict]:
-        resp = requests.get(
-            f"{self.base_url}/{WORKFLOW_NAME}",
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        result = self._graphql(_GRAPHQL_LIST)
+        instances = result.get("data", {}).get("ProcessInstances", [])
+        return [_graphql_to_instance(pi) for pi in instances]
 
     def get_instance(self, instance_id: str) -> dict:
-        resp = requests.get(
-            f"{self.base_url}/{WORKFLOW_NAME}/{instance_id}",
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        result = self._graphql(_GRAPHQL_GET, {"id": instance_id})
+        instances = result.get("data", {}).get("ProcessInstances", [])
+        if not instances:
+            raise requests.HTTPError(
+                f"Run {instance_id} not found", response=type("R", (), {"status_code": 404})()
+            )
+        return _graphql_to_instance(instances[0])
 
     def abort_instance(self, instance_id: str) -> None:
         resp = requests.delete(
@@ -236,17 +287,20 @@ class SonataFlowClient:
 
     def send_review(self, instance_id: str, gate: str, review_data: dict) -> None:
         event_type = _REVIEW_EVENT_TYPE[gate]
+        wait_path = _REVIEW_WAIT_PATH[gate]
+        review_data.setdefault("completed_at", datetime.now(timezone.utc).isoformat())
+        cloud_event = {
+            "specversion": "1.0",
+            "id": str(uuid4()),
+            "source": "bff",
+            "type": event_type,
+            "kogitoprocrefid": instance_id,
+            "data": review_data,
+        }
         resp = requests.post(
-            self.base_url,
-            json=review_data,
-            headers={
-                "Content-Type": "application/json",
-                "ce-specversion": "1.0",
-                "ce-id": str(uuid4()),
-                "ce-source": "bff",
-                "ce-type": event_type,
-                "ce-kogitoprocrefid": instance_id,
-            },
-            timeout=10,
+            f"{self.base_url}/{wait_path}",
+            json=cloud_event,
+            headers={"Content-Type": "application/cloudevents+json"},
+            timeout=60,
         )
         resp.raise_for_status()

@@ -19,8 +19,8 @@ _ANALYSIS_FIELDS = {
 }
 
 _GENERATE_FIELDS = {
-    "decisions": "decisions",
-    "recommendations": "recommendations",
+    "dmn_results": "decisions",
+    "recommendation_results": "recommendations",
     "escalated_items": "escalatedItems",
 }
 
@@ -94,7 +94,7 @@ def enrich_run_detail(
     # --- Delivery (always inline, no ref) ---
     delivery = wd.get("deliveryResult") or {}
     if delivery:
-        detail["deliveryStatus"] = delivery
+        detail["deliveryStatus"] = delivery.get("delivery_status", delivery)
 
     if errors:
         detail["errors"] = errors
