@@ -7,6 +7,7 @@ Security profile: no external network, no LLM.
 
 import logging
 import tempfile
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -63,7 +64,9 @@ async def assemble(request: Request):
             "assembly_report": result.get("assembly_report", {}),
         }
 
+        completed_at = datetime.now(timezone.utc).isoformat()
         _, ref = store_artifact(_store, f"{uuid4()}/assembly_result.json", output)
         if ref:
-            return {"assembly_result_ref": ref}
+            return {"assembly_result_ref": ref, "completed_at": completed_at}
+        output["completed_at"] = completed_at
         return output
