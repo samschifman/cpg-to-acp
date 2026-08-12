@@ -22,7 +22,7 @@ import {
   StackItem,
   Title,
 } from "@patternfly/react-core";
-import { FhirJsonViewer } from "@cpg-to-acp/ui-shared";
+import { FhirJsonViewer } from "@app/components/FhirJsonViewer";
 import { generateCarePlan } from "@app/services/api";
 
 interface FhirResource {

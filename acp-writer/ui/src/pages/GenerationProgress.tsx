@@ -3,13 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { PageSection, Title } from "@patternfly/react-core";
 import {
   PipelineStepper,
-  AiReasoningPanel,
   useAdaptivePolling,
   type PipelineStep,
   type StepStatus,
-  type AiMessage,
-  type CarePlanComposerState,
 } from "@cpg-to-acp/ui-shared";
+import { AiReasoningPanel, type AiMessage } from "@app/components/AiReasoningPanel";
+import type { CarePlanComposerState } from "@app/types/state";
 import { getCarePlan } from "@app/services/api";
 
 interface PipelineStepDef {

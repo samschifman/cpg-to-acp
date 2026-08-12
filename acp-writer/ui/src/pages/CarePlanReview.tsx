@@ -17,7 +17,8 @@ import {
   TabTitleText,
   Title,
 } from "@patternfly/react-core";
-import { FhirJsonViewer, useAdaptivePolling } from "@cpg-to-acp/ui-shared";
+import { useAdaptivePolling } from "@cpg-to-acp/ui-shared";
+import { FhirJsonViewer } from "@app/components/FhirJsonViewer";
 import { getCarePlan } from "@app/services/api";
 import { GoalCard, type GoalResource } from "@app/components/GoalCard";
 import { ActivityCard, type ActivityResource } from "@app/components/ActivityCard";
