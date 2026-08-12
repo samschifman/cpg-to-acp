@@ -233,7 +233,7 @@ The UI and BFF are deployed as separate pods via the existing Helm chart in `dep
 
 ```
 deploy/chart/values.yaml    # ui: and bff: pod entries
-deploy/pods/Dockerfile.bff  # UBI9 + Python 3.12 + FastAPI
+deploy/pods/Containerfile.bff  # UBI9 + Python 3.12 + FastAPI
 ```
 
 All pods (ingestion, llm-analysis, assembly, delivery, bff, ui) are managed by the same Helm release:

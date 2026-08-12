@@ -274,7 +274,7 @@ services:
   cpg-ingester-bff:
     build:
       context: .
-      dockerfile: cpg-ingester/deploy/pods/Dockerfile.bff
+      dockerfile: cpg-ingester/deploy/pods/Containerfile.bff
     ports:
       - "8095:8080"
     healthcheck:
