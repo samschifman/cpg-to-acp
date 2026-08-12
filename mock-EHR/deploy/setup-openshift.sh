@@ -35,6 +35,16 @@ while [[ $# -gt 0 ]]; do
     --branch) GIT_BRANCH="$2"; shift 2;;
     --repo) GIT_REPO="$2"; shift 2;;
     --tag) IMAGE_TAG="$2"; shift 2;;
+    -h|--help)
+      echo "Usage: bash mock-EHR/deploy/setup-openshift.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --namespace NS    OpenShift namespace (default: sschifma-cpg-to-acp)"
+      echo "  --repo URL        Git repository URL (default: upstream)"
+      echo "  --branch BRANCH   Git branch to build from (default: main)"
+      echo "  --tag TAG         Image tag (default: latest)"
+      echo "  -h, --help        Show this help message"
+      exit 0;;
     *) echo "Unknown arg: $1"; exit 1;;
   esac
 done
