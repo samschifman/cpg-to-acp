@@ -169,7 +169,7 @@ The UI proxies `/api/*` requests to the BFF (default `http://localhost:8095`). S
 The UI is built as a multi-stage Docker image: Node 22 Alpine for the build step, nginx-unprivileged for serving. nginx uses `envsubst` to resolve `${BFF_HOST}` at container startup, proxying `/api/` requests to the BFF pod.
 
 ```
-cpg-ingester/ui/Dockerfile       # Multi-stage build
+cpg-ingester/ui/Containerfile       # Multi-stage build
 cpg-ingester/ui/nginx.conf       # Template with ${BFF_HOST} substitution
 ```
 
