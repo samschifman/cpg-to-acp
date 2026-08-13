@@ -3,15 +3,13 @@ import DmnViewer from 'dmn-js';
 
 import 'dmn-js/dist/assets/dmn-js-shared.css';
 import 'dmn-js/dist/assets/dmn-js-drd.css';
-import 'dmn-js/dist/assets/dmn-js-decision-table.css';
-import 'dmn-js/dist/assets/dmn-js-decision-table-controls.css';
 import 'dmn-js/dist/assets/dmn-font/css/dmn-embedded.css';
 
-interface DmnDecisionTableProps {
+interface DmnDrdProps {
   xml: string;
 }
 
-export function DmnDecisionTable({ xml }: DmnDecisionTableProps) {
+export function DmnDrd({ xml }: DmnDrdProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<InstanceType<typeof DmnViewer> | null>(null);
 
@@ -32,8 +30,14 @@ export function DmnDecisionTable({ xml }: DmnDecisionTableProps) {
   useEffect(() => {
     if (!viewerRef.current || !xml) return;
 
-    viewerRef.current.importXML(xml).catch((err: Error) => {
-      console.error('DMN import failed:', err);
+    viewerRef.current.importXML(xml).then(() => {
+      const views = viewerRef.current!.getViews();
+      const drdView = views.find((v) => v.type === 'drd');
+      if (drdView) {
+        viewerRef.current!.open(drdView);
+      }
+    }).catch((err: Error) => {
+      console.error('DMN DRD import failed:', err);
     });
   }, [xml]);
 
