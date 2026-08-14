@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import DmnViewer from 'dmn-js';
 
 import 'dmn-js/dist/assets/dmn-js-shared.css';
-import 'dmn-js/dist/assets/dmn-js-drd.css';
 import 'dmn-js/dist/assets/dmn-js-decision-table.css';
 import 'dmn-js/dist/assets/dmn-js-decision-table-controls.css';
 import 'dmn-js/dist/assets/dmn-font/css/dmn-embedded.css';
