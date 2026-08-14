@@ -8,7 +8,6 @@ import {
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import type { DecisionResult, RecommendationResult, ReviewFeedbackItem, RunDetail } from '../api/types';
-import { DmnDrd } from '../components/DmnDrd';
 import { MermaidDiagram } from '../components/MermaidDiagram';
 import { ReviewActionBar } from '../components/ReviewActionBar';
 import { useReviewGate } from '../hooks/useReviewGate';
@@ -178,36 +177,6 @@ export function ProvenancePage({ run }: ProvenancePageProps) {
         </Card>
       )}
 
-      {run.decisions && run.decisions.length > 0 && (
-        <Card style={{ marginBottom: 16 }}>
-          <CardTitle>Decision Requirements Diagram</CardTitle>
-          <CardBody>
-            {run.decisions.map((d, i) => (
-              <div
-                key={d.artifact_id ?? i}
-                style={{ marginBottom: i < run.decisions!.length - 1 ? 24 : 0 }}
-              >
-                <Content component="p" style={{ fontWeight: 600, marginBottom: 4 }}>
-                  {d.decision_model_summary?.name ?? d.item.name}
-                  {d.artifact_id && (
-                    <code
-                      style={{
-                        marginLeft: 8,
-                        fontSize: '0.85em',
-                        fontWeight: 400,
-                        color: 'var(--pf-t--global--text--color--subtle)',
-                      }}
-                    >
-                      {d.artifact_id}
-                    </code>
-                  )}
-                </Content>
-                <DmnDrd xml={d.dmn_xml} />
-              </div>
-            ))}
-          </CardBody>
-        </Card>
-      )}
 
       {ds && ds.artifacts && ds.artifacts.length > 0 && (
         <Card style={{ marginBottom: 16 }}>
