@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# UBI base avoids Docker Hub unauthenticated pull rate limits on OpenShift builds
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+USER 0
 
 WORKDIR /app
 
