@@ -1,8 +1,14 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="${NAMESPACE:-sschifma-cpg-to-acp}"
+NAMESPACE="${NAMESPACE:-}"
 RELEASE_PREFIX="${RELEASE_PREFIX:-cpg}"
+
+if [[ -z "$NAMESPACE" ]]; then
+  echo "ERROR: NAMESPACE is required. Set it via environment variable or pass to the script."
+  echo "  NAMESPACE=my-namespace bash deploy/install.sh"
+  exit 1
+fi
 
 # Prerequisites:
 #   - Run each component's setup-openshift.sh first:
