@@ -71,7 +71,14 @@ def _setup_sample_data():
     if guidelines and len(guidelines) > 0:
         return
 
-    project_root = Path(__file__).parent.parent.parent.parent.parent
+    # SAMPLE_DATA_ROOT lets container images bake the fixtures at a stable path;
+    # falls back to the repo-root layout used in local dev (running from source).
+    project_root = Path(
+        os.environ.get(
+            "SAMPLE_DATA_ROOT",
+            Path(__file__).parent.parent.parent.parent.parent,
+        )
+    )
     fixtures_file = project_root / "shared" / "tests" / "fixtures" / "sample-recommendations.json"
     if not fixtures_file.exists():
         logger.warning("Sample fixtures not found at %s", fixtures_file)

@@ -13,6 +13,11 @@ COPY acp-writer/src/ src/
 
 RUN pip install --no-cache-dir .
 
+# Bake sample CPG data so it auto-seeds on startup (SAMPLE_DATA_ROOT).
+COPY shared/tests/fixtures/ /app/sample-data/shared/tests/fixtures/
+COPY cpg-ingester/data/golden/ /app/sample-data/cpg-ingester/data/golden/
+ENV SAMPLE_DATA_ROOT=/app/sample-data
+
 RUN chmod -R g=u /app
 
 USER 1001
