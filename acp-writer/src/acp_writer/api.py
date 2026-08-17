@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import threading
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -60,7 +61,7 @@ app = FastAPI(
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
 
-from acp_writer.ui.app import app as ui_app, _setup_sample_data
+from acp_writer.ui.app import app as ui_app, _setup_sample_data_when_ready
 app.mount("/ui", ui_app)
 
 
@@ -72,7 +73,9 @@ async def startup():
         datefmt="%H:%M:%S",
         force=True,
     )
-    _setup_sample_data()
+    # Seed from a background thread once the server is accepting connections;
+    # the seed calls this app's own REST API, which isn't listening yet here.
+    threading.Thread(target=_setup_sample_data_when_ready, daemon=True).start()
 
 
 def _check_kogito() -> bool:

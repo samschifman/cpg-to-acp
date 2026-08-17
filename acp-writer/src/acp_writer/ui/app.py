@@ -8,7 +8,6 @@ In monolithic mode (API_URL points to local acp-writer), behavior is identical.
 import json
 import logging
 import os
-import threading
 import time
 from pathlib import Path
 
@@ -132,7 +131,8 @@ async def startup():
         datefmt="%H:%M:%S",
         force=True,
     )
-    threading.Thread(target=_setup_sample_data_when_ready, daemon=True).start()
+    # Sample-data seeding is driven by the parent app (api.py) once the server
+    # is listening. This mounted sub-app's lifespan does not fire when mounted.
 
 
 @app.get("/", response_class=HTMLResponse)
