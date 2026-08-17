@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from cpg_contracts import (
     CPGMetadata,
@@ -256,7 +257,11 @@ async def generate_careplan(request: Request):
     compiled = graph.compile(checkpointer=checkpointer)
 
     try:
-        result = compiled.invoke(
+        # Run the synchronous LangGraph pipeline in a threadpool so it doesn't
+        # block the event loop for the whole (multi-minute) run — otherwise
+        # health probes and status polling time out and the pod gets restarted.
+        result = await run_in_threadpool(
+            compiled.invoke,
             {
                 "ips_bundle": bundle,
                 "run_id": run_id,
