@@ -178,7 +178,14 @@ async def submit_bundle(request: Request, bundle_file: UploadFile = File(...)):
 
 @app.post("/submit-sample")
 async def submit_sample(request: Request, sample: str = Form(...)):
-    project_root = Path(__file__).parent.parent.parent.parent.parent
+    # Same SAMPLE_DATA_ROOT override as _setup_sample_data: the source-relative
+    # path lands inside the venv in the installed image.
+    project_root = Path(
+        os.environ.get(
+            "SAMPLE_DATA_ROOT",
+            Path(__file__).parent.parent.parent.parent.parent,
+        )
+    )
     sample_dir = project_root / "mock-EHR" / "data"
     filename = f"patient-bundle-{sample}.json"
     path = sample_dir / filename

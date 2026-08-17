@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir .
 # Bake sample CPG data so it auto-seeds on startup (SAMPLE_DATA_ROOT).
 COPY shared/tests/fixtures/ /app/sample-data/shared/tests/fixtures/
 COPY cpg-ingester/data/golden/ /app/sample-data/cpg-ingester/data/golden/
+# Sample patient bundles for the UI's "sample patient" buttons.
+COPY mock-EHR/data/ /app/sample-data/mock-EHR/data/
 ENV SAMPLE_DATA_ROOT=/app/sample-data
 
 RUN chmod -R g=u /app
