@@ -1,11 +1,21 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="${NAMESPACE:-sschifma-cpg-to-acp}"
+NAMESPACE="${NAMESPACE:-}"
 RELEASE_PREFIX="${RELEASE_PREFIX:-cpg}"
 
+if [[ -z "$NAMESPACE" ]]; then
+  echo "ERROR: NAMESPACE is required. Set it via environment variable or pass to the script."
+  echo "  NAMESPACE=my-namespace bash deploy/install.sh"
+  exit 1
+fi
+
 # Prerequisites:
-#   - Run mock-EHR/deploy/setup-openshift.sh first (creates ImageStreams, BuildConfigs, pushes images)
+#   - Run each component's setup-openshift.sh first:
+#       bash mock-EHR/deploy/setup-openshift.sh --namespace $NS --branch $BRANCH --tag $TAG
+#       bash acp-writer/deploy/setup-openshift.sh --namespace $NS --branch $BRANCH --tag $TAG
+#       bash cpg-ingester/deploy/setup-openshift.sh --namespace $NS --branch $BRANCH --tag $TAG
+#       bash platform/litellm/deploy/setup-openshift.sh --namespace $NS --branch $BRANCH --tag $TAG
 #   - All images must be built and available in the internal registry
 
 echo "=== CPG-to-ACP OpenShift Deployment ==="

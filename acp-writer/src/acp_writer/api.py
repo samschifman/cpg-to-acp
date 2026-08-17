@@ -4,12 +4,14 @@ import base64
 import json
 import logging
 import os
+import threading
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from cpg_contracts import (
     CPGMetadata,
@@ -60,7 +62,7 @@ app = FastAPI(
     description="Composes patient-specific, FHIR-compliant care plans.",
 )
 
-from acp_writer.ui.app import app as ui_app, _setup_sample_data
+from acp_writer.ui.app import app as ui_app, _setup_sample_data_when_ready
 app.mount("/ui", ui_app)
 
 
@@ -72,7 +74,9 @@ async def startup():
         datefmt="%H:%M:%S",
         force=True,
     )
-    _setup_sample_data()
+    # Seed from a background thread once the server is accepting connections;
+    # the seed calls this app's own REST API, which isn't listening yet here.
+    threading.Thread(target=_setup_sample_data_when_ready, daemon=True).start()
 
 
 def _check_kogito() -> bool:
@@ -253,7 +257,11 @@ async def generate_careplan(request: Request):
     compiled = graph.compile(checkpointer=checkpointer)
 
     try:
-        result = compiled.invoke(
+        # Run the synchronous LangGraph pipeline in a threadpool so it doesn't
+        # block the event loop for the whole (multi-minute) run — otherwise
+        # health probes and status polling time out and the pod gets restarted.
+        result = await run_in_threadpool(
+            compiled.invoke,
             {
                 "ips_bundle": bundle,
                 "run_id": run_id,

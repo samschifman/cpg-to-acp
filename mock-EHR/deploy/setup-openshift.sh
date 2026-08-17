@@ -16,12 +16,12 @@
 #   - The public images available locally or pullable from Docker Hub
 #
 # Usage:
-#   bash mock-EHR/deploy/setup-openshift.sh [--namespace NAMESPACE] [--branch BRANCH] [--tag TAG]
+#   bash mock-EHR/deploy/setup-openshift.sh [--namespace NAMESPACE] [--repo URL] [--branch BRANCH] [--tag TAG]
 
 set -euo pipefail
 
-NAMESPACE="${NAMESPACE:-sschifma-cpg-to-acp}"
-GIT_REPO="https://github.com/samschifman/cpg-to-acp.git"
+NAMESPACE="${NAMESPACE:-}"
+GIT_REPO="${GIT_REPO:-https://github.com/samschifman/cpg-to-acp.git}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 IMAGE_TAG="${IMAGE_TAG:-phase4}"
 MEDPLUM_VERSION="5.1.27"
@@ -33,10 +33,26 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --namespace) NAMESPACE="$2"; shift 2;;
     --branch) GIT_BRANCH="$2"; shift 2;;
+    --repo) GIT_REPO="$2"; shift 2;;
     --tag) IMAGE_TAG="$2"; shift 2;;
+    -h|--help)
+      echo "Usage: bash mock-EHR/deploy/setup-openshift.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --namespace NS    OpenShift namespace (required)"
+      echo "  --repo URL        Git repository URL (default: upstream)"
+      echo "  --branch BRANCH   Git branch to build from (default: main)"
+      echo "  --tag TAG         Image tag (default: latest)"
+      echo "  -h, --help        Show this help message"
+      exit 0;;
     *) echo "Unknown arg: $1"; exit 1;;
   esac
 done
+
+if [[ -z "$NAMESPACE" ]]; then
+  echo "ERROR: --namespace is required (or set NAMESPACE env var)"
+  exit 1
+fi
 
 log "Namespace:  $NAMESPACE"
 log "Git branch: $GIT_BRANCH"
