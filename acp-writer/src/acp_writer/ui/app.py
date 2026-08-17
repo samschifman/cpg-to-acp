@@ -8,6 +8,8 @@ In monolithic mode (API_URL points to local acp-writer), behavior is identical.
 import json
 import logging
 import os
+import threading
+import time
 from pathlib import Path
 
 import requests as http_requests
@@ -102,6 +104,26 @@ def _setup_sample_data():
     logger.info("Loaded sample data via API")
 
 
+def _setup_sample_data_when_ready(retries: int = 30, delay: float = 1.0):
+    """Seed sample data once the server is accepting connections.
+
+    _setup_sample_data() calls the app's own REST API over HTTP. The startup
+    event fires before uvicorn binds the socket, so calling it inline races the
+    server and the seed POSTs fail with connection-refused. Run it from a
+    background thread that waits until the API answers, then seeds.
+    """
+    for _ in range(retries):
+        try:
+            r = http_requests.get(f"{API_URL}/api/v1/guidelines", timeout=2)
+            if r.status_code == 200:
+                _setup_sample_data()
+                return
+        except http_requests.RequestException:
+            pass
+        time.sleep(delay)
+    logger.warning("Server not ready after %ss; sample data not seeded", retries * delay)
+
+
 @app.on_event("startup")
 async def startup():
     logging.basicConfig(
@@ -110,7 +132,7 @@ async def startup():
         datefmt="%H:%M:%S",
         force=True,
     )
-    _setup_sample_data()
+    threading.Thread(target=_setup_sample_data_when_ready, daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)
