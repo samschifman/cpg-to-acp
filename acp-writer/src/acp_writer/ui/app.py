@@ -135,8 +135,10 @@ async def startup():
     # is listening. This mounted sub-app's lifespan does not fire when mounted.
 
 
+# Sync (def) handlers run in a threadpool, so blocking calls to this app's own
+# API (_api_get/_api_put) don't deadlock the single-worker event loop.
 @app.get("/", response_class=HTMLResponse)
-async def submit_page(request: Request):
+def submit_page(request: Request):
     guidelines = _api_get("/api/v1/guidelines") or []
     models = _api_get("/api/v1/decisions/models") or []
     status = _api_get("/api/v1/status") or {}
@@ -231,13 +233,13 @@ async def poll_run(run_id: str):
 
 
 @app.get("/plans", response_class=HTMLResponse)
-async def plans_list(request: Request):
+def plans_list(request: Request):
     plans = _api_get("/api/v1/careplans") or []
     return templates.TemplateResponse(request, "plans.html", {"plans": plans})
 
 
 @app.get("/plans/{careplan_id}", response_class=HTMLResponse)
-async def plan_review(request: Request, careplan_id: str):
+def plan_review(request: Request, careplan_id: str):
     cp = _api_get(f"/api/v1/careplans/{careplan_id}")
     if not cp:
         return HTMLResponse("<h1>Care plan not found</h1>", status_code=404)
@@ -268,7 +270,7 @@ async def plan_review(request: Request, careplan_id: str):
 
 
 @app.post("/plans/{careplan_id}/approve")
-async def approve(careplan_id: str, clinician: str = Form("")):
+def approve(careplan_id: str, clinician: str = Form("")):
     _api_put(
         f"/api/v1/careplans/{careplan_id}/status",
         json_data={"status": "active", "clinician": clinician or "Clinician"},
@@ -277,7 +279,7 @@ async def approve(careplan_id: str, clinician: str = Form("")):
 
 
 @app.post("/plans/{careplan_id}/reject")
-async def reject(careplan_id: str, reason: str = Form("")):
+def reject(careplan_id: str, reason: str = Form("")):
     _api_put(
         f"/api/v1/careplans/{careplan_id}/status",
         json_data={"status": "entered-in-error", "reason": reason or "No reason provided"},
