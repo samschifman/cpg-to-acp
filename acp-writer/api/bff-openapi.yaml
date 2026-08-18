@@ -249,20 +249,31 @@ components:
       type: string
       description: >
         Stable, ordered pipeline step identifiers. UI maps key → label/icon; do NOT
-        hardcode the list in the UI beyond this shared vocabulary.
-        # OPEN: confirm these exactly match the SonataFlow workflow states.
+        hardcode the list in the UI beyond this shared vocabulary. Keys are snake_case
+        here and map to the PascalCase SonataFlow state names — the BFF owns the
+        state-name → StepKey mapping when deriving `currentStep` from a live instance.
+        Verified against acp-writer/deploy/orchestrator/acp-writer-workflow.yaml
+        (workflow v0.2.0). The 9 automated steps map 1:1 to real states; the workflow's
+        inject/switch plumbing (InitFHIRReview, IncrementFHIRReview, CheckFHIRVerdict)
+        is intentionally not surfaced as UI steps.
+        # OPEN (backend/workflow): the two HUMAN gates below (review_brief,
+        # review_careplan) do NOT yet exist in the SonataFlow workflow — it currently
+        # runs straight through with only automated async callbacks. Per spike-b/spike-c
+        # they must be added as Callback states that emit an `awaiting_review` marker
+        # (mirroring the LLM async-callback pattern) to drive the awaiting_* RunStatus
+        # values. This is a workflow work-item for the BFF/backend track, not a UI change.
       enum:
-        - scan_patient
-        - resolve_guidelines
-        - execute_dmn
-        - retrieve_recommendations
-        - compose_plan
-        - review_brief        # human gate
-        - generate_bundle
-        - review_fhir         # automated
-        - review_careplan     # human gate
-        - write_fhir
-        - done
+        - scan_patient            # SonataFlow: ScanPatient
+        - resolve_guidelines      # SonataFlow: ResolveGuidelines
+        - execute_dmn             # SonataFlow: ExecuteDMN
+        - retrieve_recommendations # SonataFlow: RetrieveRecommendations
+        - compose_plan            # SonataFlow: ComposePlan
+        - review_brief            # human gate — NOT YET in workflow (see OPEN above)
+        - generate_bundle         # SonataFlow: GenerateBundle (loops with review_fhir, max 4)
+        - review_fhir             # SonataFlow: ReviewFHIR (automated LLM review, loops)
+        - review_careplan         # human gate — NOT YET in workflow (see OPEN above)
+        - write_fhir              # SonataFlow: WriteFHIR
+        - done                    # SonataFlow: Done
 
     # ---- Run objects ----
     RunCreated:
