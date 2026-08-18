@@ -1,8 +1,8 @@
 # acp-writer BFF ↔ React UI contract — FIRST-CUT DRAFT for negotiation
 #
-# Status: proposal from the UI (Person B) side, derived from "what each screen
-# must render → work backward to fields." Person A (BFF/backend) should review,
-# push back, and co-own this file. Once agreed, it is the SINGLE SOURCE OF TRUTH:
+# Status: proposal from the UI side, derived from "what each screen must render
+# → work backward to fields." The BFF/backend track should review, push back,
+# and co-own this file. Once agreed, it is the SINGLE SOURCE OF TRUTH:
 #   - UI generates types:  npx openapi-typescript acp-writer/api/bff-openapi.yaml -o acp-writer/ui/src/api/types.ts
 #   - BFF validates requests/responses against it server-side.
 # Neither side hand-maintains a parallel type list, so they can't drift.
@@ -20,7 +20,7 @@
 #   CarePlanReview     GET  /careplans/{id}, PUT .../status  → view-model + approve/reject (fixes #126)
 #   SystemStatus       GET  /status                          → engine + KB health
 #
-# OPEN QUESTIONS (flagged inline with `# OPEN:`) are the things to settle with Person A.
+# OPEN QUESTIONS (flagged inline with `# OPEN:`) are the things to settle with the BFF/backend track.
 
 openapi: 3.1.0
 info:
@@ -80,23 +80,23 @@ paths:
       operationId: createRunFromSmartLaunch
       summary: PatientEntryPage (SMART tab) / LaunchPage — start a run from SMART context
       description: >
-        UI passes the resolved SMART context; the BFF does the server-side
-        `$summary` fetch (avoids browser CORS with the FHIR server), stores the
-        IPS in MinIO, and starts the workflow. Returns the same shape as POST /runs.
-        The request shape below assumes the BROWSER completes the token exchange
-        and hands the BFF a bearer token — mirroring today's mock-EHR IPS Viewer
-        (client_credentials in LaunchPage.tsx). See the two OPEN sub-decisions below.
+        UI hands the BFF the raw SMART launch parameters; the BFF completes the
+        SMART token exchange server-side (acp-writer is a CONFIDENTIAL client — it
+        holds a secret, which must never reach the browser), then does the
+        server-side `$summary` fetch (also avoids browser CORS), stores the IPS in
+        MinIO, and starts the workflow. Returns the same shape as POST /runs.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [iss, patientId, token]
+              required: [iss, launch, code]
               properties:
                 iss: { type: string, description: FHIR server base URL from the launch }
-                patientId: { type: string }
-                token: { type: string, description: SMART access token (server-side use only) }
+                launch: { type: string, description: opaque launch context id from the EHR }
+                code: { type: string, description: SMART authorization code to exchange server-side }
+                codeVerifier: { type: string, description: PKCE verifier, if the flow uses PKCE }
       responses:
         '202':
           description: Run accepted
@@ -104,16 +104,20 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/RunCreated' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        # OPEN (two coupled sub-decisions — team boundary call, not a UI-only choice):
-        #  1. Token exchange: does the BROWSER complete it (today's IPS Viewer
-        #     client_credentials pattern) and pass `token` as shaped above, OR does
-        #     the BFF complete the exchange itself from {iss, launch, code}? If the
-        #     latter, this request body changes (no `token`; carries launch/code).
-        #  2. $summary read location: browser or BFF? This draft puts it in the BFF
-        #     to avoid browser CORS — but a BFF-side FHIR read sits in TENSION with
-        #     the AGENTS.md boundary "acp-writer does not query FHIR servers." That
-        #     rule governs the core engine (which never reads FHIR); whether it also
-        #     binds the acp-writer BFF must be settled explicitly. The engine's
+        # OPEN (recommendation + two coupled sub-decisions — team call):
+        #  Recommended default (shape above): BFF completes the token exchange and does
+        #  the $summary read, because acp-writer is registered as a CONFIDENTIAL client
+        #  (has a secret). The current mock-EHR IPS Viewer instead uses client_credentials
+        #  WITH THE SECRET IN THE BROWSER (LaunchPage.tsx) — that is a dev shortcut, not a
+        #  real SMART exchange, and must NOT be promoted to the production contract.
+        #  1. Token exchange location: BFF (recommended, confidential client) vs browser.
+        #     Browser-held is only safe if acp-writer is re-registered as a PUBLIC client
+        #     using PKCE (no secret) — a deliberate registration change, not today's state.
+        #     If browser-held is chosen, this body changes (carries `token`, not `code`).
+        #  2. $summary read location: BFF (this draft) vs browser. A BFF-side FHIR read
+        #     sits in TENSION with the AGENTS.md boundary "acp-writer does not query FHIR
+        #     servers." That rule governs the core engine (which never reads FHIR); whether
+        #     it also binds the acp-writer BFF must be settled explicitly. The engine's
         #     write-back path (CarePlan out) is unaffected and stays consistent.
 
   /runs/{runId}:
