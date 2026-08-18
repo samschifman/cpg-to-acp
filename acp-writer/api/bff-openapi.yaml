@@ -83,6 +83,9 @@ paths:
         UI passes the resolved SMART context; the BFF does the server-side
         `$summary` fetch (avoids browser CORS with the FHIR server), stores the
         IPS in MinIO, and starts the workflow. Returns the same shape as POST /runs.
+        The request shape below assumes the BROWSER completes the token exchange
+        and hands the BFF a bearer token — mirroring today's mock-EHR IPS Viewer
+        (client_credentials in LaunchPage.tsx). See the two OPEN sub-decisions below.
       requestBody:
         required: true
         content:
@@ -101,8 +104,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/RunCreated' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        # OPEN: token handling — does the UI ever hold the token, or does the BFF
-        # complete the SMART token exchange itself given {iss, launch, code}?
+        # OPEN (two coupled sub-decisions — team boundary call, not a UI-only choice):
+        #  1. Token exchange: does the BROWSER complete it (today's IPS Viewer
+        #     client_credentials pattern) and pass `token` as shaped above, OR does
+        #     the BFF complete the exchange itself from {iss, launch, code}? If the
+        #     latter, this request body changes (no `token`; carries launch/code).
+        #  2. $summary read location: browser or BFF? This draft puts it in the BFF
+        #     to avoid browser CORS — but a BFF-side FHIR read sits in TENSION with
+        #     the AGENTS.md boundary "acp-writer does not query FHIR servers." That
+        #     rule governs the core engine (which never reads FHIR); whether it also
+        #     binds the acp-writer BFF must be settled explicitly. The engine's
+        #     write-back path (CarePlan out) is unaffected and stays consistent.
 
   /runs/{runId}:
     parameters:
@@ -326,7 +338,13 @@ components:
             - { type: 'null' }
         planningBrief:
           description: >
-            Present at the `brief` gate (and OPEN: possibly always once composed, for read-back).
+            Present from the `brief` gate onward (available for read-back after approval,
+            not gate-only). The BFF sources it from the durable MinIO PHI artifact
+            (`planning_brief_ref`), which survives the whole run. Null only before it is
+            composed. NOTE: this view-model flattens the internal PlanningBrief — if the
+            review UI needs provenance (per-goal target measure/value, per-activity
+            dose/route/frequency, clinical rationale, DMN audit trail), widen BriefGoal/
+            BriefActivity accordingly.
           oneOf:
             - { $ref: '#/components/schemas/PlanningBrief' }
             - { type: 'null' }
