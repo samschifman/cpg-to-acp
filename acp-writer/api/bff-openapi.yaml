@@ -1,31 +1,29 @@
-# acp-writer BFF ↔ React UI contract — FIRST-CUT DRAFT for negotiation
+# acp-writer BFF ↔ React UI contract
 #
-# Status: proposal from the UI side, derived from "what each screen must render
-# → work backward to fields." The BFF/backend track should review, push back,
-# and co-own this file. Once agreed, it is the SINGLE SOURCE OF TRUTH:
+# The single source of truth for the interface between the acp-writer React UI and
+# its Backend-for-Frontend. Designed screen-first: each screen's rendering needs
+# drive the endpoints and field shapes. The two tracks stay in sync mechanically,
+# not by hand:
 #   - UI generates types:  npx openapi-typescript acp-writer/api/bff-openapi.yaml -o acp-writer/ui/src/api/types.ts
 #   - BFF validates requests/responses against it server-side.
-# Neither side hand-maintains a parallel type list, so they can't drift.
 #
-# Scope: ONLY the UI-facing surface. The BFF's internal endpoints
+# Scope: the UI-facing surface only. The BFF's internal endpoints
 # (/api/v1/notifications/artifacts-available, /api/v1/notify-review) are
-# backend↔SonataFlow/cpg-ingester plumbing and are intentionally out of scope here.
+# backend↔SonataFlow/cpg-ingester plumbing and are out of scope here.
 #
-# Screen → endpoint → why (the design driver):
+# Screen → endpoint map:
 #   PatientEntryPage   POST /runs, POST /runs/smart-launch   → start a run, get runId
 #   RunListPage        GET  /runs                            → dashboard rows
-#   RunDetailPage      GET  /runs/{id} (polled)              → stepper + review gates (THE crux object)
+#   RunDetailPage      GET  /runs/{id} (polled)              → stepper + review gates
 #   Brief/CarePlan     POST /runs/{id}/review/{gate}         → approve / request_changes
-#   CarePlanList       GET  /careplans                       → persisted plans (fixes "Patient/"/"Invalid Date")
-#   CarePlanReview     GET  /careplans/{id}, PUT .../status  → view-model + approve/reject (fixes #126)
+#   CarePlanList       GET  /careplans                       → persisted plans
+#   CarePlanReview     GET  /careplans/{id}, PUT .../status  → view-model + approve/reject
 #   SystemStatus       GET  /status                          → engine + KB health
-#
-# OPEN QUESTIONS (flagged inline with `# OPEN:`) are the things to settle with the BFF/backend track.
 
 openapi: 3.1.0
 info:
   title: acp-writer BFF API (UI contract)
-  version: 0.1.0-draft
+  version: 0.1.0
   description: >
     Backend-for-Frontend contract consumed by the acp-writer React UI. The BFF
     mediates SonataFlow (workflow), MinIO (artifacts/PHI), and the backend service
@@ -104,21 +102,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/RunCreated' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        # OPEN (recommendation + two coupled sub-decisions — team call):
-        #  Recommended default (shape above): BFF completes the token exchange and does
-        #  the $summary read, because acp-writer is registered as a CONFIDENTIAL client
-        #  (has a secret). The current mock-EHR IPS Viewer instead uses client_credentials
-        #  WITH THE SECRET IN THE BROWSER (LaunchPage.tsx) — that is a dev shortcut, not a
-        #  real SMART exchange, and must NOT be promoted to the production contract.
-        #  1. Token exchange location: BFF (recommended, confidential client) vs browser.
-        #     Browser-held is only safe if acp-writer is re-registered as a PUBLIC client
-        #     using PKCE (no secret) — a deliberate registration change, not today's state.
-        #     If browser-held is chosen, this body changes (carries `token`, not `code`).
-        #  2. $summary read location: BFF (this draft) vs browser. A BFF-side FHIR read
-        #     sits in TENSION with the AGENTS.md boundary "acp-writer does not query FHIR
-        #     servers." That rule governs the core engine (which never reads FHIR); whether
-        #     it also binds the acp-writer BFF must be settled explicitly. The engine's
-        #     write-back path (CarePlan out) is unaffected and stays consistent.
 
   /runs/{runId}:
     parameters:
@@ -241,7 +224,7 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
   schemas:
-    # ---- Enums (the polling/branching backbone — get these right and #125 can't recur) ----
+    # ---- Enums (the polling / branching backbone) ----
     RunStatus:
       type: string
       description: >
@@ -268,26 +251,20 @@ components:
         hardcode the list in the UI beyond this shared vocabulary. Keys are snake_case
         here and map to the PascalCase SonataFlow state names — the BFF owns the
         state-name → StepKey mapping when deriving `currentStep` from a live instance.
-        Verified against acp-writer/deploy/orchestrator/acp-writer-workflow.yaml
-        (workflow v0.2.0). The 9 automated steps map 1:1 to real states; the workflow's
+        The automated steps map 1:1 to states in
+        acp-writer/deploy/orchestrator/acp-writer-workflow.yaml; the workflow's
         inject/switch plumbing (InitFHIRReview, IncrementFHIRReview, CheckFHIRVerdict)
-        is intentionally not surfaced as UI steps.
-        # OPEN (backend/workflow): the two HUMAN gates below (review_brief,
-        # review_careplan) do NOT yet exist in the SonataFlow workflow — it currently
-        # runs straight through with only automated async callbacks. Per spike-b/spike-c
-        # they must be added as Callback states that emit an `awaiting_review` marker
-        # (mirroring the LLM async-callback pattern) to drive the awaiting_* RunStatus
-        # values. This is a workflow work-item for the BFF/backend track, not a UI change.
+        is not surfaced as UI steps.
       enum:
         - scan_patient            # SonataFlow: ScanPatient
         - resolve_guidelines      # SonataFlow: ResolveGuidelines
         - execute_dmn             # SonataFlow: ExecuteDMN
         - retrieve_recommendations # SonataFlow: RetrieveRecommendations
         - compose_plan            # SonataFlow: ComposePlan
-        - review_brief            # human gate — NOT YET in workflow (see OPEN above)
-        - generate_bundle         # SonataFlow: GenerateBundle (loops with review_fhir, max 4)
+        - review_brief            # human gate
+        - generate_bundle         # SonataFlow: GenerateBundle (loops with review_fhir)
         - review_fhir             # SonataFlow: ReviewFHIR (automated LLM review, loops)
-        - review_careplan         # human gate — NOT YET in workflow (see OPEN above)
+        - review_careplan         # human gate
         - write_fhir              # SonataFlow: WriteFHIR
         - done                    # SonataFlow: Done
 
@@ -342,13 +319,10 @@ components:
             - { type: 'null' }
         planningBrief:
           description: >
-            Present from the `brief` gate onward (available for read-back after approval,
-            not gate-only). The BFF sources it from the durable MinIO PHI artifact
+            Present from the `brief` gate onward — available for read-back after approval,
+            not gate-only. The BFF sources it from the durable MinIO PHI artifact
             (`planning_brief_ref`), which survives the whole run. Null only before it is
-            composed. NOTE: this view-model flattens the internal PlanningBrief — if the
-            review UI needs provenance (per-goal target measure/value, per-activity
-            dose/route/frequency, clinical rationale, DMN audit trail), widen BriefGoal/
-            BriefActivity accordingly.
+            composed.
           oneOf:
             - { $ref: '#/components/schemas/PlanningBrief' }
             - { type: 'null' }
@@ -443,7 +417,9 @@ components:
 
     CarePlanSummary:
       type: object
-      description: CarePlanList rows. Fields chosen to fix the "Patient/"/"Invalid Date" bugs.
+      description: >
+        CarePlanList rows. patientName and generatedAt are BFF-resolved so the UI
+        never renders a raw reference or an unparsed date.
       required: [id, status]
       properties:
         id: { type: string }
