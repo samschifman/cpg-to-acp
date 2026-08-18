@@ -132,6 +132,11 @@ paths:
     post:
       operationId: submitReview
       summary: ReviewActionBar — approve / request_changes at a human gate
+      description: >
+        In-run human review gate. NOTE: care-plan approval is ALSO modeled by
+        PUT /careplans/{careplanId}/status (post-write draft approval). The two are
+        redundant — only one should survive the design review. Brief-gate viability
+        depends on whether a human brief review exists (see StepKey.review_brief).
       parameters:
         - { name: runId, in: path, required: true, schema: { type: string } }
         - { name: gate, in: path, required: true, schema: { $ref: '#/components/schemas/ReviewGate' } }
@@ -230,6 +235,9 @@ components:
       description: >
         Drives UI polling. UI keeps polling on `running`; STOPS and shows a review
         panel on `awaiting_*`; STOPS on terminal (`completed`/`failed`/`cancelled`).
+        NOTE: the `awaiting_*` states model in-run human pauses that the SonataFlow
+        workflow does NOT implement today (it runs straight through). Their existence
+        and shape are pending a design-review decision — see PR discussion.
       enum: [running, awaiting_brief_review, awaiting_careplan_review, completed, failed, cancelled]
 
     StepStatus:
@@ -261,10 +269,10 @@ components:
         - execute_dmn             # SonataFlow: ExecuteDMN
         - retrieve_recommendations # SonataFlow: RetrieveRecommendations
         - compose_plan            # SonataFlow: ComposePlan
-        - review_brief            # human gate
+        - review_brief            # corresponds to the AUTOMATED brief_reviewer node; a human brief gate is UNCONFIRMED (design-review)
         - generate_bundle         # SonataFlow: GenerateBundle (loops with review_fhir)
         - review_fhir             # SonataFlow: ReviewFHIR (automated LLM review, loops)
-        - review_careplan         # human gate
+        - review_careplan         # human review; today done POST-write via PUT /careplans/{id}/status, not an in-run pause (design-review)
         - write_fhir              # SonataFlow: WriteFHIR
         - done                    # SonataFlow: Done
 
