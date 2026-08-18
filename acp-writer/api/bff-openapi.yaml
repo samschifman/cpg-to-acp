@@ -12,10 +12,10 @@
 # backend↔SonataFlow/cpg-ingester plumbing and are out of scope here.
 #
 # Screen → endpoint map:
-#   PatientEntryPage   POST /runs, POST /runs/smart-launch   → start a run, get runId
+#   PatientEntryPage   POST /runs                            → start a run (upload or client-side SMART), get runId
 #   RunListPage        GET  /runs                            → dashboard rows
-#   RunDetailPage      GET  /runs/{id} (polled)              → stepper + review gates
-#   Brief/CarePlan     POST /runs/{id}/review/{gate}         → approve / request_changes
+#   RunDetailPage      GET  /runs/{id} (polled)              → stepper + care-plan review gate
+#   CarePlanReview     POST /runs/{id}/review/careplan       → approve / request_changes
 #   CarePlanList       GET  /careplans                       → persisted plans
 #   CarePlanReview     GET  /careplans/{id}, PUT .../status  → view-model + approve/reject
 #   SystemStatus       GET  /status                          → engine + KB health
@@ -52,7 +52,13 @@ paths:
                 items: { $ref: '#/components/schemas/RunSummary' }
     post:
       operationId: createRun
-      summary: PatientEntryPage (file-upload tab) — start a run from an IPS bundle
+      summary: PatientEntryPage — start a run from an IPS bundle
+      description: >
+        Single entry point for both PatientEntryPage tabs. The IPS bundle is
+        supplied by the client — either from a file upload, or fetched by the
+        browser via a client-side SMART launch (the UI completes the SMART token
+        exchange and the `Patient/$summary` read itself; the BFF never touches the
+        SMART token or the FHIR server for patient data).
       requestBody:
         required: true
         content:
@@ -68,36 +74,6 @@ paths:
       responses:
         '202':
           description: Run accepted; workflow started
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RunCreated' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /runs/smart-launch:
-    post:
-      operationId: createRunFromSmartLaunch
-      summary: PatientEntryPage (SMART tab) / LaunchPage — start a run from SMART context
-      description: >
-        UI hands the BFF the raw SMART launch parameters; the BFF completes the
-        SMART token exchange server-side (acp-writer is a CONFIDENTIAL client — it
-        holds a secret, which must never reach the browser), then does the
-        server-side `$summary` fetch (also avoids browser CORS), stores the IPS in
-        MinIO, and starts the workflow. Returns the same shape as POST /runs.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [iss, launch, code]
-              properties:
-                iss: { type: string, description: FHIR server base URL from the launch }
-                launch: { type: string, description: opaque launch context id from the EHR }
-                code: { type: string, description: SMART authorization code to exchange server-side }
-                codeVerifier: { type: string, description: PKCE verifier, if the flow uses PKCE }
-      responses:
-        '202':
-          description: Run accepted
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RunCreated' }
@@ -128,18 +104,17 @@ paths:
         '204': { description: Cancelled }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /runs/{runId}/review/{gate}:
+  /runs/{runId}/review/careplan:
     post:
       operationId: submitReview
-      summary: ReviewActionBar — approve / request_changes at a human gate
+      summary: CarePlanReview — approve / request_changes at the care-plan gate
       description: >
-        In-run human review gate. NOTE: care-plan approval is ALSO modeled by
-        PUT /careplans/{careplanId}/status (post-write draft approval). The two are
-        redundant — only one should survive the design review. Brief-gate viability
-        depends on whether a human brief review exists (see StepKey.review_brief).
+        In-run care-plan review gate (the only human gate; brief review is automated).
+        NOTE: care-plan approval is ALSO modeled by PUT /careplans/{careplanId}/status
+        (post-write draft approval). The two are redundant — only one should survive
+        the design review.
       parameters:
         - { name: runId, in: path, required: true, schema: { type: string } }
-        - { name: gate, in: path, required: true, schema: { $ref: '#/components/schemas/ReviewGate' } }
       requestBody:
         required: true
         content:
@@ -233,12 +208,15 @@ components:
     RunStatus:
       type: string
       description: >
-        Drives UI polling. UI keeps polling on `running`; STOPS and shows a review
-        panel on `awaiting_*`; STOPS on terminal (`completed`/`failed`/`cancelled`).
-        NOTE: the `awaiting_*` states model in-run human pauses that the SonataFlow
-        workflow does NOT implement today (it runs straight through). Their existence
-        and shape are pending a design-review decision — see PR discussion.
-      enum: [running, awaiting_brief_review, awaiting_careplan_review, completed, failed, cancelled]
+        Drives UI polling. UI keeps polling on `running`; STOPS and shows the
+        care-plan review panel on `awaiting_careplan_review`; STOPS on terminal
+        (`completed`/`failed`/`cancelled`).
+        NOTE: `awaiting_careplan_review` models an in-run human pause that the
+        SonataFlow workflow does NOT implement today (it runs straight through, then
+        the care plan is reviewed post-write via PUT /careplans/{id}/status). Whether
+        care-plan review is an in-run gate or a post-write approval is pending design
+        review — see PR discussion.
+      enum: [running, awaiting_careplan_review, completed, failed, cancelled]
 
     StepStatus:
       type: string
@@ -246,7 +224,8 @@ components:
 
     ReviewGate:
       type: string
-      enum: [brief, careplan]
+      description: Only care-plan review is a human gate (brief review is automated, not a human step).
+      enum: [careplan]
 
     ReviewDecision:
       type: string
@@ -268,8 +247,7 @@ components:
         - resolve_guidelines      # SonataFlow: ResolveGuidelines
         - execute_dmn             # SonataFlow: ExecuteDMN
         - retrieve_recommendations # SonataFlow: RetrieveRecommendations
-        - compose_plan            # SonataFlow: ComposePlan
-        - review_brief            # corresponds to the AUTOMATED brief_reviewer node; a human brief gate is UNCONFIRMED (design-review)
+        - compose_plan            # SonataFlow: ComposePlan (includes the automated brief_reviewer loop)
         - generate_bundle         # SonataFlow: GenerateBundle (loops with review_fhir)
         - review_fhir             # SonataFlow: ReviewFHIR (automated LLM review, loops)
         - review_careplan         # human review; today done POST-write via PUT /careplans/{id}/status, not an in-run pause (design-review)
@@ -321,16 +299,16 @@ components:
           items: { $ref: '#/components/schemas/PipelineStep' }
         currentStep: { $ref: '#/components/schemas/StepKey' }
         awaitingReview:
-          description: Which human gate is blocking, or null. Mirrors status but convenient for rendering.
+          description: Set to `careplan` when the care-plan gate is blocking, else null. Mirrors status but convenient for rendering.
           oneOf:
             - { $ref: '#/components/schemas/ReviewGate' }
             - { type: 'null' }
         planningBrief:
           description: >
-            Present from the `brief` gate onward — available for read-back after approval,
-            not gate-only. The BFF sources it from the durable MinIO PHI artifact
-            (`planning_brief_ref`), which survives the whole run. Null only before it is
-            composed.
+            Informational (not a review gate — brief review is automated). The composed
+            brief, available once composed and for read-back thereafter; the BFF sources
+            it from the durable MinIO PHI artifact (`planning_brief_ref`). Null before it
+            is composed.
           oneOf:
             - { $ref: '#/components/schemas/PlanningBrief' }
             - { type: 'null' }
@@ -372,10 +350,13 @@ components:
         code: { type: string }
         system: { type: string }
 
-    # ---- Planning brief (brief review gate) ----
+    # ---- Planning brief (informational display; shapes reused by CarePlanView) ----
     PlanningBrief:
       type: object
-      description: BriefReviewPanel. Items carry stable IDs so per-item feedback can reference them.
+      description: >
+        Informational view of the composed brief (no human brief gate). Items carry
+        stable IDs; the same goal/activity/conflict shapes are reused by CarePlanView,
+        where the IDs anchor per-item care-plan feedback.
       properties:
         goals: { type: array, items: { $ref: '#/components/schemas/BriefGoal' } }
         activities: { type: array, items: { $ref: '#/components/schemas/BriefActivity' } }
@@ -455,7 +436,7 @@ components:
         comment: { type: string, description: Overall free-text note. }
         feedback:
           type: array
-          description: Per-item feedback (BriefReviewPanel/FeedbackInput). Required-ish when decision=request_changes.
+          description: Per-item feedback (CarePlanReviewPanel/FeedbackInput). Required-ish when decision=request_changes.
           items: { $ref: '#/components/schemas/FeedbackItem' }
 
     FeedbackItem:
