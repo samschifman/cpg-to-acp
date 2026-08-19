@@ -15,9 +15,9 @@
 #   PatientEntryPage   POST /runs                            → start a run (upload or client-side SMART), get runId
 #   RunListPage        GET  /runs                            → dashboard rows
 #   RunDetailPage      GET  /runs/{id} (polled)              → stepper + care-plan review gate
-#   CarePlanReview     POST /runs/{id}/review/careplan       → approve / request_changes
+#   CarePlanReview     POST /runs/{id}/review/careplan       → approve / request_changes (in-run gate)
 #   CarePlanList       GET  /careplans                       → persisted plans
-#   CarePlanReview     GET  /careplans/{id}, PUT .../status  → view-model + approve/reject
+#   CarePlanDetail     GET  /careplans/{id}                  → read-only view of a persisted plan
 #   SystemStatus       GET  /status                          → engine + KB health
 
 openapi: 3.1.0
@@ -109,10 +109,10 @@ paths:
       operationId: submitReview
       summary: CarePlanReview — approve / request_changes at the care-plan gate
       description: >
-        In-run care-plan review gate (the only human gate; brief review is automated).
-        NOTE: care-plan approval is ALSO modeled by PUT /careplans/{careplanId}/status
-        (post-write draft approval). The two are redundant — only one should survive
-        the design review.
+        The single care-plan approval mechanism (the only human gate; brief review is
+        automated). approve → the workflow writes the plan as `active`; request_changes
+        → the workflow regenerates the bundle with the feedback. Resumes a workflow
+        paused at `awaiting_careplan_review`.
       parameters:
         - { name: runId, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -149,38 +149,18 @@ paths:
       - { name: careplanId, in: path, required: true, schema: { type: string } }
     get:
       operationId: getCarePlan
-      summary: CarePlanReview — view-model + raw FHIR for the JSON viewer
+      summary: CarePlanDetail — read-only view of a persisted (already-approved) plan
+      description: >
+        Persisted plans are written as `active` only after in-run approval at the
+        care-plan gate, so this is a read-only view (view-model + raw FHIR for the
+        JSON viewer). Approval/rejection happens in-run via
+        POST /runs/{runId}/review/careplan, not here.
       responses:
         '200':
           description: Care plan detail
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CarePlanDetail' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /careplans/{careplanId}/status:
-    put:
-      operationId: updateCarePlanStatus
-      summary: CarePlanReview — approve / reject a persisted plan
-      parameters:
-        - { name: careplanId, in: path, required: true, schema: { type: string } }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [status]
-              properties:
-                status: { type: string, enum: [active, entered-in-error], description: "active = approve; entered-in-error = reject" }
-                clinician: { type: string }
-                reason: { type: string }
-      responses:
-        '200':
-          description: Updated summary
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CarePlanSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /status:
@@ -211,11 +191,10 @@ components:
         Drives UI polling. UI keeps polling on `running`; STOPS and shows the
         care-plan review panel on `awaiting_careplan_review`; STOPS on terminal
         (`completed`/`failed`/`cancelled`).
-        NOTE: `awaiting_careplan_review` models an in-run human pause that the
-        SonataFlow workflow does NOT implement today (it runs straight through, then
-        the care plan is reviewed post-write via PUT /careplans/{id}/status). Whether
-        care-plan review is an in-run gate or a post-write approval is pending design
-        review — see PR discussion.
+        `awaiting_careplan_review` is an in-run human gate (design decision): the
+        workflow pauses before writing and the plan is only persisted on approval.
+        Requires a `ReviewCarePlan` SonataFlow Callback state (backend work-item),
+        modeled on the ingester's ReviewManifest/ReviewArtifacts gates.
       enum: [running, awaiting_careplan_review, completed, failed, cancelled]
 
     StepStatus:
