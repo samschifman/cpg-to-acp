@@ -62,7 +62,7 @@ spec:
       # Downstream consumer notification (conditional — only if URL configured)
       - name: notifyacpwriter
         type: custom
-        operation: rest:post:http://acp-writer-bff:8080/api/v1/notifications/artifacts-available
+        operation: rest:post:http://acp-writer:8082/api/v1/notifications/artifacts-available
       # Review notification (BFF sets awaiting_review marker)
       - name: notifymanifetreview
         type: custom

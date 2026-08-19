@@ -55,7 +55,7 @@ spec:
         operation: rest:post:http://acp-fhir-server:8080/api/v1/write
       - name: notifybffreview
         type: custom
-        operation: rest:post:http://acp-writer-bff:8080/api/v1/notify-review
+        operation: rest:post:http://acp-bff:8080/api/v1/notify-review
       # Async functions (LLM-heavy, 30-120s)
       - name: composeplanasynch
         type: custom
