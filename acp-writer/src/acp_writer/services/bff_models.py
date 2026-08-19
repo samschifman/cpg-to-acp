@@ -42,6 +42,12 @@ class ReviewDecision(str, Enum):
     request_changes = "request_changes"
 
 
+class Severity(str, Enum):
+    info = "info"
+    warning = "warning"
+    critical = "critical"
+
+
 class StepKey(str, Enum):
     scan_patient = "scan_patient"
     resolve_guidelines = "resolve_guidelines"
@@ -89,7 +95,7 @@ class PlanActivity(_Model):
 
 class PlanConflict(_Model):
     id: str
-    severity: str | None = None  # info | warning | critical
+    severity: Severity | None = None
     description: str
 
 

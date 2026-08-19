@@ -53,6 +53,23 @@ def test_model_fields_match_contract_schemas():
     assert not mismatches, mismatches
 
 
+def test_enum_values_match_contract():
+    spec = _spec()
+
+    def _spec_enum(name):
+        return set(spec["components"]["schemas"][name]["enum"])
+
+    assert {e.value for e in m.RunStatus} == _spec_enum("RunStatus")
+    assert {e.value for e in m.StepStatus} == _spec_enum("StepStatus")
+    assert {e.value for e in m.ReviewGate} == _spec_enum("ReviewGate")
+    assert {e.value for e in m.ReviewDecision} == _spec_enum("ReviewDecision")
+    assert {e.value for e in m.StepKey} == _spec_enum("StepKey")
+    # Severity is defined inline on PlanConflict.severity in the contract
+    assert {e.value for e in m.Severity} == set(
+        spec["components"]["schemas"]["PlanConflict"]["properties"]["severity"]["enum"]
+    )
+
+
 def test_careplan_detail_is_summary_plus_patient_and_view():
     spec = _spec()
     summary = _schema_props(spec, "CarePlanSummary")
