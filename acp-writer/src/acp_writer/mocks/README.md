@@ -26,3 +26,11 @@ so `npm run dev` in `acp-writer/ui` talks to this mock.
 
 Mock mode is active whenever `SONATAFLOW_URL` is unset. The SonataFlow-backed
 branch is the real BFF's responsibility.
+
+## Observability note
+
+The mock deliberately omits MLflow tracing to preserve import hygiene (the slim
+container installs only fastapi/uvicorn/pydantic). The chart still injects
+`MLFLOW_TRACKING_URI` into the bff pod; the real SonataFlow-backed BFF should add
+`mlflow.fastapi.autolog()` in its own branch (which does not require importing
+mlflow into the `mocks/` package).

@@ -199,3 +199,31 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 8080
+          protocol: TCP
+
+# BFF pod: mock mode talks to nothing (DNS only). Real BFF adds SonataFlow/MinIO egress.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-bff-policy
+spec:
+  podSelector:
+    matchLabels:
+      security-profile: bff
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+      ports:
+        - port: 5353
+          protocol: UDP
+        - port: 5353
+          protocol: TCP

@@ -119,3 +119,22 @@ def test_multiple_request_changes_rounds(store, clock):
     detail = store.to_detail(run)
     assert detail.review_iteration == 2
     assert detail.previous_feedback.feedback[0].comment == "round 2"
+
+
+def test_failed_run_via_sentinel(store):
+    run = store.create_run({"resourceType": "Bundle", "mockFail": True})
+    detail = store.to_detail(run)
+    assert detail.status == m.RunStatus.failed
+    assert detail.error is not None
+    assert detail.error.step_key == m.StepKey.generate_bundle
+    assert any(s.status == m.StepStatus.error for s in detail.steps)
+    assert detail.care_plan is None
+
+
+def test_terminal_run_updated_at_is_frozen(store, clock):
+    run = store.create_run({"resourceType": "Bundle"})
+    clock.advance(AUTO_DURATION.total_seconds() + 1)
+    store.submit_review(run.run_id, m.ReviewAction(decision=m.ReviewDecision.approve))
+    first = store.to_detail(run).updated_at
+    clock.advance(1000)
+    assert store.to_detail(run).updated_at == first  # frozen at completion, not drifting

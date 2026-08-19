@@ -59,3 +59,21 @@ def test_decision_engine_service_does_not_import_langchain():
     assert result.returncode == 0, (
         f"decision_engine service imports langchain_openai:\n{result.stderr}"
     )
+
+
+def test_mock_bff_does_not_import_heavy_deps():
+    """The mock BFF must import with only fastapi/uvicorn/pydantic so its slim
+    container image works. Guards against a future edit (e.g. the real BFF branch,
+    which shares bff.py) pulling langgraph/mlflow/langchain into the module top-level.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import acp_writer.services.bff; import sys; "
+         "heavy = [x for x in ('mlflow','langgraph','langchain','langchain_openai','sentence_transformers') if x in sys.modules]; "
+         "assert not heavy, f'mock BFF pulled heavy deps: {heavy}'"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr

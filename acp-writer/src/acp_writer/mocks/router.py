@@ -22,6 +22,10 @@ def seed(store: Store) -> None:
     b = store.create_run({"resourceType": "Bundle"})
     b.created_at = now - timedelta(minutes=5)
     b.effective_start = now - AUTO_DURATION - timedelta(seconds=1)
+    # C: a failed run so the dashboard can exercise error rendering.
+    c = store.create_run({"resourceType": "Bundle"})
+    c.created_at = now - timedelta(minutes=15)
+    store.mark_failed(c, m.StepKey.generate_bundle, "FHIR bundle generation failed (mock)")
 
 
 def build_router(store: Store) -> APIRouter:
@@ -63,8 +67,8 @@ def build_router(store: Store) -> APIRouter:
 
     @router.get("/careplans", response_model=list[m.CarePlanSummary])
     def list_careplans():
-        # response_model=list[CarePlanSummary] intentionally drops CarePlanDetail's patient/view — the list endpoint must not leak the full plan.
-        return list(store.careplans.values())
+        # response_model=list[CarePlanSummary] intentionally drops CarePlanDetail's patient/view.
+        return sorted(store.careplans.values(), key=lambda c: c.generated_at or "", reverse=True)
 
     @router.get("/careplans/{careplan_id}", response_model=m.CarePlanDetail)
     def get_careplan(careplan_id: str):

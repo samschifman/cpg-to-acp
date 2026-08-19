@@ -85,3 +85,8 @@ def test_cancel(client):
     run_id = client.post("/api/v1/runs", json={"ipsBundle": {}}).json()["runId"]
     assert client.delete(f"/api/v1/runs/{run_id}").status_code == 204
     assert client.get(f"/api/v1/runs/{run_id}").json()["status"] == "cancelled"
+
+
+def test_seed_has_failed_run(client):
+    statuses = {r["status"] for r in client.get("/api/v1/runs").json()}
+    assert "failed" in statuses

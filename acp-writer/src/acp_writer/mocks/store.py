@@ -44,6 +44,7 @@ class Run:
     previous_feedback: m.ReviewAction | None = None
     # terminal / gate overrides; when None, status is time-derived
     pinned_status: m.RunStatus | None = None
+    error: m.RunError | None = None
     frozen_at: datetime | None = None   # freezes progression clock (set on cancel)
     careplan_id: str | None = None
 
@@ -76,6 +77,9 @@ class Store:
             created_at=now,
             effective_start=now,
         )
+        if isinstance(ips_bundle, dict) and ips_bundle.get("mockFail"):
+            self.mark_failed(run, m.StepKey.generate_bundle,
+                             "Mock failure requested via ipsBundle.mockFail")
         self.runs[run_id] = run
         return run
 
@@ -92,6 +96,11 @@ class Store:
         run.pinned_status = m.RunStatus.cancelled
         return True
 
+    def mark_failed(self, run: Run, step: m.StepKey, message: str) -> None:
+        run.pinned_status = m.RunStatus.failed
+        run.error = m.RunError(step_key=step, message=message)
+        run.frozen_at = self._clock()
+
     def submit_review(self, run_id: str, action: m.ReviewAction) -> Run | None:
         """Returns the run if it was at the gate; None if not found; raises
         ValueError if the run is not currently awaiting review (-> 409)."""
@@ -102,6 +111,7 @@ class Store:
             raise ValueError("not awaiting review")
         if action.decision == m.ReviewDecision.approve:
             run.pinned_status = m.RunStatus.completed
+            run.frozen_at = self._clock()
             cp_id = f"cp-{uuid4().hex[:8]}"
             run.careplan_id = cp_id
             self.careplans[cp_id] = m.CarePlanDetail(
@@ -137,6 +147,20 @@ class Store:
         status = self._status(run)
         steps: list[m.PipelineStep] = []
         current: list[m.StepKey] = []
+
+        if status == m.RunStatus.failed:
+            fail_key = run.error.step_key if run.error else None
+            fail_idx = AUTO_STEPS.index(fail_key) if fail_key in AUTO_STEPS else len(AUTO_STEPS) - 1
+            for i, key in enumerate(AUTO_STEPS):
+                if i < fail_idx:
+                    steps.append(m.PipelineStep(key=key, status=m.StepStatus.done))
+                elif i == fail_idx:
+                    steps.append(m.PipelineStep(key=key, status=m.StepStatus.error,
+                                                detail=run.error.message if run.error else None))
+                else:
+                    steps.append(m.PipelineStep(key=key, status=m.StepStatus.pending))
+            steps.append(m.PipelineStep(key=m.StepKey.review_careplan, status=m.StepStatus.pending))
+            return steps, []
 
         if status in (m.RunStatus.awaiting_careplan_review, m.RunStatus.completed):
             n_done = len(AUTO_STEPS)
@@ -183,8 +207,9 @@ class Store:
             review_iteration=run.review_iteration if at_gate else None,
             previous_feedback=run.previous_feedback if at_gate else None,
             careplan_id=run.careplan_id,
+            error=run.error,
             created_at=self._iso(run.created_at),
-            updated_at=self._iso(self._clock()),
+            updated_at=self._iso(run.frozen_at) if run.frozen_at is not None else self._iso(self._clock()),
         )
 
     def to_summary(self, run: Run) -> m.RunSummary:
@@ -198,7 +223,7 @@ class Store:
             current_steps=current,
             careplan_id=run.careplan_id,
             created_at=self._iso(run.created_at),
-            updated_at=self._iso(self._clock()),
+            updated_at=self._iso(run.frozen_at) if run.frozen_at is not None else self._iso(self._clock()),
         )
 
     def list_summaries(self) -> list[m.RunSummary]:
