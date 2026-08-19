@@ -217,12 +217,16 @@ def map_to_run_summary(instance: dict) -> dict[str, Any]:
     data = instance.get("workflowdata", {})
     status = instance.get("status", "ACTIVE")
     current_state = infer_current_state(data, status)
+    display_step = current_state
+    if current_state == "Cancelled":
+        display_step = _infer_cancelled_step(data)
+
     return {
         "id": instance["id"],
         "status": _STATE_TO_RUN_STATUS.get(current_state, "parsing"),
         "cpgName": data.get("cpg_name", "Unknown CPG"),
         "createdAt": instance.get("startDate") or data.get("created_at", ""),
-        "currentStep": current_state,
+        "currentStep": display_step,
     }
 
 
