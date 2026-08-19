@@ -30,12 +30,18 @@ def health():
 
 @app.post("/api/v1/write")
 async def write(request: Request):
-    """Write FHIR Bundle to HAPI FHIR server."""
+    """Write FHIR Bundle to HAPI FHIR server.
+
+    In the in-run gate model, WriteFHIR only executes after the care-plan
+    review gate approves, so the bundle is written as active by default.
+    """
     data = await request.json()
     fhir_bundle = resolve_ref(data, "fhir_bundle", _phi_store)
+    approved = data.get("approved", True)
     state = {
         "fhir_bundle": fhir_bundle,
         "patient_reference": data.get("patient_reference", ""),
+        "approved": approved,
     }
     result = fhir_server_writer(state)
     return result

@@ -127,11 +127,15 @@ def fhir_server_writer(state: CarePlanComposerState) -> dict:
         return {"delivery_status": "skipped", "careplan_id": ""}
 
     careplan_id = str(uuid.uuid4())
+    initial_status = "active" if state.get("approved", False) else "draft"
+
+    if initial_status == "active":
+        _apply_active_tags(bundle)
 
     _care_plans[careplan_id] = {
         "id": careplan_id,
         "bundle": bundle,
-        "status": "draft",
+        "status": initial_status,
         "patient_reference": state.get("patient_reference", ""),
         "server_ids": {},
     }
@@ -215,6 +219,18 @@ CLINAST_AIRPT_SECURITY = {
     "code": "CLINAST_AIRPT",
     "display": "clinician asserted from AI reported",
 }
+
+
+def _apply_active_tags(bundle: dict) -> None:
+    """Set CarePlan status to active and swap AIAST → CLINAST_AIRPT security tags."""
+    for entry in bundle.get("entry", []):
+        resource = entry.get("resource", {})
+        security = resource.get("meta", {}).get("security", [])
+        for i, sec in enumerate(security):
+            if sec.get("code") == "AIAST":
+                security[i] = CLINAST_AIRPT_SECURITY
+        if resource.get("resourceType") == "CarePlan":
+            resource["status"] = "active"
 
 
 def approve_care_plan(careplan_id: str, clinician: str | None = None) -> dict | None:
