@@ -395,6 +395,9 @@ components:
         View-model reused by CarePlanReviewPanel and CarePlanDetail. Goals/activities/
         conflicts mirror the brief shape so GoalCard/ActivityCard/ConflictAlert render
         both. Raw FHIR is included ONLY for the "View FHIR JSON" viewer.
+        NOTE: this is a deliberately flattened first cut. The internal model carries
+        richer provenance (targets, dose/route/frequency, source refs, DMN audit);
+        extending the view-model with those fields is tracked in #128.
       properties:
         goals: { type: array, items: { $ref: '#/components/schemas/BriefGoal' } }
         activities: { type: array, items: { $ref: '#/components/schemas/BriefActivity' } }
