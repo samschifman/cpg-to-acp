@@ -304,7 +304,7 @@ class SonataFlowClient:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
             headers={"Content-Type": "application/json"},
-            timeout=10,
+            timeout=120,
         )
         resp.raise_for_status()
         return resp.json()
