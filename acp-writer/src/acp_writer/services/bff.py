@@ -15,20 +15,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from acp_writer.mocks.router import build_router, seed
 from acp_writer.mocks.store import Store
 
-SONATAFLOW_URL = os.getenv("SONATAFLOW_URL", "")
-CORS_ORIGINS = os.getenv("BFF_CORS_ORIGINS", "http://localhost:3001").split(",")
-
 
 def create_app() -> FastAPI:
+    sonataflow_url = os.getenv("SONATAFLOW_URL", "")
+    cors_origins = os.getenv("BFF_CORS_ORIGINS", "http://localhost:3001").split(",")
+
     app = FastAPI(title="acp-writer-bff", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
+        allow_origins=cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    mock_mode = not SONATAFLOW_URL
+    mock_mode = not sonataflow_url
     store = Store()
     app.state.store = store
     app.state.mock_mode = mock_mode

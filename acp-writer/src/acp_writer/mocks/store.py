@@ -58,6 +58,9 @@ class Store:
     def set_clock(self, clock: Callable[[], datetime]) -> None:
         self._clock = clock
 
+    def now(self) -> datetime:
+        return self._clock()
+
     def _iso(self, dt: datetime) -> str:
         return dt.isoformat()
 

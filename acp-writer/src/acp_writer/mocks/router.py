@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from acp_writer.mocks.store import AUTO_DURATION, Store
 from acp_writer.services import bff_models as m
@@ -12,7 +12,7 @@ from acp_writer.services import bff_models as m
 
 def seed(store: Store) -> None:
     """Populate a couple of runs so the dashboard is non-empty on first load."""
-    now = store._clock()
+    now = store.now()
     # A: completed (approved) — created well in the past, then approved.
     a = store.create_run({"resourceType": "Bundle"})
     a.created_at = now - timedelta(minutes=30)
@@ -33,7 +33,7 @@ def build_router(store: Store) -> APIRouter:
         return m.RunCreated(run_id=run.run_id, status=store._status(run))
 
     @router.get("/runs", response_model=list[m.RunSummary])
-    def list_runs(status: m.RunStatus | None = None, limit: int = 50):
+    def list_runs(status: m.RunStatus | None = None, limit: int = Query(default=50, ge=1)):
         rows = store.list_summaries()
         if status is not None:
             rows = [r for r in rows if r.status == status]
@@ -52,7 +52,7 @@ def build_router(store: Store) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
     @router.post("/runs/{run_id}/review/careplan", response_model=m.RunDetail, status_code=202)
-    async def submit_review(run_id: str, action: m.ReviewAction):
+    def submit_review(run_id: str, action: m.ReviewAction):
         try:
             run = store.submit_review(run_id, action)
         except ValueError:
@@ -63,6 +63,7 @@ def build_router(store: Store) -> APIRouter:
 
     @router.get("/careplans", response_model=list[m.CarePlanSummary])
     def list_careplans():
+        # response_model=list[CarePlanSummary] intentionally drops CarePlanDetail's patient/view — the list endpoint must not leak the full plan.
         return list(store.careplans.values())
 
     @router.get("/careplans/{careplan_id}", response_model=m.CarePlanDetail)
