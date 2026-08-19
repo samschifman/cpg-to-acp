@@ -102,6 +102,21 @@ pods:
         cpu: 200m
         memory: 512Mi
 
+  bff:
+    enabled: true
+    sandboxed: false
+    image: acp-writer-bff
+    tag: latest
+    port: 8080
+    # No sonataflowUrl -> the BFF runs in mock mode (canned data).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
   ui:
     enabled: true
     sandboxed: false
