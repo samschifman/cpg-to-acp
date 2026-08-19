@@ -216,7 +216,7 @@ components:
         Stable, ordered pipeline step identifiers. UI maps key → label/icon; do NOT
         hardcode the list in the UI beyond this shared vocabulary. Keys are snake_case
         here and map to the PascalCase SonataFlow state names — the BFF owns the
-        state-name → StepKey mapping when deriving `currentStep` from a live instance.
+        state-name → StepKey mapping when deriving `currentSteps` from a live instance.
         The automated steps map 1:1 to states in
         acp-writer/deploy/orchestrator/acp-writer-workflow.yaml; the workflow's
         inject/switch plumbing (InitFHIRReview, IncrementFHIRReview, CheckFHIRVerdict)
@@ -250,7 +250,10 @@ components:
         status: { $ref: '#/components/schemas/RunStatus' }
         patientName: { type: string, description: Display name resolved by the BFF (never make the UI parse a reference). }
         patientReference: { type: string }
-        currentStep: { $ref: '#/components/schemas/StepKey' }
+        currentSteps:
+          type: array
+          description: Steps currently active. Usually one, but the pipeline is not strictly linear (steps can run in parallel), so this is a list.
+          items: { $ref: '#/components/schemas/StepKey' }
         careplanId: { type: string, description: Present once the run has produced a persisted plan. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -276,25 +279,27 @@ components:
         steps:
           type: array
           items: { $ref: '#/components/schemas/PipelineStep' }
-        currentStep: { $ref: '#/components/schemas/StepKey' }
+        currentSteps:
+          type: array
+          description: Steps currently active. Usually one, but the pipeline is not strictly linear (steps can run in parallel), so this is a list.
+          items: { $ref: '#/components/schemas/StepKey' }
         awaitingReview:
           description: Set to `careplan` when the care-plan gate is blocking, else null. Mirrors status but convenient for rendering.
           oneOf:
             - { $ref: '#/components/schemas/ReviewGate' }
             - { type: 'null' }
-        planningBrief:
-          description: >
-            Informational (not a review gate — brief review is automated). The composed
-            brief, available once composed and for read-back thereafter; the BFF sources
-            it from the durable MinIO PHI artifact (`planning_brief_ref`). Null before it
-            is composed.
-          oneOf:
-            - { $ref: '#/components/schemas/PlanningBrief' }
-            - { type: 'null' }
         carePlan:
           description: Present at the `careplan` gate — the same view-model as CarePlanDetail.
           oneOf:
             - { $ref: '#/components/schemas/CarePlanView' }
+            - { type: 'null' }
+        reviewIteration:
+          type: integer
+          description: Which care-plan review round this is (0 on the first review). Increments each time changes are requested and the plan is regenerated.
+        previousFeedback:
+          description: The review submitted in the previous round (when request_changes was chosen), so the UI can show what was asked for. Null on the first review.
+          oneOf:
+            - { $ref: '#/components/schemas/ReviewAction' }
             - { type: 'null' }
         careplanId: { type: string }
         error: { $ref: '#/components/schemas/RunError' }
@@ -329,19 +334,8 @@ components:
         code: { type: string }
         system: { type: string }
 
-    # ---- Planning brief (informational display; shapes reused by CarePlanView) ----
-    PlanningBrief:
-      type: object
-      description: >
-        Informational view of the composed brief (no human brief gate). Items carry
-        stable IDs; the same goal/activity/conflict shapes are reused by CarePlanView,
-        where the IDs anchor per-item care-plan feedback.
-      properties:
-        goals: { type: array, items: { $ref: '#/components/schemas/BriefGoal' } }
-        activities: { type: array, items: { $ref: '#/components/schemas/BriefActivity' } }
-        conflicts: { type: array, items: { $ref: '#/components/schemas/BriefConflict' } }
-
-    BriefGoal:
+    # ---- Care-plan items (goals / activities / conflicts) ----
+    PlanGoal:
       type: object
       required: [id, description]
       properties:
@@ -350,7 +344,7 @@ components:
         rationale: { type: string }
         sourceCpgId: { type: string }
 
-    BriefActivity:
+    PlanActivity:
       type: object
       required: [id, description]
       properties:
@@ -359,7 +353,7 @@ components:
         goalId: { type: string, description: Links to the goal it serves. }
         detail: { type: string }
 
-    BriefConflict:
+    PlanConflict:
       type: object
       required: [id, description]
       properties:
@@ -371,16 +365,16 @@ components:
     CarePlanView:
       type: object
       description: >
-        View-model reused by CarePlanReviewPanel and CarePlanDetail. Goals/activities/
-        conflicts mirror the brief shape so GoalCard/ActivityCard/ConflictAlert render
-        both. Raw FHIR is included ONLY for the "View FHIR JSON" viewer.
+        View-model reused by CarePlanReviewPanel and CarePlanDetail, rendered by
+        GoalCard/ActivityCard/ConflictAlert. Raw FHIR is included ONLY for the
+        "View FHIR JSON" viewer.
         NOTE: this is a deliberately flattened first cut. The internal model carries
         richer provenance (targets, dose/route/frequency, source refs, DMN audit);
         extending the view-model with those fields is tracked in #128.
       properties:
-        goals: { type: array, items: { $ref: '#/components/schemas/BriefGoal' } }
-        activities: { type: array, items: { $ref: '#/components/schemas/BriefActivity' } }
-        conflicts: { type: array, items: { $ref: '#/components/schemas/BriefConflict' } }
+        goals: { type: array, items: { $ref: '#/components/schemas/PlanGoal' } }
+        activities: { type: array, items: { $ref: '#/components/schemas/PlanActivity' } }
+        conflicts: { type: array, items: { $ref: '#/components/schemas/PlanConflict' } }
         fhirBundle:
           type: object
           description: Raw FHIR bundle for the JSON viewer only. UI does not parse this for display.
@@ -425,7 +419,7 @@ components:
       type: object
       required: [itemId, comment]
       properties:
-        itemId: { type: string, description: References BriefGoal/Activity/Conflict.id (or CarePlanView item id). }
+        itemId: { type: string, description: References a PlanGoal/PlanActivity/PlanConflict.id in the CarePlanView. }
         comment: { type: string }
 
     # ---- System status ----
