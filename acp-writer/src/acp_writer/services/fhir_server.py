@@ -6,6 +6,8 @@ Security profile: FHIR server access only.
 
 import logging
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
+
 from fastapi import FastAPI, Request
 
 from cpg_contracts import get_phi_store, resolve_ref
