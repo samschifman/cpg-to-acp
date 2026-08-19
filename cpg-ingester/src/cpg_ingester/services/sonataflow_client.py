@@ -29,6 +29,7 @@ _STATE_TO_RUN_STATUS = {
     "Assemble": "assembling",
     "Deliver": "delivering",
     "Done": "completed",
+    "Failed": "failed",
 }
 
 _REVIEW_GATE_MAP = {
