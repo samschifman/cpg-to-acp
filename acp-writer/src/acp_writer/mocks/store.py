@@ -8,7 +8,7 @@ and testable (inject a fake clock) with no background threads.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 from uuid import uuid4
@@ -44,6 +44,7 @@ class Run:
     previous_feedback: m.ReviewAction | None = None
     # terminal / gate overrides; when None, status is time-derived
     pinned_status: m.RunStatus | None = None
+    frozen_at: datetime | None = None   # freezes progression clock (set on cancel)
     careplan_id: str | None = None
 
 
@@ -82,6 +83,9 @@ class Store:
         run = self.runs.get(run_id)
         if not run:
             return False
+        if self._status(run) in (m.RunStatus.completed, m.RunStatus.cancelled):
+            return True  # already terminal; no-op
+        run.frozen_at = self._clock()
         run.pinned_status = m.RunStatus.cancelled
         return True
 
@@ -116,7 +120,8 @@ class Store:
 
     # -- progression --
     def _elapsed(self, run: Run) -> timedelta:
-        return self._clock() - run.effective_start
+        end = run.frozen_at if run.frozen_at is not None else self._clock()
+        return end - run.effective_start
 
     def _status(self, run: Run) -> m.RunStatus:
         if run.pinned_status is not None:

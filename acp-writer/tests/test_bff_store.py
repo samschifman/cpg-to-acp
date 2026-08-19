@@ -84,3 +84,38 @@ def test_cancel(store):
     assert store.cancel(run.run_id) is True
     assert store.to_detail(run).status == m.RunStatus.cancelled
     assert store.cancel("run-nope") is False
+
+
+def test_gate_at_exact_auto_duration_boundary(store, clock):
+    run = store.create_run({"resourceType": "Bundle"})
+    clock.advance(AUTO_DURATION.total_seconds())  # exactly at the boundary
+    assert store.to_detail(run).status == m.RunStatus.awaiting_careplan_review
+
+
+def test_cancelled_run_freezes_progress(store, clock):
+    run = store.create_run({"resourceType": "Bundle"})
+    clock.advance(2 * 2 + 0.1)  # ~2 automated steps done
+    store.cancel(run.run_id)
+    done_after_cancel = sum(s.status == m.StepStatus.done for s in store.to_detail(run).steps)
+    clock.advance(1000)  # poll much later
+    done_much_later = sum(s.status == m.StepStatus.done for s in store.to_detail(run).steps)
+    assert store.to_detail(run).status == m.RunStatus.cancelled
+    assert done_much_later == done_after_cancel  # frozen, not still advancing
+
+
+def test_multiple_request_changes_rounds(store, clock):
+    run = store.create_run({"resourceType": "Bundle"})
+    for i in range(1, 3):  # two rounds
+        clock.advance(AUTO_DURATION.total_seconds() + 1)
+        store.submit_review(
+            run.run_id,
+            m.ReviewAction(
+                decision=m.ReviewDecision.request_changes,
+                feedback=[m.FeedbackItem(item_id="goal-1", comment=f"round {i}")],
+            ),
+        )
+        assert store.to_detail(run).status == m.RunStatus.running
+    clock.advance(AUTO_DURATION.total_seconds() + 1)
+    detail = store.to_detail(run)
+    assert detail.review_iteration == 2
+    assert detail.previous_feedback.feedback[0].comment == "round 2"
