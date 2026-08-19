@@ -94,7 +94,10 @@ def enrich_run_detail(
             resolved = _fetch_ref(store, ref)
             if resolved:
                 rec_data = resolved
-        detail["recommendations"] = rec_data.get("recommendations", rec_data)
+        if isinstance(rec_data, dict):
+            detail["recommendations"] = rec_data.get("recommendations", rec_data)
+        else:
+            detail["recommendations"] = rec_data
 
     # --- Planning brief (from ComposePlan) → PlanningBrief ---
     composer_raw = wd.get("composerData") or {}
