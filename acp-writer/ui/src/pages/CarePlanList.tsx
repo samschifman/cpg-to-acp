@@ -1,13 +1,9 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Button,
-  Label,
-  PageSection,
-  Title,
-} from "@patternfly/react-core";
+import { Button, Label, PageSection, Title } from "@patternfly/react-core";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
-import { useAdaptivePolling, type CarePlanSummary } from "@cpg-to-acp/ui-shared";
+import { useAdaptivePolling } from "@cpg-to-acp/ui-shared";
+import type { CarePlanSummary } from "@app/api/models";
 import { listCarePlans } from "@app/services/api";
 
 const statusColor: Record<string, "blue" | "green" | "red"> = {
@@ -15,6 +11,12 @@ const statusColor: Record<string, "blue" | "green" | "red"> = {
   active: "green",
   "entered-in-error": "red",
 };
+
+function formatDate(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
 
 export function CarePlanList() {
   const navigate = useNavigate();
@@ -39,18 +41,13 @@ export function CarePlanList() {
         <Tbody>
           {(plans ?? []).map((plan) => (
             <Tr key={plan.id}>
-              <Td>{plan.patient_reference}</Td>
+              <Td>{plan.patientName ?? plan.patientReference ?? "Unknown patient"}</Td>
               <Td>
-                <Label color={statusColor[plan.status] ?? "blue"}>
-                  {plan.status}
-                </Label>
+                <Label color={statusColor[plan.status] ?? "blue"}>{plan.status}</Label>
               </Td>
-              <Td>{new Date(plan.generated_at).toLocaleString()}</Td>
+              <Td>{formatDate(plan.generatedAt)}</Td>
               <Td>
-                <Button
-                  variant="link"
-                  onClick={() => navigate(`/plans/${plan.id}`)}
-                >
+                <Button variant="link" onClick={() => navigate(`/careplans/${plan.id}`)}>
                   View
                 </Button>
               </Td>
