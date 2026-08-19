@@ -1,9 +1,10 @@
-# acp-dev deployment for the acp-writer React/PatternFly UI.
-# Serves the SPA and proxies /api + /health to the backend monolith.
+# Standalone deployment for the acp-writer React/PatternFly UI.
+# nginx serves the SPA and proxies /api/ to the framework BFF (${BFF_HOST}).
 #
 #   oc apply -f acp-writer/ui/deploy/acp-dev.yaml -n <namespace>
 #
-# Image is built by the acp-writer-react-ui BuildConfig (repo-root context,
+# Set the image namespace + BFF_HOST to your target namespace. Image is built by
+# the acp-writer-react-ui BuildConfig (repo-root context, UBI bases,
 # dockerfilePath acp-writer/ui/Containerfile).
 apiVersion: apps/v1
 kind: Deployment
@@ -27,15 +28,16 @@ spec:
     spec:
       containers:
         - name: ui
-          image: image-registry.openshift-image-registry.svc:5000/ksulayma-cpg-to-acp/acp-writer-react-ui:latest
+          image: image-registry.openshift-image-registry.svc:5000/jrao-cpg-acp/acp-writer-react-ui:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
               protocol: TCP
           env:
-            # nginx.conf proxies /api and /health to ${API_URL} (envsubst at startup)
-            - name: API_URL
-              value: http://acp-dev-writer-acp-writer:8082
+            # nginx proxies /api/ to http://${BFF_HOST}/api/ (envsubst at startup).
+            # acp-bff is the framework's BFF service; same-namespace ClusterIP.
+            - name: BFF_HOST
+              value: acp-bff:8080
           readinessProbe:
             httpGet:
               path: /
