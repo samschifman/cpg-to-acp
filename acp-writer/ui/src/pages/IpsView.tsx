@@ -23,7 +23,7 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { FhirJsonViewer } from "@app/components/FhirJsonViewer";
-import { generateCarePlan } from "@app/services/api";
+import { createRun } from "@app/services/api";
 
 interface FhirResource {
   resourceType: string;
@@ -154,8 +154,8 @@ export function IpsView() {
     setGenerating(true);
     setError(null);
     try {
-      const result = await generateCarePlan(bundle);
-      navigate(`/generate/${result.run_id}`);
+      const result = await createRun(bundle);
+      navigate(`/runs/${result.runId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
       setGenerating(false);
