@@ -15,4 +15,15 @@ describe("RunDetailPage", () => {
     // running -> no review panel yet
     expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
   });
+
+  it("shows the review panel when awaiting care-plan review", async () => {
+    renderWithRouter(<RunDetailPage />, {
+      routePath: "/runs/:runId",
+      initialPath: "/runs/run-review",
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Achieve HbA1c < 7%")).toBeInTheDocument();
+  });
 });

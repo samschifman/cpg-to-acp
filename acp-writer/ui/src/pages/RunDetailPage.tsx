@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Flex,
@@ -9,9 +9,10 @@ import {
   Title,
 } from "@patternfly/react-core";
 import { PipelineStepper, useAdaptivePolling } from "@cpg-to-acp/ui-shared";
-import type { RunDetail } from "@app/api/models";
-import { getRunDetail } from "@app/services/api";
+import type { RunDetail, ReviewAction } from "@app/api/models";
+import { getRunDetail, submitReview } from "@app/services/api";
 import { toPipelineSteps } from "@app/pipeline/steps";
+import { ReviewPanel } from "@app/components/ReviewPanel";
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -34,10 +35,18 @@ export function RunDetailPage() {
 
   const steps = useMemo(() => toPipelineSteps(run?.steps ?? []), [run]);
 
-  // Placeholder: the review gate + terminal navigation are wired in part B.
-  const restartPolling = () => setRefreshKey((k) => k + 1);
-  void navigate;
-  void restartPolling;
+  // Navigate to the persisted plan once the run completes.
+  useEffect(() => {
+    if (run?.status === "completed" && run.careplanId) {
+      navigate(`/careplans/${run.careplanId}`, { replace: true });
+    }
+  }, [run?.status, run?.careplanId, navigate]);
+
+  const handleReview = async (action: ReviewAction) => {
+    await submitReview(runId!, action);
+    // Resume polling: request_changes -> back to running; approve -> terminal.
+    setRefreshKey((k) => k + 1);
+  };
 
   if (!run) {
     return (
@@ -66,6 +75,23 @@ export function RunDetailPage() {
             </StackItem>
           </Stack>
         </FlexItem>
+        {run.awaitingReview === "careplan" && run.carePlan && (
+          <FlexItem>
+            <ReviewPanel
+              carePlan={run.carePlan}
+              reviewIteration={run.reviewIteration}
+              previousFeedback={run.previousFeedback}
+              onSubmit={handleReview}
+            />
+          </FlexItem>
+        )}
+        {run.status === "failed" && (
+          <FlexItem>
+            <p style={{ color: "var(--pf-t--global--color--status--danger--default)" }}>
+              Run failed{run.error?.message ? `: ${run.error.message}` : "."}
+            </p>
+          </FlexItem>
+        )}
       </Flex>
     </PageSection>
   );
