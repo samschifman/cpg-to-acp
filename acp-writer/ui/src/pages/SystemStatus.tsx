@@ -8,12 +8,13 @@ import {
   PageSection,
   Title,
 } from "@patternfly/react-core";
-import { useAdaptivePolling, type ServiceStatus as ServiceStatusType } from "@cpg-to-acp/ui-shared";
+import { useAdaptivePolling } from "@cpg-to-acp/ui-shared";
+import type { SystemHealth } from "@app/api/models";
 import { getSystemStatus } from "@app/services/api";
 
 export function SystemStatus() {
   const fetcher = useCallback(() => getSystemStatus(), []);
-  const { data: status, error } = useAdaptivePolling<ServiceStatusType>({
+  const { data: status, error } = useAdaptivePolling<SystemHealth>({
     fetcher,
     isComplete: () => true,
   });
@@ -21,7 +22,7 @@ export function SystemStatus() {
   return (
     <PageSection>
       <Title headingLevel="h1">System Status</Title>
-      {error && <p>Failed to load status: {error.message}</p>}
+      {error && <p>Failed to load status.</p>}
       {status && (
         <DescriptionList isHorizontal>
           <DescriptionListGroup>
@@ -29,19 +30,22 @@ export function SystemStatus() {
             <DescriptionListDescription>{status.version}</DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
-            <DescriptionListTerm>Decision Engine</DescriptionListTerm>
+            <DescriptionListTerm>Decision engine</DescriptionListTerm>
             <DescriptionListDescription>
-              <Label color={status.decision_engine.available ? "green" : "red"}>
-                {status.decision_engine.available ? "Available" : "Unavailable"}
+              <Label color={status.decisionEngine?.available ? "green" : "red"}>
+                {status.decisionEngine?.available ? "available" : "unavailable"}
               </Label>{" "}
-              ({status.decision_engine.models} models)
+              {status.decisionEngine?.modelsDeployed ?? 0} models deployed
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
-            <DescriptionListTerm>Knowledge Base</DescriptionListTerm>
+            <DescriptionListTerm>Knowledge base</DescriptionListTerm>
             <DescriptionListDescription>
-              {status.knowledge_base.guidelines} guidelines,{" "}
-              {status.knowledge_base.recommendations} recommendations
+              <Label color={status.knowledgeBase?.available ? "green" : "red"}>
+                {status.knowledgeBase?.available ? "available" : "unavailable"}
+              </Label>{" "}
+              {status.knowledgeBase?.guidelines ?? 0} guidelines,{" "}
+              {status.knowledgeBase?.recommendations ?? 0} recommendations
             </DescriptionListDescription>
           </DescriptionListGroup>
         </DescriptionList>
