@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 SONATAFLOW_URL = os.getenv("SONATAFLOW_URL", "")
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "")
 LLM_REASONING_URL = os.getenv("LLM_REASONING_URL", "http://acp-llm-reasoning:8080")
+DECISION_ENGINE_URL = os.getenv("DECISION_ENGINE_URL", "http://acp-decision-engine:8080")
 FHIR_SERVER_URL = os.getenv("FHIR_SERVER_URL", "http://acp-fhir-server:8080")
 
 _phi_store: ArtifactStore | None = None
@@ -145,12 +146,12 @@ def _register_metadata(ref: str) -> None:
 
 
 def _register_dmn_model(ref: str, name: str) -> None:
-    """Pull DMN XML from MinIO and deploy to the llm-reasoning pod."""
+    """Pull DMN XML from MinIO and deploy to the decision-engine pod."""
     if not _artifacts_store:
         raise RuntimeError("No artifact store configured")
     dmn_xml = _artifacts_store.get_raw(ref)
     resp = http_requests.post(
-        f"{LLM_REASONING_URL}/api/v1/decisions/models",
+        f"{DECISION_ENGINE_URL}/api/v1/decisions/models",
         data=dmn_xml,
         headers={"Content-Type": "application/xml"},
         timeout=10,
