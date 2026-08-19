@@ -236,7 +236,7 @@ def notify_review(payload: dict | None = None):
 # Run management (SonataFlow-backed)
 # ---------------------------------------------------------------------------
 
-@app.post("/api/v1/runs")
+@app.post("/api/v1/runs", status_code=202)
 @mlflow.trace(name="bff.create_run")
 async def create_run(request: Request):
     """Accept an IPS bundle, store in MinIO, and start a SonataFlow workflow.
@@ -357,10 +357,11 @@ def list_careplans(patient: str | None = None, status: str | None = None):
     try:
         resp = http_requests.get(f"{FHIR_SERVER_URL}/api/v1/careplans", params=params, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        raw_plans = resp.json()
     except Exception as exc:
         logger.error("Failed to list care plans: %s", exc)
         return JSONResponse(status_code=502, content={"message": "Failed to reach FHIR server"})
+    return [_to_careplan_summary(cp) for cp in (raw_plans if isinstance(raw_plans, list) else [])]
 
 
 @app.get("/api/v1/careplans/{careplan_id}")
@@ -368,26 +369,13 @@ def get_careplan(careplan_id: str):
     try:
         resp = http_requests.get(f"{FHIR_SERVER_URL}/api/v1/careplans/{careplan_id}", timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        raw = resp.json()
     except Exception as exc:
         logger.error("Failed to get care plan %s: %s", careplan_id, exc)
         return JSONResponse(status_code=502, content={"message": "Failed to reach FHIR server"})
-
-
-@app.put("/api/v1/careplans/{careplan_id}/status")
-async def update_careplan_status(careplan_id: str, request: Request):
-    body = await request.json()
-    try:
-        resp = http_requests.put(
-            f"{FHIR_SERVER_URL}/api/v1/careplans/{careplan_id}/status",
-            json=body,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as exc:
-        logger.error("Failed to update care plan %s status: %s", careplan_id, exc)
-        return JSONResponse(status_code=502, content={"message": "Failed to reach FHIR server"})
+    if not raw:
+        return JSONResponse(status_code=404, content={"message": f"Care plan {careplan_id} not found"})
+    return _to_careplan_detail(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +401,7 @@ def system_status():
             }
             result["knowledgeBase"] = {
                 "available": kb.get("status") == "healthy",
-                "guidelines": 0,
+                "guidelines": kb.get("guidelines_registered", 0),
                 "recommendations": kb.get("recommendations_ingested", 0),
             }
     except Exception:
@@ -439,6 +427,58 @@ def _extract_patient_name(ips_bundle: dict) -> str:
                 if parts:
                     return " ".join(parts)
     return "Unknown Patient"
+
+
+def _extract_patient_name_from_bundle(bundle: dict) -> str:
+    """Extract patient display name from a stored FHIR care-plan bundle."""
+    for entry in bundle.get("entry", []):
+        resource = entry.get("resource", {})
+        if resource.get("resourceType") == "Patient":
+            for name in resource.get("name", []):
+                parts = []
+                if name.get("given"):
+                    parts.extend(name["given"])
+                if name.get("family"):
+                    parts.append(name["family"])
+                if parts:
+                    return " ".join(parts)
+    return ""
+
+
+def _to_careplan_summary(raw: dict) -> dict:
+    """Shape a raw care-plan record into a CarePlanSummary view-model."""
+    return {
+        "id": raw.get("id", ""),
+        "patientName": raw.get("patient_name", ""),
+        "patientReference": raw.get("patient_reference", ""),
+        "status": raw.get("status", ""),
+        "generatedAt": raw.get("generated_at"),
+        "runId": raw.get("run_id"),
+    }
+
+
+def _to_careplan_detail(raw: dict) -> dict:
+    """Shape a raw care-plan record into a CarePlanDetail view-model."""
+    bundle = raw.get("bundle", {})
+    summary = _to_careplan_summary(raw)
+    patient_name = summary["patientName"] or _extract_patient_name_from_bundle(bundle)
+    if patient_name:
+        summary["patientName"] = patient_name
+
+    goals = raw.get("goals", [])
+    activities = raw.get("activities", [])
+    conflicts = raw.get("conflicts", [])
+
+    return {
+        **summary,
+        "patient": None,
+        "view": {
+            "goals": goals,
+            "activities": activities,
+            "conflicts": conflicts,
+            "fhirBundle": bundle if bundle.get("entry") else None,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -39,10 +39,11 @@ _STATE_TO_RUN_STATUS = {
     "ComposePlan": "running",
     "GenerateBundle": "running",
     "ReviewFHIR": "running",
-    "ReviewCarePlan": "awaiting_review",
+    "ReviewCarePlan": "awaiting_careplan_review",
     "WriteFHIR": "running",
     "Done": "completed",
     "Failed": "failed",
+    "Aborted": "cancelled",
 }
 
 _REVIEW_GATE_MAP = {
@@ -66,7 +67,9 @@ def infer_current_state(data: dict, instance_status: str) -> str:
     """
     if instance_status == "COMPLETED" or data.get("status") == "completed":
         return "Done"
-    if instance_status in ("ERROR", "ABORTED"):
+    if instance_status == "ABORTED":
+        return "Aborted"
+    if instance_status == "ERROR":
         return "Failed"
 
     if "writeResult" in data:
@@ -188,12 +191,18 @@ def map_to_run_summary(instance: dict) -> dict[str, Any]:
     current_state = infer_current_state(data, status)
     patient = data.get("patientData", {}).get("patient_demographics", {})
     patient_name = patient.get("name", "Unknown Patient") if patient else "Unknown Patient"
+    patient_ref = data.get("patientData", {}).get("patient_reference", "")
+    write_result = data.get("writeResult", {})
+    start_date = instance.get("startDate") or data.get("created_at", "")
     return {
         "runId": instance["id"],
         "status": _STATE_TO_RUN_STATUS.get(current_state, "running"),
         "patientName": patient_name,
-        "createdAt": instance.get("startDate") or data.get("created_at", ""),
-        "currentStep": _STEP_KEY.get(current_state, "scan_patient"),
+        "patientReference": patient_ref,
+        "currentSteps": [_STEP_KEY.get(current_state, "scan_patient")],
+        "careplanId": write_result.get("careplan_id") if write_result else None,
+        "createdAt": start_date,
+        "updatedAt": instance.get("endDate") or start_date,
     }
 
 
@@ -214,11 +223,16 @@ def map_to_run_detail(instance: dict) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "runId": instance["id"],
         "status": _STATE_TO_RUN_STATUS.get(current_state, "running"),
-        "patientName": patient_name,
         "createdAt": created_at,
-        "currentStep": _STEP_KEY.get(current_state, "scan_patient"),
+        "updatedAt": instance.get("endDate") or created_at,
+        "currentSteps": [_STEP_KEY.get(current_state, "scan_patient")],
         "steps": build_steps(current_state, data, created_at),
         "awaitingReview": None,
+        "carePlan": None,
+        "reviewIteration": 0,
+        "previousFeedback": None,
+        "careplanId": None,
+        "error": None,
         "workflowData": {
             "patientData": data.get("patientData"),
             "guidelineData": data.get("guidelineData"),
@@ -236,7 +250,12 @@ def map_to_run_detail(instance: dict) -> dict[str, Any]:
         detail["reviewIteration"] = data.get("careplanReviewCount", 0)
         prev = data.get("careplanReview")
         if prev and prev.get("action") == "request_changes":
-            detail["previousFeedback"] = prev
+            detail["previousFeedback"] = {
+                "decision": "request_changes",
+                "clinician": prev.get("clinician"),
+                "comment": prev.get("comment"),
+                "feedback": prev.get("feedback", []),
+            }
 
     return detail
 
@@ -268,6 +287,7 @@ def _graphql_to_instance(pi: dict) -> dict:
         "id": pi["id"],
         "status": pi["state"],
         "startDate": pi.get("start", ""),
+        "endDate": pi.get("end", ""),
         "workflowdata": variables.get("workflowdata", {}),
     }
 

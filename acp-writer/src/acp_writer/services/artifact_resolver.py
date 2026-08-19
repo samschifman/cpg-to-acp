@@ -53,8 +53,13 @@ def enrich_run_detail(
     if not wd:
         return detail
 
-    errors: list[dict[str, str]] = []
+    first_error: dict[str, str] | None = None
     store = phi_store or artifacts_store
+
+    def _record_error(step_key: str, message: str) -> None:
+        nonlocal first_error
+        if not first_error:
+            first_error = {"stepKey": step_key, "message": message}
 
     # --- Patient data → PatientSummary ---
     patient_raw = wd.get("patientData") or {}
@@ -68,42 +73,24 @@ def enrich_run_detail(
             "conditions": _to_coded_items(patient_raw.get("condition_codes")),
             "medications": _to_coded_items(patient_raw.get("medication_codes")),
             "allergies": _to_coded_items(patient_raw.get("allergy_codes")),
+            "observations": _to_coded_items(patient_raw.get("observation_codes")),
         }
-
-    # --- Guideline data (kept for internal use, not in UI contract) ---
-    guideline_raw = wd.get("guidelineData") or {}
-    if guideline_raw:
-        detail["applicableCpgs"] = guideline_raw.get("applicable_cpgs")
-        detail["applicableDmnModels"] = guideline_raw.get("applicable_dmn_models")
 
     # --- DMN results ---
     dmn_raw = wd.get("dmnData") or {}
     if "error" in dmn_raw:
-        errors.append({"stepKey": "execute_dmn", "message": str(dmn_raw["error"])})
-    elif dmn_raw:
-        detail["dmnResults"] = dmn_raw.get("dmn_results")
+        _record_error("execute_dmn", str(dmn_raw["error"]))
 
     # --- Recommendations ---
     rec_raw = wd.get("recData") or {}
     if "error" in rec_raw:
-        errors.append({"stepKey": "retrieve_recommendations", "message": str(rec_raw["error"])})
-    elif rec_raw:
-        rec_data = rec_raw
-        ref = rec_raw.get("recommendations_ref")
-        if ref and store:
-            resolved = _fetch_ref(store, ref)
-            if resolved:
-                rec_data = resolved
-        if isinstance(rec_data, dict):
-            detail["recommendations"] = rec_data.get("recommendations", rec_data)
-        else:
-            detail["recommendations"] = rec_data
+        _record_error("retrieve_recommendations", str(rec_raw["error"]))
 
-    # --- Planning brief (from ComposePlan) → PlanningBrief ---
+    # --- Planning brief (from ComposePlan) → CarePlanView source ---
     composer_raw = wd.get("composerData") or {}
     planning_brief = None
     if "error" in composer_raw:
-        errors.append({"stepKey": "compose_plan", "message": str(composer_raw["error"])})
+        _record_error("compose_plan", str(composer_raw["error"]))
     elif composer_raw:
         brief = composer_raw
         ref = composer_raw.get("planning_brief_ref")
@@ -112,13 +99,11 @@ def enrich_run_detail(
             if resolved:
                 brief = resolved
         planning_brief = brief.get("planning_brief", brief)
-        detail["planningBrief"] = planning_brief
 
     # --- FHIR generation → CarePlanView ---
     fhir_gen_raw = wd.get("fhirGenData") or {}
-    fhir_bundle = None
     if "error" in fhir_gen_raw:
-        errors.append({"stepKey": "generate_bundle", "message": str(fhir_gen_raw["error"])})
+        _record_error("generate_bundle", str(fhir_gen_raw["error"]))
     elif fhir_gen_raw:
         bundle = fhir_gen_raw
         ref = fhir_gen_raw.get("fhir_bundle_ref")
@@ -135,19 +120,14 @@ def enrich_run_detail(
             care_plan_view["conflicts"] = planning_brief.get("conflicts", [])
         detail["carePlan"] = care_plan_view
 
-    # --- FHIR review (automated) ---
-    fhir_review_raw = wd.get("fhirReviewData") or {}
-    if fhir_review_raw:
-        detail["fhirReviewFeedback"] = fhir_review_raw.get("fhir_review_feedback")
-
     # --- Write result ---
     write_raw = wd.get("writeResult") or {}
     if "error" in write_raw:
-        errors.append({"stepKey": "write_fhir", "message": str(write_raw["error"])})
+        _record_error("write_fhir", str(write_raw["error"]))
     elif write_raw:
         detail["careplanId"] = write_raw.get("careplan_id")
 
-    if errors:
-        detail["errors"] = errors
+    if first_error:
+        detail["error"] = first_error
 
     return detail
