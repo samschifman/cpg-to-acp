@@ -214,6 +214,12 @@ def map_to_run_detail(instance: dict) -> dict[str, Any]:
         },
     }
 
+    warnings = []
+    if data.get("notificationWarning"):
+        warnings.append({"type": "notification", "message": data["notificationWarning"]})
+    if warnings:
+        detail["warnings"] = warnings
+
     review_type = _REVIEW_GATE_MAP.get(current_state)
     if review_type:
         detail["awaitingReview"] = review_type

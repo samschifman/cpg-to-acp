@@ -319,7 +319,13 @@ spec:
               toStateData: "${ .notificationResult }"
         onErrors:
           - errorRef: notificationError
-            transition: Done
+            transition: NotifyFailed
+        transition: Done
+
+      - name: NotifyFailed
+        type: inject
+        data:
+          notificationWarning: "Downstream notification failed — published artifacts were not automatically loaded into the care plan writer. They can be loaded manually."
         transition: Done
 
       - name: Done
