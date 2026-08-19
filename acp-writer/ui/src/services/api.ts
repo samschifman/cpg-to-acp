@@ -1,8 +1,13 @@
 import type {
+  CarePlanDetail,
   CarePlanSummary,
-  CarePlanStatusUpdate,
-  ServiceStatus,
-} from "@cpg-to-acp/ui-shared";
+  RunCreated,
+  RunDetail,
+  RunStatus,
+  RunSummary,
+  ReviewAction,
+  SystemHealth,
+} from "@app/api/models";
 
 class ApiError extends Error {
   constructor(
@@ -23,47 +28,63 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => res.statusText);
     throw new ApiError(res.status, text);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
-export async function generateCarePlan(
+const B = "/api/v1";
+
+// --- Runs ---
+export async function createRun(
   ipsBundle: Record<string, unknown>,
-): Promise<{ run_id: string; careplan_id?: string }> {
-  return request("/api/v1/careplans", {
+): Promise<RunCreated> {
+  return request(`${B}/runs`, {
     method: "POST",
-    body: JSON.stringify(ipsBundle),
+    body: JSON.stringify({ ipsBundle }),
   });
 }
 
-export async function listCarePlans(filters?: {
-  patient?: string;
-  status?: string;
-}): Promise<CarePlanSummary[]> {
+export async function listRuns(filters?: {
+  status?: RunStatus;
+  limit?: number;
+}): Promise<RunSummary[]> {
   const params = new URLSearchParams();
-  if (filters?.patient) params.set("patient", filters.patient);
   if (filters?.status) params.set("status", filters.status);
+  if (filters?.limit != null) params.set("limit", String(filters.limit));
   const qs = params.toString();
-  return request(`/api/v1/careplans${qs ? `?${qs}` : ""}`);
+  return request(`${B}/runs${qs ? `?${qs}` : ""}`);
 }
 
-export async function getCarePlan(
-  id: string,
-): Promise<Record<string, unknown>> {
-  return request(`/api/v1/careplans/${id}`);
+export async function getRunDetail(runId: string): Promise<RunDetail> {
+  return request(`${B}/runs/${runId}`);
 }
 
-export async function updateCarePlanStatus(
-  id: string,
-  update: CarePlanStatusUpdate,
-): Promise<CarePlanSummary> {
-  return request(`/api/v1/careplans/${id}/status`, {
-    method: "PUT",
-    body: JSON.stringify(update),
+export async function cancelRun(runId: string): Promise<void> {
+  return request(`${B}/runs/${runId}`, { method: "DELETE" });
+}
+
+export async function submitReview(
+  runId: string,
+  action: ReviewAction,
+): Promise<RunDetail> {
+  return request(`${B}/runs/${runId}/review/careplan`, {
+    method: "POST",
+    body: JSON.stringify(action),
   });
 }
 
-export async function getSystemStatus(): Promise<ServiceStatus> {
-  return request("/api/v1/status");
+// --- Care plans (persisted, read-only) ---
+export async function listCarePlans(): Promise<CarePlanSummary[]> {
+  return request(`${B}/careplans`);
+}
+
+export async function getCarePlan(id: string): Promise<CarePlanDetail> {
+  return request(`${B}/careplans/${id}`);
+}
+
+// --- Status ---
+export async function getSystemStatus(): Promise<SystemHealth> {
+  return request(`${B}/status`);
 }
 
 export async function healthCheck(): Promise<{ status: string }> {
