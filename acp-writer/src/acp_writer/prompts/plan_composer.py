@@ -19,6 +19,11 @@ will cause a review rejection.
 - Monitoring activities MUST include: what to monitor and frequency \
 (e.g. "4 weeks", "monthly").
 - Lifestyle activities need: specific actionable description.
+- Activity "type" MUST be exactly one of: medication, monitoring, lifestyle, \
+referral, educational, process. No other values are accepted — the downstream \
+parser will reject the entire brief. Map lab orders and diagnostic tests to \
+"monitoring", specialist consultations to "referral", and care coordination \
+steps to "process".
 - Include clinical_rationale explaining WHY each activity was selected, \
 especially when DMN logic drove the decision.
 - Include workflow context (actor, escalation, monitoring_trigger) when \
@@ -93,7 +98,7 @@ Respond with a JSON object matching this schema exactly:
   ],
   "activities": [
     {{
-      "type": "medication|monitoring|lifestyle|referral|educational|process",
+      "type": "medication|monitoring|lifestyle|referral|educational|process",  // ONLY these six values — no others
       "description": "Activity description",
       "code": {{"system": "...", "code": "...", "display": "..."}} or null,
       "dose": "10 mg" or null,
