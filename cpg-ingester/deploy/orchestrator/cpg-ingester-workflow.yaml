@@ -23,6 +23,9 @@ spec:
   flow:
     specVersion: "0.8"
     start: Parse
+    errors:
+      - name: notificationError
+        code: ".*"
     events:
       # Async pod callbacks
       - name: parseDone
@@ -314,6 +317,9 @@ spec:
             actionDataFilter:
               results: "${ . }"
               toStateData: "${ .notificationResult }"
+        onErrors:
+          - errorRef: notificationError
+            transition: Done
         transition: Done
 
       - name: Done
