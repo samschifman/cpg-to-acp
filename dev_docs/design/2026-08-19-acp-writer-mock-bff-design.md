@@ -153,3 +153,15 @@ a clean, marked stub so his work drops in without conflict.
   corresponding schema in `bff-openapi.yaml` (openapi-core or jsonschema).
 - Manual: `vite dev` walkthrough of every screen incl. the request_changes loop.
 - Cluster milestone: deploy `bff` + `ui`, confirm the nginx `/api` seam works end-to-end.
+
+## Cluster verification (2026-08-19)
+
+Verified on `ksulayma-cpg-to-acp` (ROSA). Built `acp-writer-bff:latest` via a binary
+`BuildConfig` (Docker strategy, `Containerfile.bff`), deployed an isolated `acp`
+helm release with only the `bff` pod enabled (`helm upgrade --install acp
+chart-pods --set image.namespace=… --set pods.<others>.enabled=false`). The pod rolled
+out and served the full contract via `oc port-forward svc/acp-bff`: `/health`
+(`mock:true`), `/status`, seed runs in `awaiting_careplan_review`/`failed`/`completed`,
+and a live create → poll-to-gate (`CarePlanView` served) → approve → `completed` +
+persisted care plan. Two-pod (bff + ui) browser round-trip is pending the React `ui`
+pod (other session); the UI→BFF NetworkPolicy egress is already in the chart.
