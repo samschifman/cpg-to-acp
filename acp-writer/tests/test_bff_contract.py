@@ -76,3 +76,33 @@ def test_careplan_detail_is_summary_plus_patient_and_view():
     # CarePlanDetail is allOf(CarePlanSummary, {patient, view})
     expected = summary | {"patient", "view"}
     assert _model_aliases(m.CarePlanDetail) == expected
+
+
+def _walk_routes(routes):
+    # FastAPI >=0.141 wraps included routers in a lazy _IncludedRouter instead of
+    # flattening them onto app.routes; descend into it to see the real routes.
+    for route in routes:
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            yield from _walk_routes(inner.routes)
+        else:
+            yield route
+
+
+def test_app_routes_match_contract_paths():
+    from acp_writer.services.bff import create_app
+    spec = _spec()
+    contract_paths = set(spec["paths"].keys())  # e.g. "/runs", "/runs/{runId}"
+    app = create_app()
+    app_paths = set()
+    for route in _walk_routes(app.routes):
+        path = getattr(route, "path", "")
+        if path.startswith("/api/v1"):
+            # normalize {run_id} -> {runId}, strip prefix to match contract keys
+            rel = path[len("/api/v1"):]
+            rel = rel.replace("{run_id}", "{runId}").replace("{careplan_id}", "{careplanId}")
+            app_paths.add(rel)
+    assert app_paths == contract_paths, {
+        "missing_in_app": sorted(contract_paths - app_paths),
+        "extra_in_app": sorted(app_paths - contract_paths),
+    }
