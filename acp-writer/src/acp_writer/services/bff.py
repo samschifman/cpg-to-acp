@@ -249,7 +249,7 @@ async def _start_workflow_background(run_id: str, ips_ref: str, patient_name: st
     """Start SonataFlow workflow in the background and update the pending-run mapping."""
     try:
         assert _sonataflow is not None
-        instance = await _sonataflow.start_workflow(ips_ref, patient_name)
+        instance = await _sonataflow.start_workflow(ips_ref, patient_name, business_key=run_id)
         _pending_runs[run_id]["sonataflow_id"] = instance["id"]
         _pending_runs[run_id]["status"] = "running"
         logger.info("Run %s → SonataFlow instance %s", run_id, instance["id"])
@@ -338,18 +338,24 @@ def _resolve_sonataflow_id(run_id: str) -> str | None:
 @app.get("/api/v1/runs")
 async def list_runs(status: str | None = None, limit: int = 50):
     summaries: list[dict] = []
-
-    # Include pending runs that haven't been promoted to SonataFlow yet
-    sf_ids = set()
-    for pr in _pending_runs.values():
-        if pr.get("sonataflow_id"):
-            sf_ids.add(pr["sonataflow_id"])
-        else:
-            summaries.append(_pending_run_summary(pr))
+    sf_ids_in_list: set[str] = set()
 
     if _sonataflow:
         instances = await _sonataflow.list_instances()
-        summaries.extend(map_to_run_summary(inst) for inst in instances)
+        sf_ids_in_list = {inst["id"] for inst in instances}
+        for inst in instances:
+            summary = map_to_run_summary(inst)
+            # If this instance was started with a business key matching a pending run, use that ID
+            for pr in _pending_runs.values():
+                if pr.get("sonataflow_id") == inst["id"]:
+                    summary["runId"] = pr["run_id"]
+                    break
+            summaries.append(summary)
+
+    # Include pending runs not yet visible in SonataFlow
+    for pr in _pending_runs.values():
+        if not pr.get("sonataflow_id") or (pr.get("sonataflow_id") and _sonataflow and pr["sonataflow_id"] not in sf_ids_in_list):
+            summaries.append(_pending_run_summary(pr))
 
     if status:
         summaries = [s for s in summaries if s["status"] == status]
@@ -363,14 +369,26 @@ async def get_run(run_id: str):
     pr = _pending_runs.get(run_id)
     if pr:
         sf_id = pr.get("sonataflow_id")
-        if sf_id and _sonataflow:
-            try:
-                instance = await _sonataflow.get_instance(sf_id)
+        if _sonataflow:
+            # Try direct ID lookup first, then business key for in-flight workflows
+            instance = None
+            if sf_id:
+                try:
+                    instance = await _sonataflow.get_instance(sf_id)
+                except Exception:
+                    pass
+            if not instance:
+                try:
+                    instance = await _sonataflow.get_instance_by_business_key(run_id)
+                except Exception:
+                    pass
+            if instance:
+                if not sf_id:
+                    pr["sonataflow_id"] = instance["id"]
+                    pr["status"] = "running"
                 detail = map_to_run_detail(instance)
                 detail["runId"] = run_id
                 return enrich_run_detail(detail, _phi_store, _artifacts_store)
-            except Exception:
-                pass
         return _pending_run_detail(pr)
 
     # Fall through to direct SonataFlow lookup (for runs created before this change)

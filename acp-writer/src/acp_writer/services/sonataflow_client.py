@@ -271,7 +271,15 @@ query {
 _GRAPHQL_GET = """
 query ($id: String!) {
   ProcessInstances(where: {id: {equal: $id}}) {
-    id state start end variables
+    id state start end variables businessKey
+  }
+}
+"""
+
+_GRAPHQL_GET_BY_KEY = """
+query ($key: String!) {
+  ProcessInstances(where: {businessKey: {equal: $key}}) {
+    id state start end variables businessKey
   }
 }
 """
@@ -317,9 +325,13 @@ class SonataFlowClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def start_workflow(self, ips_ref: str, patient_name: str) -> dict:
+    async def start_workflow(self, ips_ref: str, patient_name: str, business_key: str | None = None) -> dict:
+        params = {}
+        if business_key:
+            params["businessKey"] = business_key
         resp = await self._client.post(
             f"{self.base_url}/{WORKFLOW_NAME}",
+            params=params,
             json={
                 "ips_ref": ips_ref,
                 "patient_name": patient_name,
@@ -345,6 +357,13 @@ class SonataFlowClient:
                 request=httpx.Request("POST", f"{self.base_url}/graphql"),
                 response=httpx.Response(404),
             )
+        return _graphql_to_instance(instances[0])
+
+    async def get_instance_by_business_key(self, key: str) -> dict | None:
+        result = await self._graphql(_GRAPHQL_GET_BY_KEY, {"key": key})
+        instances = result.get("data", {}).get("ProcessInstances", [])
+        if not instances:
+            return None
         return _graphql_to_instance(instances[0])
 
     async def abort_instance(self, instance_id: str) -> None:
