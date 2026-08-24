@@ -22,11 +22,50 @@ Before deploying, ensure:
 
 MaaS (Model as a Service) provides governed LLM inference on OpenShift AI. The steps below are **platform-level setup outside the scope of this project** — they must be completed before deploying cpg-to-acp. Work with your cluster administrator or platform team as needed.
 
-### 1. Get your namespace whitelisted
+### 1. Whitelist your namespace for MaaS inference
 
-The MaaS gateway enforces namespace-level authorization — pods in non-whitelisted namespaces receive 403 responses. Request whitelisting from your platform team, providing:
-- The namespace name (e.g. `my-team-cpg-to-acp`)
-- The models you need access to (e.g. `gpt-5.6-terra`)
+The MaaS gateway uses a Kubernetes `Gateway` resource with a namespace selector on its listener — only namespaces in the selector's `values` list can create `HTTPRoute` resources that the gateway will accept. Pods in non-whitelisted namespaces receive 403 responses.
+
+A cluster-admin must edit the gateway to add your namespace:
+
+```bash
+oc edit gateway maas-default-gateway -n openshift-ingress
+```
+
+Add your namespace to the `values` list under `spec.listeners[].allowedRoutes.namespaces.selector`:
+
+```yaml
+spec:
+  listeners:
+  - name: http
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values:
+            - openshift-ingress
+            - redhat-ods-applications
+            - <your-namespace>          # add this line
+```
+
+Changes take effect within seconds — no pod restart required.
+
+**Verify whitelisting:**
+
+```bash
+# From a pod in your namespace (or via port-forward to the gateway):
+curl -s -o /dev/null -w "%{http_code}" \
+  http://maas-default-gateway-openshift-default.openshift-ingress.svc.cluster.local:80/<route-segment>/v1/models
+
+# 200 = whitelisted, 403 = not whitelisted, connection refused = gateway unreachable
+```
+
+> **Tip:** If you see 403 errors during deployment or pipeline runs and all CRs look correct, namespace whitelisting is the most common cause.
 
 ### 2. Create the provider API key secret
 
@@ -40,82 +79,52 @@ oc create secret generic llm-credentials \
 
 > **Note:** The cpg-to-acp deploy framework also creates this same `llm-credentials` secret via `setup-secrets.sh`. If you run `setup-secrets.sh` first (step 4 in the Quick Start below), this step is already done. Either way, the secret must exist before the ExternalProvider CR is applied.
 
-### 3. Create an ExternalProvider
+### 3. Create an ExternalModel
 
-An `ExternalProvider` CR defines the upstream LLM provider (e.g. OpenAI, Azure OpenAI). Created once per provider in your namespace.
-
-```yaml
-apiVersion: maas.redhat.com/v1alpha1
-kind: ExternalProvider
-metadata:
-  name: openai
-  namespace: <your-namespace>
-spec:
-  url: https://api.openai.com/v1
-  authType: bearer
-  credentialsRef:
-    name: llm-credentials    # K8s Secret created in step 2
-    key: LLM_API_KEY
-```
-
-### 4. Create an ExternalModel
-
-An `ExternalModel` CR registers a specific model through the provider, making it available on the MaaS gateway.
+An `ExternalModel` CR registers a specific model through a provider, making it available on the MaaS gateway. The CR combines the provider reference, credentials, and target model in a single resource.
 
 ```yaml
-apiVersion: maas.redhat.com/v1alpha1
+apiVersion: maas.opendatahub.io/v1alpha1
 kind: ExternalModel
 metadata:
-  name: gpt-5-6-terra
+  name: gpt-4o
   namespace: <your-namespace>
+  labels:
+    app.kubernetes.io/part-of: cpg-to-acp
 spec:
-  providerRef:
-    name: openai              # references the ExternalProvider above
-  model: gpt-5.6-terra        # model name sent to the upstream provider
-  routeSegment: gpt-5-6       # URL path segment on the MaaS gateway
+  provider: openai
+  endpoint: api.openai.com
+  targetModel: gpt-4o                    # model name sent to the upstream provider
+  credentialRef:
+    name: openai-provider-key            # K8s Secret created in step 2
 ```
 
-The `routeSegment` determines the URL path on the MaaS gateway. Note that it differs from the `model` parameter (dashes vs dots) — this is a MaaS convention.
+The model name in the gateway URL path matches the CR `metadata.name`. For example, the model above is accessible at `http://maas-default-gateway-...:80/gpt-4o/v1/chat/completions`.
 
-### 5. Create a ModelRef (optional)
-
-A `ModelRef` creates a namespace-scoped alias for the model, enabling model governance policies and usage tracking.
-
-```yaml
-apiVersion: maas.redhat.com/v1alpha1
-kind: ModelRef
-metadata:
-  name: default-llm
-  namespace: <your-namespace>
-spec:
-  modelRef:
-    name: gpt-5-6-terra       # references the ExternalModel above
-```
-
-### 6. Verify MaaS access
+### 4. Verify MaaS access
 
 ```bash
 # Check the MaaS gateway service exists
 oc get svc maas-default-gateway-openshift-default -n openshift-ingress
 
 # Check your ExternalModel status
-oc get externalmodel -n <your-namespace>
+oc get externalmodels.maas.opendatahub.io -n <your-namespace>
 
 # Test inference (from a pod in your namespace, or via port-forward)
 curl -X POST \
-  http://maas-default-gateway-openshift-default.openshift-ingress.svc.cluster.local:80/<route-segment>/v1/chat/completions \
+  http://maas-default-gateway-openshift-default.openshift-ingress.svc.cluster.local:80/<model-name>/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "<model-name>", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-Replace `<route-segment>` with the `routeSegment` from your ExternalModel (e.g. `gpt-5-6`) and `<model-name>` with the model parameter (e.g. `gpt-5.6-terra`).
+Replace `<model-name>` with the ExternalModel CR name (e.g. `gpt-4o`).
 
 Once MaaS is verified, set the gateway URL and model in `deploy/config/cluster.env` (see [Configuration](#configuration) below):
 
 ```bash
 MAAS_GATEWAY_URL=http://maas-default-gateway-openshift-default.openshift-ingress.svc.cluster.local:80
-MAAS_ROUTE_SEGMENT=gpt-5-6
-LLM_MODEL_DEFAULT=gpt-5.6-terra
+MAAS_ROUTE_SEGMENT=gpt-4o
+LLM_MODEL_DEFAULT=gpt-4o
 ```
 
 > **Port 80, not 443:** The MaaS gateway serves on port 80 (HTTP). The cpg-to-acp OpenShell network policies allow both ports 80 and 443 for LLM inference traffic. If you encounter connection failures from sandboxed pods, verify the port in your gateway URL matches the actual service port.
