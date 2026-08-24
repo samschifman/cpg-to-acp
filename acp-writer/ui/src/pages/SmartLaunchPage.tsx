@@ -72,8 +72,18 @@ async function fetchIpsSummary(
   return resp.json();
 }
 
+type LaunchStep = "resolving" | "fetching_ips" | "starting_run" | "redirecting";
+
+const STEP_LABELS: Record<LaunchStep, string> = {
+  resolving: "Resolving patient context from EHR...",
+  fetching_ips: "Fetching patient summary...",
+  starting_run: "Starting care plan generation...",
+  redirecting: "Redirecting to run...",
+};
+
 export function SmartLaunchPage() {
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<LaunchStep>("resolving");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -88,13 +98,30 @@ export function SmartLaunchPage() {
       return;
     }
 
-    resolveLaunch(iss, launch)
-      .then(async ({ token, patientId }) => {
+    (async () => {
+      try {
+        setStep("resolving");
+        const { token, patientId } = await resolveLaunch(iss, launch);
+
+        setStep("fetching_ips");
         const ipsBundle = await fetchIpsSummary(iss, token, patientId);
-        const result = await createRun(ipsBundle);
-        navigate(`/runs/${result.runId}`);
-      })
-      .catch((err) => setError(String(err)));
+
+        setStep("starting_run");
+        try {
+          const result = await createRun(ipsBundle);
+          setStep("redirecting");
+          navigate(`/runs/${result.runId}`);
+          return;
+        } catch {
+          // Run likely started on the backend despite the timeout —
+          // redirect to the runs list so the user can find it.
+          navigate("/runs");
+          return;
+        }
+      } catch (err) {
+        setError(String(err));
+      }
+    })();
   }, [searchParams, navigate]);
 
   if (error) {
@@ -118,7 +145,7 @@ export function SmartLaunchPage() {
         <EmptyStateBody>
           <Spinner size="xl" />
           <p style={{ marginTop: "1rem" }}>
-            Resolving patient context from EHR...
+            {STEP_LABELS[step]}
           </p>
         </EmptyStateBody>
       </EmptyState>
