@@ -33,7 +33,6 @@ dependencies = [
 
 [project.scripts]
 cpg-parse = "cpg_ingester.parse:main"
-cpg-extract-dmn = "cpg_ingester.extract_dmn:main"
 cpg-deploy-dmn = "cpg_ingester.deploy:main"
 cpg-ingest = "cpg_ingester.cli:main"
 [tool.setuptools.packages.find]

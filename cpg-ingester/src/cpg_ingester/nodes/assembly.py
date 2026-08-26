@@ -43,6 +43,27 @@ def _resolve_cross_references(recommendations: list[dict], dmn_results: list[dic
     return recommendations
 
 
+def _collect_escalations(dmn_results: list[dict], recommendations: list[dict]) -> list[dict]:
+    """Gather every result flagged for human review, with its reason and errors."""
+    escalated = []
+    for dmn in dmn_results:
+        if dmn.get("escalated"):
+            escalated.append({
+                "type": "decision",
+                "name": dmn.get("item", {}).get("name", "?"),
+                "escalation_reason": dmn.get("escalation_reason", ""),
+                "escalation_errors": dmn.get("escalation_errors", []),
+            })
+    for rec in recommendations:
+        if isinstance(rec, dict) and rec.get("escalated"):
+            escalated.append({
+                "type": "recommendation",
+                "id": rec.get("id", "?"),
+                "escalation_reason": rec.get("escalation_reason", ""),
+            })
+    return escalated
+
+
 def _check_integrity(recommendations: list[dict], dmn_results: list[dict], cpg_metadata: dict) -> list[str]:
     """Run integrity checks on assembled output."""
     errors = []
@@ -95,7 +116,6 @@ def assembly(state: dict) -> dict:
     """Assemble all validated outputs from DMN and Rec tracks."""
     logger.info("── Assembly ──")
     cpg_metadata = state.get("cpg_metadata", {})
-    item_manifest = state.get("item_manifest", [])
     output_dir = state.get("output_dir", "output")
 
     dmn_results = state.get("dmn_results") or []
@@ -110,10 +130,10 @@ def assembly(state: dict) -> dict:
 
     all_recs = _resolve_cross_references(all_recs, dmn_results)
 
-    escalated = []
-    for item in item_manifest:
-        if item.get("escalated"):
-            escalated.append(item)
+    # Escalations are carried on the generated results themselves (the subgraphs
+    # write the flag there), so collect them from dmn_results / recommendations
+    # rather than the manifest — that keeps the state flow one-directional.
+    escalated = _collect_escalations(dmn_results, all_recs)
 
     integrity_errors = _check_integrity(all_recs, dmn_results, cpg_metadata)
     if integrity_errors:

@@ -7,9 +7,41 @@ import mlflow
 from cpg_contracts import content_to_text, get_llm
 from cpg_ingester.output import write_artifact
 from cpg_ingester.prompts.dmn_creator import DMN_CREATOR_SYSTEM, DMN_CREATOR_USER
+from cpg_ingester.reference.dmn_error_patterns import format_error_pattern_hints
 from cpg_ingester.reference.dmn_examples import REFERENCE_EXAMPLES
 
 logger = logging.getLogger(__name__)
+
+
+def _build_feedback(syntax_errors: list, semantic_discrepancies: list,
+                    previous_dmn_xml: str) -> str:
+    """Assemble repair-mode feedback: previous attempt + all labeled errors.
+
+    Both error kinds are rendered when both are present (no masking), and matched
+    known-error patterns are appended so the model gets a concrete fix, not just
+    the raw message.
+    """
+    if not syntax_errors and not semantic_discrepancies:
+        return ""
+
+    sections = [
+        "PREVIOUS ATTEMPT NEEDS CORRECTION — return a complete, corrected DMN "
+        "document (not a diff, not a fragment)."
+    ]
+    if previous_dmn_xml:
+        sections.append("## Previous attempt\n" + previous_dmn_xml)
+    if syntax_errors:
+        sections.append("## Syntax errors to fix\n"
+                        + "\n".join(f"- {e}" for e in syntax_errors))
+    if semantic_discrepancies:
+        sections.append("## Semantic discrepancies to fix\n"
+                        + "\n".join(f"- {d}" for d in semantic_discrepancies))
+
+    hints = format_error_pattern_hints(list(syntax_errors) + list(semantic_discrepancies))
+    if hints:
+        sections.append("## Known error patterns\n" + hints)
+
+    return "\n\n".join(sections)
 
 
 def _format_inputs(inputs: list[dict]) -> str:
@@ -48,6 +80,7 @@ def dmn_creator(state: dict) -> dict:
     output_dir = state.get("output_dir", "output")
     syntax_errors = state.get("syntax_errors", [])
     semantic_discrepancies = state.get("semantic_discrepancies", [])
+    previous_dmn_xml = state.get("dmn_xml", "")
 
     name = item.get("name", "Unknown Decision")
     description = item.get("description", "")
@@ -56,11 +89,7 @@ def dmn_creator(state: dict) -> dict:
     inputs = item.get("inputs", [])
     outputs = item.get("outputs", [])
 
-    feedback = ""
-    if syntax_errors:
-        feedback = "PREVIOUS ATTEMPT HAD SYNTAX ERRORS — fix these:\n" + "\n".join(f"- {e}" for e in syntax_errors)
-    elif semantic_discrepancies:
-        feedback = "PREVIOUS ATTEMPT HAD SEMANTIC ISSUES — fix these:\n" + "\n".join(f"- {d}" for d in semantic_discrepancies)
+    feedback = _build_feedback(syntax_errors, semantic_discrepancies, previous_dmn_xml)
 
     abbr_str = "\n".join(f"- {k}: {v}" for k, v in abbreviations.items()) if abbreviations else "(none)"
 
@@ -89,15 +118,22 @@ def dmn_creator(state: dict) -> dict:
     safe_name = name.lower().replace(" ", "-").replace("/", "-")[:50]
     write_artifact(output_dir, f"dmn/{safe_name}.dmn", dmn_xml)
 
-    review_count = state.get("review_count", 0)
-    if syntax_errors or semantic_discrepancies:
-        review_count += 1
+    # Separate budgets: a syntax retry and a semantic retry are counted
+    # independently so one loop cannot exhaust the other's budget.
+    syntax_retry_count = state.get("syntax_retry_count", 0)
+    semantic_retry_count = state.get("semantic_retry_count", 0)
+    if syntax_errors:
+        syntax_retry_count += 1
+    if semantic_discrepancies:
+        semantic_retry_count += 1
 
     logger.info("DMN Creator produced XML for '%s' (%d chars)", name, len(dmn_xml))
 
     return {
         "dmn_xml": dmn_xml,
+        "previous_dmn_xml": previous_dmn_xml,
         "syntax_errors": [],
         "semantic_discrepancies": [],
-        "review_count": review_count,
+        "syntax_retry_count": syntax_retry_count,
+        "semantic_retry_count": semantic_retry_count,
     }

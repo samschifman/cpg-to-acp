@@ -238,7 +238,7 @@ One subgraph instance per decision item in the manifest. Each runs independently
 - Reference examples from the cpg-to-bpm skill's error pattern library (worked examples of correct DMN, common mistakes with fixes)
 - The abbreviation lookup dictionary
 
-The Creator produces DMN 1.4 XML targeting Drools/Kogito (not Trisotech — no proprietary extensions). We target DMN 1.4 because it is the latest version officially supported by Drools/Kogito at conformance level 3. The namespace URL (`https://www.omg.org/spec/DMN/20191111/MODEL/`) is the same across 1.3 and 1.4.
+The Creator produces DMN 1.4 XML targeting Drools/Kogito (not Trisotech — no proprietary extensions). We target DMN 1.4 because it is the latest version officially supported by Drools/Kogito at conformance level 3. The DMN 1.4 language namespaces are version-specific: MODEL is `https://www.omg.org/spec/DMN/20211108/MODEL/` and FEEL is `https://www.omg.org/spec/DMN/20211108/FEEL/` (1.3 used the `20191111` date; DMNDI legitimately stays at `20191111/DMNDI/`). The per-model target `namespace=` attribute is a unique URI per model (e.g. `https://redhat.com/cpg-to-acp/dmn/<model-slug>`), distinct from the language namespace.
 
 **DMN Syntax Validator** — deterministic, no LLM:
 - XML well-formedness (`lxml.etree.parse`)

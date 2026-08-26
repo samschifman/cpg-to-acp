@@ -12,7 +12,14 @@ best possible decision table from the available information.
 
 ## Rules
 - Output ONLY valid DMN XML. No explanation, no markdown fences, no commentary.
-- Use the DMN namespace: https://www.omg.org/spec/DMN/20191111/MODEL/
+- Declare DMN 1.4 language namespaces on <definitions>: \
+xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/" and \
+xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/". Keep DMNDI at \
+xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" and \
+xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" if present.
+- Set the target `namespace=` attribute on <definitions> to a unique URI per \
+model, e.g. https://redhat.com/cpg-to-acp/dmn/<model-slug> — do NOT reuse the \
+language (MODEL) namespace as the target namespace.
 - Use FEEL for all input/output expressions.
 - Every inputData must have a variable with typeRef (number, string, boolean).
 - Every decision must have informationRequirement elements linking to its inputData.
@@ -21,7 +28,11 @@ best possible decision table from the available information.
 repeat the variable name in the unary test.
 - String output values must be quoted: "Start medication", not Start medication.
 - Boolean values are lowercase: true, false.
-- Escape XML special characters: &lt; for <, &gt; for >, &amp; for &.
+- Wrap EVERY FEEL expression <text> body in a CDATA section, e.g. \
+<text><![CDATA[< 130]]></text>. This lets you write FEEL operators (<, >, <=, \
+>=, &) literally with no XML entity escaping. Inside CDATA, write the literal \
+characters — do NOT use XML entities (&lt;, &gt;, &amp;); an entity inside CDATA \
+is taken as literal text and will corrupt the expression.
 - Every decisionTable MUST have explicit <input> elements (one per input column) \
 and at least one <output> element BEFORE any <rule> elements. Each <input> must \
 contain an <inputExpression> with typeRef. Each <output> must have name and typeRef \

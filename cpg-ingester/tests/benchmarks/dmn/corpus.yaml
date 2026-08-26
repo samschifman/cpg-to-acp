@@ -1,0 +1,69 @@
+# Golden DMN corpus manifest for the DMN generation-quality benchmark.
+#
+# Each entry ties a golden DMN file to the exact source section that justifies it,
+# plus the expected structure (inputs / outputs / hit policy) and representative
+# inputs used for the compile/execution check. Source-section references point at
+# the CPG markdown so the derivation tables (clinical sign-off) stay verifiable.
+#
+# Goldens are DMN 1.4 (language namespace 20211108) with FEEL expressions wrapped
+# in CDATA. The golden-diff is namespace- and CDATA-tolerant, so a 1.3 or entity-
+# escaped serialization of the same logic still scores identically against them.
+
+corpora:
+  hypertension:
+    source_cpg: data/synthetic-hypertension-cpg.md
+    decisions:
+      - id: treatment-recommendation
+        name: Treatment Recommendation
+        golden: data/golden/treatment-recommendation.dmn
+        source_section:
+          heading: "3.2 Treatment Decision"
+          table: "Decision Table 1: Treatment Recommendation"
+          markdown_lines: "75-101"
+        hit_policy: FIRST
+        inputs:
+          - {name: Systolic BP, type: number}
+          - {name: Has Diabetes, type: boolean}
+          - {name: Has Kidney Disease, type: boolean}
+        outputs:
+          - {name: Action, type: string}
+          - {name: Medication, type: string}
+          - {name: Dose, type: string}
+          - {name: Follow Up Weeks, type: number}
+        representative_inputs:
+          - inputs: {Systolic BP: 145, Has Diabetes: false, Has Kidney Disease: false}
+            expect: {Action: "Start medication"}
+          - inputs: {Systolic BP: 135, Has Diabetes: true, Has Kidney Disease: false}
+            expect: {Action: "Start medication"}
+          - inputs: {Systolic BP: 135, Has Diabetes: false, Has Kidney Disease: false}
+            expect: {Action: "Lifestyle modification only"}
+          - inputs: {Systolic BP: 125, Has Diabetes: false, Has Kidney Disease: false}
+            expect: {Action: "Lifestyle modification only"}
+
+      - id: monitoring-plan
+        name: Monitoring Plan
+        golden: data/golden/monitoring-plan.dmn
+        source_section:
+          heading: "3.3 Monitoring Plan"
+          table: "Decision Table 2: Monitoring Plan"
+          markdown_lines: "103-122"
+        hit_policy: FIRST
+        inputs:
+          - {name: Treatment Action, type: string}
+          - {name: Has Kidney Disease, type: boolean}
+        outputs:
+          - {name: Lab Order, type: string}
+          - {name: Lab Timing Weeks, type: number}
+        representative_inputs:
+          - inputs: {Treatment Action: "Start medication", Has Kidney Disease: true}
+            expect: {Lab Timing Weeks: 2}
+          - inputs: {Treatment Action: "Start medication", Has Kidney Disease: false}
+            expect: {Lab Timing Weeks: 4}
+          - inputs: {Treatment Action: "Lifestyle modification only", Has Kidney Disease: false}
+            expect: {Lab Order: "-"}
+
+# NOTE (Phase 0 finding): the synthetic hypertension CPG defines exactly two
+# decision tables — §3.2 Treatment and §3.3 Monitoring — both covered above.
+# §3.1 (patient-assessment checklist) and §3.4 (lifestyle counseling) are not
+# conditional decision logic, so there are no further decisions to author
+# goldens for. Additional corpora (diabetes, a real CPG) are added later.

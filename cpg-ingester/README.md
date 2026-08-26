@@ -95,12 +95,9 @@ Each run writes to an output directory (`output/<run-id>/`):
 # Parse only (Docling)
 cpg-parse data/synthetic-hypertension-cpg.pdf -o output
 
-# Extract DMN only (single-shot, no review)
-cpg-extract-dmn output/synthetic-hypertension-cpg.md -o output \
-  --litellm-url http://localhost:4000
-
-# Deploy DMN to acp-writer
-cpg-deploy-dmn output/decision-table-1.dmn --acp-writer-url http://localhost:8082
+# Deploy an already-generated DMN file to acp-writer
+cpg-deploy-dmn output/my-run/dmn/treatment-recommendation.dmn \
+  --acp-writer-url http://localhost:8082
 ```
 
 ## Testing

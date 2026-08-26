@@ -32,7 +32,9 @@ except AttributeError:
 logger = logging.getLogger(__name__)
 
 KOGITO_URL = os.environ.get("KOGITO_URL", "http://localhost:8081")
-DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
+
+# DMN metadata is parsed with namespace-wildcard matches ("{*}tag") so it works
+# across DMN language versions (1.3, 1.4, …) without pinning a MODEL namespace.
 
 _dynamic_models: dict[str, dict] = {}
 
@@ -96,7 +98,7 @@ def _extract_codes(input_data_el: ET.Element) -> list[str]:
     """
     codes: list[str] = []
 
-    ext = input_data_el.find(f"{{{DMN_NS}}}extensionElements")
+    ext = input_data_el.find("{*}extensionElements")
     if ext is not None:
         for child in ext:
             system = child.get("system", "")
@@ -107,7 +109,7 @@ def _extract_codes(input_data_el: ET.Element) -> list[str]:
                 codes.extend(_CODE_TOKEN_RE.findall(child.text))
 
     if not codes:
-        desc_el = input_data_el.find(f"{{{DMN_NS}}}description")
+        desc_el = input_data_el.find("{*}description")
         if desc_el is not None and desc_el.text:
             for system, code in _CODE_TOKEN_RE.findall(desc_el.text):
                 codes.append(f"{system}|{code}")
@@ -117,7 +119,7 @@ def _extract_codes(input_data_el: ET.Element) -> list[str]:
 
 def _extract_description(input_data_el: ET.Element) -> str | None:
     """Extract description text from a DMN inputData element."""
-    desc_el = input_data_el.find(f"{{{DMN_NS}}}description")
+    desc_el = input_data_el.find("{*}description")
     if desc_el is not None and desc_el.text:
         return desc_el.text.strip()
     return None
@@ -131,8 +133,8 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
     model_id = model_name.lower().replace(" ", "-")
 
     inputs = []
-    for input_data in root.findall(f"{{{DMN_NS}}}inputData"):
-        var = input_data.find(f"{{{DMN_NS}}}variable")
+    for input_data in root.findall("{*}inputData"):
+        var = input_data.find("{*}variable")
         if var is not None:
             codes = _extract_codes(input_data)
             desc = _extract_description(input_data)
@@ -145,13 +147,13 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
 
     if not inputs:
         seen_names: set[str] = set()
-        for decision in root.findall(f"{{{DMN_NS}}}decision"):
-            dt = decision.find(f"{{{DMN_NS}}}decisionTable")
+        for decision in root.findall("{*}decision"):
+            dt = decision.find("{*}decisionTable")
             if dt is not None:
-                for inp in dt.findall(f"{{{DMN_NS}}}input"):
-                    input_expr = inp.find(f"{{{DMN_NS}}}inputExpression")
+                for inp in dt.findall("{*}input"):
+                    input_expr = inp.find("{*}inputExpression")
                     if input_expr is not None:
-                        text_el = input_expr.find(f"{{{DMN_NS}}}text")
+                        text_el = input_expr.find("{*}text")
                         var_name = text_el.text.strip() if text_el is not None and text_el.text else inp.get("label", "")
                         if var_name and var_name not in seen_names:
                             seen_names.add(var_name)
@@ -161,10 +163,10 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
                             ))
 
     outputs = []
-    for decision in root.findall(f"{{{DMN_NS}}}decision"):
-        dt = decision.find(f"{{{DMN_NS}}}decisionTable")
+    for decision in root.findall("{*}decision"):
+        dt = decision.find("{*}decisionTable")
         if dt is not None:
-            for output in dt.findall(f"{{{DMN_NS}}}output"):
+            for output in dt.findall("{*}output"):
                 outputs.append(DecisionVariable(
                     name=output.get("name", ""),
                     type=output.get("typeRef", "string"),

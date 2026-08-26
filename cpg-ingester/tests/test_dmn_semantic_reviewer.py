@@ -94,17 +94,21 @@ class TestDMNSemanticReviewer:
             assert report["verified"] == 3
             assert report["discrepancies"] == 0
 
-    def test_no_source_pages_skips_review(self):
+    def test_no_source_pages_escalates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state = {
                 "dmn_xml": "<definitions/>",
                 "item": {"name": "Test"},
                 "source_pages": "",
                 "output_dir": tmpdir,
-                "review_count": 0,
+                "semantic_retry_count": 0,
             }
             result = dmn_semantic_reviewer(state)
-            assert result["semantic_discrepancies"] == []
+            # No source text can't be verified and can't be fixed by retrying:
+            # it is a hard escalation, not a silent pass.
+            assert result["force_escalate"] is True
+            assert result["escalation_reason"] == "no-source-text"
+            assert result["semantic_discrepancies"]
 
     def test_no_dmn_xml_returns_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -117,7 +121,7 @@ class TestDMNSemanticReviewer:
             result = dmn_semantic_reviewer(state)
             assert len(result["semantic_discrepancies"]) > 0
 
-    def test_handles_parse_failure(self):
+    def test_unparseable_reask_then_escalate(self):
         mock_llm = MagicMock()
         mock_llm.invoke = MagicMock(return_value=MagicMock(content="not json"))
 
@@ -127,11 +131,37 @@ class TestDMNSemanticReviewer:
                 "item": {"name": "Test"},
                 "source_pages": "source",
                 "output_dir": tmpdir,
-                "review_count": 0,
+                "semantic_retry_count": 0,
             }
             with patch("cpg_ingester.nodes.dmn_semantic_reviewer.get_llm", return_value=mock_llm):
                 result = dmn_semantic_reviewer(state)
 
+            # Unparseable output triggers exactly one structured re-ask; if that
+            # also fails, escalate rather than silently pass.
+            assert mock_llm.invoke.call_count == 2
+            assert result["force_escalate"] is True
+            assert result["escalation_reason"] == "reviewer-unparseable"
+
+    def test_unparseable_then_valid_on_reask(self):
+        mock_llm = MagicMock()
+        mock_llm.invoke = MagicMock(side_effect=[
+            MagicMock(content="not json"),
+            MagicMock(content=MOCK_PASSED_RESPONSE),
+        ])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = {
+                "dmn_xml": "<definitions/>",
+                "item": {"name": "Test"},
+                "source_pages": "source",
+                "output_dir": tmpdir,
+                "semantic_retry_count": 0,
+            }
+            with patch("cpg_ingester.nodes.dmn_semantic_reviewer.get_llm", return_value=mock_llm):
+                result = dmn_semantic_reviewer(state)
+
+            assert mock_llm.invoke.call_count == 2
+            assert result.get("force_escalate") is None
             assert result["semantic_discrepancies"] == []
 
     def test_uses_clinical_pharmacist_persona(self):

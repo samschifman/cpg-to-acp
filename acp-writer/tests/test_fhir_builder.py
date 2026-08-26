@@ -198,11 +198,14 @@ class TestActivities:
         assert srs[0]["code"]["coding"][0]["code"] == "51990-0"
 
     def test_lifestyle_inline(self):
+        # Inline activities use FHIR R4 activity.detail (not R5 performedActivity),
+        # which Medplum accepts — see commit dd7dcc9 (#137).
         bundle = build_fhir_bundle(_hypertension_brief())
         cp = _get_resources(bundle, "CarePlan")[0]
-        inline = [a for a in cp["activity"] if "performedActivity" in a]
+        inline = [a for a in cp["activity"] if "detail" in a]
         assert len(inline) == 1
-        assert "DASH" in inline[0]["performedActivity"][0]["text"]
+        assert "DASH" in inline[0]["detail"]["description"]
+        assert "DASH" in inline[0]["detail"]["code"]["text"]
 
 
 class TestAITransparency:
@@ -256,7 +259,8 @@ class TestAITransparency:
         ext = target["extension"][0]
         assert "targetPath" in ext["url"]
         assert "CarePlan.activity[" in ext["valueString"]
-        assert ".performedActivity" in ext["valueString"]
+        # R4 inline activities live under activity[i].detail (see #137).
+        assert ".detail" in ext["valueString"]
 
     def test_standalone_activity_provenance_no_target_path(self):
         bundle = build_fhir_bundle(_hypertension_brief())

@@ -5,11 +5,11 @@ These are plain OMG DMN 1.4 — no proprietary extensions.
 
 DMN_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-             xmlns:feel="https://www.omg.org/spec/DMN/20191111/FEEL/"
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+             xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/"
              id="definitions_{id}"
              name="{name}"
-             namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+             namespace="https://redhat.com/cpg-to-acp/dmn/{id}">
 
   <inputData id="input_systolic" name="Systolic BP">
     <variable id="var_systolic" name="Systolic BP" typeRef="number"/>
@@ -28,23 +28,23 @@ DMN_TEMPLATE = """\
     </informationRequirement>
     <decisionTable id="dt_{id}" hitPolicy="{hit_policy}" preferredOrientation="Rule-as-Row">
       <input id="inp_1">
-        <inputExpression id="ie_1" typeRef="number"><text>Systolic BP</text></inputExpression>
+        <inputExpression id="ie_1" typeRef="number"><text><![CDATA[Systolic BP]]></text></inputExpression>
       </input>
       <input id="inp_2">
-        <inputExpression id="ie_2" typeRef="number"><text>Patient Age</text></inputExpression>
+        <inputExpression id="ie_2" typeRef="number"><text><![CDATA[Patient Age]]></text></inputExpression>
       </input>
       <output id="out_1" name="Recommendation" typeRef="string"/>
       <rule id="rule_1">
         <description>High BP in older adults</description>
-        <inputEntry id="ie1_1"><text>&gt;= 150</text></inputEntry>
-        <inputEntry id="ie1_2"><text>&gt;= 60</text></inputEntry>
-        <outputEntry id="oe1_1"><text>"Initiate treatment"</text></outputEntry>
+        <inputEntry id="ie1_1"><text><![CDATA[>= 150]]></text></inputEntry>
+        <inputEntry id="ie1_2"><text><![CDATA[>= 60]]></text></inputEntry>
+        <outputEntry id="oe1_1"><text><![CDATA["Initiate treatment"]]></text></outputEntry>
       </rule>
       <rule id="rule_2">
         <description>High BP in younger adults</description>
-        <inputEntry id="ie2_1"><text>&gt;= 140</text></inputEntry>
-        <inputEntry id="ie2_2"><text>&lt; 60</text></inputEntry>
-        <outputEntry id="oe2_1"><text>"Initiate treatment"</text></outputEntry>
+        <inputEntry id="ie2_1"><text><![CDATA[>= 140]]></text></inputEntry>
+        <inputEntry id="ie2_2"><text><![CDATA[< 60]]></text></inputEntry>
+        <outputEntry id="oe2_1"><text><![CDATA["Initiate treatment"]]></text></outputEntry>
       </rule>
     </decisionTable>
   </decision>
@@ -57,7 +57,9 @@ COMMON_ERRORS = """\
 
 ### 1. Wrong namespace
 WRONG: xmlns="http://www.omg.org/spec/DMN/20151101/dmn.xsd"
-RIGHT: xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+RIGHT: xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/" (DMN 1.4 language namespace)
+The target `namespace=` attribute is a unique URI per model (e.g.
+https://redhat.com/cpg-to-acp/dmn/<model-slug>), NOT the language namespace.
 
 ### 2. Missing hit policy
 WRONG: <decisionTable id="dt_1">
@@ -92,10 +94,13 @@ An empty <text> element means "any" but is ambiguous. Use "-" for clarity.
 Every inputData referenced in the decisionTable must have a corresponding
 informationRequirement element in the decision, with href="#input_id".
 
-### 9. XML special characters not escaped
-WRONG: <inputEntry><text>< 130</text></inputEntry>
-RIGHT: <inputEntry><text>&lt; 130</text></inputEntry>
-Use &lt; for <, &gt; for >, &amp; for &.
+### 9. FEEL expressions not wrapped in CDATA
+WRONG: <inputEntry><text>< 130</text></inputEntry> (bare < breaks XML well-formedness)
+WRONG: <inputEntry><text>&lt; 130</text></inputEntry> (entity-escaped — works, but avoid)
+RIGHT: <inputEntry><text><![CDATA[< 130]]></text></inputEntry>
+Wrap every FEEL <text> body in CDATA so operators (<, >, <=, >=, &) are written
+literally. Never use XML entities (&lt;, &gt;, &amp;) INSIDE a CDATA section — they
+are taken as literal text and corrupt the expression.
 
 ### 10. Range syntax
 Inclusive: [130..139] means 130 <= x <= 139

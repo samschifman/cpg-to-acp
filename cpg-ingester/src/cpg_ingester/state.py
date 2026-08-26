@@ -47,11 +47,16 @@ class DMNPipelineState(TypedDict, total=False):
     llm_api_key: str
     output_dir: str
     dmn_xml: str
+    previous_dmn_xml: str
     decision_model_summary: dict
     syntax_errors: list[str]
     semantic_discrepancies: list[str]
-    review_count: int
+    syntax_retry_count: int
+    semantic_retry_count: int
     escalated: bool
+    escalation_reason: str
+    escalation_errors: list[str]
+    force_escalate: bool
 
 
 class RecPipelineState(TypedDict, total=False):

@@ -4,7 +4,7 @@ from acp_writer.api import _parse_dmn_metadata
 
 
 DMN_WITHOUT_CODES = """<?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
              name="Test Model" namespace="test">
   <inputData id="input_sbp" name="Systolic BP">
     <variable id="var_sbp" name="Systolic BP" typeRef="number"/>
@@ -24,7 +24,7 @@ DMN_WITHOUT_CODES = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 DMN_WITH_EXTENSION_CODES = """<?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
              name="Test Model With Codes" namespace="test">
   <inputData id="input_sbp" name="Systolic BP">
     <variable id="var_sbp" name="Systolic BP" typeRef="number"/>
@@ -50,7 +50,7 @@ DMN_WITH_EXTENSION_CODES = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 DMN_WITH_DESCRIPTION_CODES = """<?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
              name="Test Model Desc Codes" namespace="test">
   <inputData id="input_sbp" name="Systolic BP">
     <variable id="var_sbp" name="Systolic BP" typeRef="number"/>
@@ -110,6 +110,19 @@ class TestCodesFromDescription:
         summary = _parse_dmn_metadata(DMN_WITH_DESCRIPTION_CODES)
         egfr = summary.inputs[1]
         assert egfr.codes == ["http://loinc.org|33914-3"]
+
+
+class TestNamespaceTolerance:
+    def test_legacy_1_3_namespace_still_parses(self):
+        """Metadata parsing is namespace-tolerant: a 1.3-namespace document still
+        parses so mixed-vintage models keep working after the 1.4 migration."""
+        legacy = DMN_WITHOUT_CODES.replace(
+            "https://www.omg.org/spec/DMN/20211108/MODEL/",
+            "https://www.omg.org/spec/DMN/20191111/MODEL/",
+        )
+        summary = _parse_dmn_metadata(legacy)
+        assert len(summary.inputs) == 2
+        assert summary.inputs[0].name == "Systolic BP"
 
 
 class TestExistingBehaviorPreserved:

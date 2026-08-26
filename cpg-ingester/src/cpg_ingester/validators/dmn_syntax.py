@@ -8,7 +8,11 @@ from lxml import etree
 
 logger = logging.getLogger(__name__)
 
-DMN_NAMESPACE = "https://www.omg.org/spec/DMN/20191111/MODEL/"
+# DMN 1.4 language (MODEL) namespace. We target DMN 1.4 at conformance level 3
+# (see AGENTS.md); produced models must declare this as their xmlns. Note this is
+# the *language* namespace — distinct from the per-model target `namespace=`
+# attribute, which is a unique URI per model (e.g. https://redhat.com/cpg-to-acp/dmn/<slug>).
+DMN_NAMESPACE = "https://www.omg.org/spec/DMN/20211108/MODEL/"
 DMN_NS = {"dmn": DMN_NAMESPACE}
 
 VALID_HIT_POLICIES = {"UNIQUE", "FIRST", "COLLECT", "ANY", "PRIORITY", "RULE ORDER", "OUTPUT ORDER"}

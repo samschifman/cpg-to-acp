@@ -50,8 +50,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_missing_hit_policy(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
             <decisionTable id="dt1">
@@ -67,8 +67,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_missing_type_ref(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
             <decisionTable id="dt1" hitPolicy="FIRST">
@@ -84,8 +84,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_wrong_entry_count(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
             <decisionTable id="dt1" hitPolicy="FIRST">
@@ -104,8 +104,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_empty_text(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
             <decisionTable id="dt1" hitPolicy="FIRST">
@@ -123,8 +123,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_no_rules(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
             <decisionTable id="dt1" hitPolicy="FIRST">
@@ -138,8 +138,8 @@ class TestDMNSyntaxValidator:
 
     def test_catches_missing_input_data_variable(self):
         xml = '''<?xml version="1.0"?>
-        <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
-                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20191111/MODEL/">
+        <definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+                     id="test" name="Test" namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
           <inputData id="id1" name="X"/>
           <decision id="d1" name="D1">
             <variable id="v1" name="D1" typeRef="string"/>
@@ -245,13 +245,16 @@ class TestDMNCreatorNode:
                 "source_pages": "",
                 "abbreviations": {},
                 "output_dir": tmpdir,
+                "dmn_xml": "<definitions>previous broken attempt</definitions>",
                 "syntax_errors": ["Missing hitPolicy attribute"],
-                "review_count": 0,
+                "syntax_retry_count": 0,
             }
             with patch("cpg_ingester.nodes.dmn_creator.get_llm", return_value=mock_llm):
                 result = dmn_creator(state)
 
-            assert result["review_count"] == 1
+            assert result["syntax_retry_count"] == 1
             call_args = mock_llm.invoke.call_args[0][0]
             user_msg = call_args[1]["content"]
-            assert "SYNTAX ERRORS" in user_msg
+            assert "Syntax errors to fix" in user_msg
+            # Repair mode: the previous attempt is included so the model corrects it.
+            assert "previous broken attempt" in user_msg

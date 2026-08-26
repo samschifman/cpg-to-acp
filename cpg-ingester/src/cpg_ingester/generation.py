@@ -20,7 +20,10 @@ from cpg_ingester.state import CPGIngesterState, DMNPipelineState, RecPipelineSt
 
 logger = logging.getLogger(__name__)
 
-MAX_DMN_REVIEWS = 3
+# Separate retry budgets for the two failure modes so a run of syntax retries
+# cannot starve the semantic review (and vice versa).
+MAX_DMN_SYNTAX_RETRIES = 3
+MAX_DMN_SEMANTIC_RETRIES = 2
 
 
 def _extract_section_text(markdown: str, section_map: list, section_id: str) -> str:
@@ -69,15 +72,19 @@ MAX_REC_REVIEWS = 2
 
 def _route_after_dmn_syntax(state: DMNPipelineState) -> str:
     if state.get("syntax_errors"):
-        if state.get("review_count", 0) >= MAX_DMN_REVIEWS:
+        if state.get("syntax_retry_count", 0) >= MAX_DMN_SYNTAX_RETRIES:
             return "dmn_escalate"
         return "dmn_creator"
     return "dmn_semantic_reviewer"
 
 
 def _route_after_dmn_semantic(state: DMNPipelineState) -> str:
+    # A hard escalation from the reviewer (no source text, unparseable output)
+    # bypasses the retry budget — retrying cannot fix either condition.
+    if state.get("force_escalate"):
+        return "dmn_escalate"
     if state.get("semantic_discrepancies"):
-        if state.get("review_count", 0) >= MAX_DMN_REVIEWS:
+        if state.get("semantic_retry_count", 0) >= MAX_DMN_SEMANTIC_RETRIES:
             return "dmn_escalate"
         return "dmn_creator"
     return "dmn_accept"
@@ -89,8 +96,18 @@ def _dmn_accept(state: DMNPipelineState) -> dict:
 
 
 def _dmn_escalate(state: DMNPipelineState) -> dict:
-    logger.warning("DMN escalated for human review: %s", state.get("item", {}).get("name", "unknown"))
-    return {"escalated": True}
+    name = state.get("item", {}).get("name", "unknown")
+    reason = state.get("escalation_reason")
+    if not reason:
+        if state.get("syntax_errors"):
+            reason = "syntax-budget-exhausted"
+        elif state.get("semantic_discrepancies"):
+            reason = "semantic-budget-exhausted"
+        else:
+            reason = "unknown"
+    errors = state.get("syntax_errors") or state.get("semantic_discrepancies") or []
+    logger.warning("DMN escalated for human review: %s (%s)", name, reason)
+    return {"escalated": True, "escalation_reason": reason, "escalation_errors": list(errors)}
 
 
 # --- Rec subgraph routing ---
@@ -214,18 +231,48 @@ def generate_all(state: dict) -> dict:
                 "source_pages": source_text or item.get("source_pages", ""),
                 **shared,
             })
-            if result.get("dmn_xml"):
-                entry = {
-                    "dmn_xml": result["dmn_xml"],
-                    "item": item,
-                    "decision_model_summary": result.get("decision_model_summary", {}),
-                }
-                if result.get("escalated"):
-                    entry["escalated"] = True
-                    entry["escalation_errors"] = result.get("syntax_errors") or result.get("semantic_discrepancies") or []
-                dmn_results.append(entry)
         except Exception as e:
+            # A crash must not make the decision silently disappear from the
+            # output and the counts — flag it for human review instead.
             logger.error("DMN generation failed for '%s': %s", item.get("name"), e)
+            dmn_results.append({
+                "dmn_xml": "",
+                "item": item,
+                "decision_model_summary": {},
+                "escalated": True,
+                "escalation_reason": "generation-exception",
+                "escalation_errors": [str(e)],
+            })
+            continue
+
+        if not result.get("dmn_xml"):
+            # Same rule for a run that finished but produced no XML.
+            logger.error("DMN generation produced no XML for '%s'", item.get("name"))
+            dmn_results.append({
+                "dmn_xml": "",
+                "item": item,
+                "decision_model_summary": result.get("decision_model_summary", {}),
+                "escalated": True,
+                "escalation_reason": "empty-result",
+                "escalation_errors": ["Subgraph returned no DMN XML"],
+            })
+            continue
+
+        entry = {
+            "dmn_xml": result["dmn_xml"],
+            "item": item,
+            "decision_model_summary": result.get("decision_model_summary", {}),
+        }
+        if result.get("escalated"):
+            entry["escalated"] = True
+            entry["escalation_reason"] = result.get("escalation_reason", "")
+            entry["escalation_errors"] = (
+                result.get("escalation_errors")
+                or result.get("syntax_errors")
+                or result.get("semantic_discrepancies")
+                or []
+            )
+        dmn_results.append(entry)
 
     all_recs = []
     seen_sections = set()

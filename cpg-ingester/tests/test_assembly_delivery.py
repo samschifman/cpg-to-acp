@@ -146,11 +146,21 @@ class TestAssemblyNode:
         with tempfile.TemporaryDirectory() as tmpdir:
             state = {
                 "cpg_metadata": {"cpg_id": "CPG-001"},
-                "item_manifest": [{"id": "x", "escalated": True}],
+                # Escalations are carried on the generated results, not the manifest.
+                "dmn_results": [{
+                    "dmn_xml": "<definitions/>",
+                    "item": {"name": "Escalated Decision"},
+                    "escalated": True,
+                    "escalation_reason": "syntax-budget-exhausted",
+                    "escalation_errors": ["Missing hitPolicy attribute"],
+                }],
                 "output_dir": tmpdir,
             }
             result = assembly(state)
             assert len(result["escalated_items"]) >= 1
+            escalated = result["escalated_items"][0]
+            assert escalated["name"] == "Escalated Decision"
+            assert escalated["escalation_reason"] == "syntax-budget-exhausted"
             assert (Path(tmpdir) / "escalated-items.json").exists()
 
 

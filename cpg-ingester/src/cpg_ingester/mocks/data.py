@@ -30,7 +30,7 @@ _CPG_ID = METADATA["cpg_id"]
 DECISIONS = [
     {
         "artifact_id": make_artifact_id(_CPG_ID, "dmn", "Blood Pressure Treatment Threshold", "3. Blood Pressure Thresholds"),
-        "dmn_xml": '<?xml version="1.0" encoding="UTF-8"?>\n<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/">\n  <decision id="bp-threshold" name="Blood Pressure Treatment Threshold">\n    <!-- simplified for mock -->\n  </decision>\n</definitions>',
+        "dmn_xml": '<?xml version="1.0" encoding="UTF-8"?>\n<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/">\n  <decision id="bp-threshold" name="Blood Pressure Treatment Threshold">\n    <!-- simplified for mock -->\n  </decision>\n</definitions>',
         "item": {
             "name": "Blood Pressure Treatment Threshold",
             "type": "decision_table",
@@ -55,7 +55,7 @@ DECISIONS = [
     },
     {
         "artifact_id": make_artifact_id(_CPG_ID, "dmn", "Monitoring Frequency", "6. Monitoring and Follow-up"),
-        "dmn_xml": '<?xml version="1.0" encoding="UTF-8"?>\n<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/">\n  <decision id="monitoring-freq" name="Monitoring Frequency">\n    <!-- simplified for mock -->\n  </decision>\n</definitions>',
+        "dmn_xml": '<?xml version="1.0" encoding="UTF-8"?>\n<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/">\n  <decision id="monitoring-freq" name="Monitoring Frequency">\n    <!-- simplified for mock -->\n  </decision>\n</definitions>',
         "item": {
             "name": "Monitoring Frequency",
             "type": "decision_table",

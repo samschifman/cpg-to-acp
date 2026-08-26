@@ -24,36 +24,64 @@ def dmn_semantic_reviewer(state: dict) -> dict:
     item = state.get("item", {})
     source_pages = state.get("source_pages", "")
     output_dir = state.get("output_dir", "output")
-    review_count = state.get("review_count", 0)
+    review_count = state.get("semantic_retry_count", 0)
 
     name = item.get("name", "unknown")
 
     if not dmn_xml:
         return {"semantic_discrepancies": ["No DMN XML to review"]}
 
+    # No source text means there is nothing to verify the model against. Retrying
+    # the creator will not conjure source text, so this is a hard escalation, not
+    # a silent pass and not a retry.
     if not source_pages:
-        logger.warning("No source pages for semantic review of '%s' — skipping", name)
-        return {"semantic_discrepancies": []}
+        logger.warning("No source text for semantic review of '%s' — escalating", name)
+        return {
+            "semantic_discrepancies": [
+                "No source text available to verify this decision against the CPG"
+            ],
+            "force_escalate": True,
+            "escalation_reason": "no-source-text",
+        }
 
     llm = get_llm(state)
 
-    logger.info("Calling LLM...")
-    t0 = time.time()
-    response = llm.invoke([
+    messages = [
         {"role": "system", "content": DMN_SEMANTIC_REVIEWER_SYSTEM},
         {"role": "user", "content": DMN_SEMANTIC_REVIEWER_USER.format(
             name=name,
             dmn_xml=dmn_xml,
             source_pages=source_pages,
         )},
-    ])
+    ]
+
+    logger.info("Calling LLM...")
+    t0 = time.time()
+    response = llm.invoke(messages)
     logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
         result = _parse_llm_json(content_to_text(response.content))
     except (json.JSONDecodeError, ValueError):
-        logger.warning("Failed to parse semantic review response for '%s'", name)
-        return {"semantic_discrepancies": []}
+        # One structured re-ask before giving up — the model often recovers when
+        # explicitly told its previous reply was not valid JSON.
+        logger.warning("Semantic review for '%s' was not valid JSON — re-asking", name)
+        messages.append({"role": "assistant", "content": content_to_text(response.content)})
+        messages.append({"role": "user", "content":
+                         "Your previous reply was not valid JSON. Reply with only "
+                         "the JSON object, no prose and no code fences."})
+        response = llm.invoke(messages)
+        try:
+            result = _parse_llm_json(content_to_text(response.content))
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Semantic review for '%s' still unparseable — escalating", name)
+            return {
+                "semantic_discrepancies": [
+                    "Semantic reviewer did not return valid JSON after a re-ask"
+                ],
+                "force_escalate": True,
+                "escalation_reason": "reviewer-unparseable",
+            }
 
     discrepancies_found = result.get("discrepancies_found", False)
     discrepancies = result.get("discrepancies", [])
