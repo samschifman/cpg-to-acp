@@ -286,9 +286,9 @@ class TestPlanComposer:
         user_msg = call_args[1]["content"]
         assert "Preserving conflicts between guidelines" in system_msg
         assert "Revising an existing care plan" not in system_msg
-        assert "Prior Care Plan" not in user_msg
+        assert "Care Plan Base" not in user_msg
         # user prompt is captured verbatim
-        assert "Prior Care Plan" not in result["plan_composer_prompt"]
+        assert "Care Plan Base" not in result["plan_composer_prompt"]
 
     @patch("acp_writer.nodes.plan_composer.get_llm")
     def test_revision_mode_when_prior_brief_present(self, mock_get_llm):
@@ -315,11 +315,11 @@ class TestPlanComposer:
         user_msg = call_args[1]["content"]
         assert "Revising an existing care plan" in system_msg
         assert "Preserving conflicts between guidelines" not in system_msg
-        assert "Prior Care Plan" in user_msg
+        assert "Care Plan Base" in user_msg
         # prior goals/activities are rendered as the base
         assert "Lower systolic BP to <140" in user_msg
         assert "Amlodipine 5mg daily" in user_msg
-        assert "Prior Care Plan" in result["plan_composer_prompt"]
+        assert "Care Plan Base" in result["plan_composer_prompt"]
 
     @patch("acp_writer.nodes.plan_composer.get_llm")
     def test_empty_prior_brief_stays_authoring(self, mock_get_llm):

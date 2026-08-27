@@ -97,35 +97,49 @@ is regenerated during a request-changes loop.
 
 ## Conflict-resolution feedback loop
 
-When a clinician requests changes on the care plan, the plan is **recomposed**,
-not merely re-serialized — goals and activities are decided in the planning
-brief, so regenerating the brief with the clinician's feedback is what actually
-revises the plan. To make a comment like *"resolve all identified conflicts as
-you suggested"* actionable, the request-changes loop feeds two things back into
-the composer:
+When a clinician requests changes on the care plan, the composer runs in
+**revision mode**: the prior brief is the authoritative base, and the model
+applies only the changes the clinician directed (no unrequested additions,
+untouched items kept verbatim). The clinician's channel into the revision is a
+dedicated **"Clinician-directed changes"** prompt section, rendered on *every*
+internal composer iteration directly from state — deliberately separate from
+the internal brief-reviewer's feedback channel, which is overwritten each
+iteration. It carries:
 
-1. the clinician's free-text **comment** (`careplan_feedback`), and
-2. the **previously identified conflicts** from the prior brief
-   (`prior_brief_ref` → rendered by `planning_brief.render_conflicts_feedback`
-   into a compact "Previously identified conflicts" block that lists each
-   conflict's id, category, severity, description, rationale, **suggested
-   resolution**, and source CPG/recommendation ids).
+1. the clinician's **instruction** for this round (`careplan_feedback`) plus
+   the accumulated **feedback history** of earlier rounds (standing
+   constraints do not expire between rounds);
+2. the prior brief's **unresolved conflicts** — each with its id, category,
+   description, rationale, **suggested resolution**, and source
+   CPG/recommendation ids — as the instruction's referents; and
+3. conflicts **already resolved in earlier rounds**, listed so they stay
+   resolved and are not reintroduced.
 
-The analyst emits the `suggested_resolution` per conflict (a conservative,
-one-sentence suggestion — never an instruction the system acts on by itself); it
-is surfaced to the clinician in the review UI and rendered into the feedback
-block above. After recomposition, the conflict analyst re-runs on the new brief:
-a **genuinely resolved conflict simply is not re-detected** — its disappearance
-is the success signal, so there is no separate "mark resolved" step in this loop.
+Within the internal review loop, iterations after the first revise the **latest
+draft** rather than the frozen prior brief, so internal-reviewer fixes build on
+the directed changes instead of reverting them.
+
+After the loop converges the conflict analyst re-runs with **continuity**: each
+prior conflict comes back under its original id — either `status: resolved`
+(with the clinician's instruction recorded as its `resolution`) or still
+present. Directed resolutions are then **enforced**, not hoped for: if a
+clinician-directed conflict is still detected, the composer is retried once
+with an explicit list of the unapplied directives; if it is *still* unapplied,
+the brief is flagged (`review_status: flagged`) naming the directives that
+could not be applied — an honest "could not apply" in the review UI instead of
+silently re-presenting the same conflicts.
 
 ```mermaid
 flowchart LR
-    REV[Clinician: request changes<br/>+ comment] --> COMPOSE[ComposePlan<br/>seed comment + prior conflicts]
-    PRIOR[(Prior brief<br/>conflicts + suggestions)] --> COMPOSE
-    COMPOSE --> ANALYST[Conflict analyst<br/>re-run on new brief]
-    ANALYST --> RESULT{Conflict recurs?}
-    RESULT -->|no| DONE[Resolved — not re-flagged]
-    RESULT -->|yes| REV
+    REV[Clinician: request changes<br/>+ comment] --> COMPOSE[Composer revision mode<br/>base = prior brief / latest draft<br/>+ Clinician-directed changes section]
+    PRIOR[(Prior brief<br/>conflicts + suggestions<br/>+ feedback history)] --> COMPOSE
+    COMPOSE --> ANALYST[Conflict analyst<br/>continuity: same ids]
+    ANALYST --> CHECK{Directed resolutions<br/>applied?}
+    CHECK -->|yes| DONE[Conflicts marked resolved<br/>with clinician's instruction]
+    CHECK -->|no| RETRY[Composer retry with<br/>unapplied directives listed]
+    RETRY --> ANALYST2[Analyst re-check]
+    ANALYST2 -->|applied| DONE
+    ANALYST2 -->|still unapplied| FLAG[Brief flagged:<br/>could not apply directives]
 ```
 
 Per-conflict *structured* feedback (targeting one specific conflict by

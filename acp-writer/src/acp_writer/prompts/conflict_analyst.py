@@ -92,6 +92,14 @@ NOT rephrase a surviving conflict into a new one.
 Every prior conflict MUST appear in your output — either "resolved" or still \
 present. Add "id", "status", and "resolution" to the output objects you carry \
 forward.
+
+Additionally, on every conflict you carry forward set "clinician_directed": \
+true when the clinician's instruction directs its resolution (e.g. "resolve \
+all conflicts …" covers every unresolved conflict; an instruction naming a \
+specific conflict covers only that one), false when the instruction does not \
+address it. This field drives an enforcement check: a conflict that is \
+clinician_directed but still present tells the pipeline the directed \
+resolution was NOT applied.
 """
 
 CONFLICT_ANALYST_USER = """\

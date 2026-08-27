@@ -120,7 +120,11 @@ def _format_prior_conflicts(prior: list[ConflictEntry], comment: str) -> str:
         return ""
     lines = ["", "## Previously flagged conflicts (carry each forward by id)"]
     for e in prior:
-        lines.append(f"- [{e.id}] {e.category.value} ({e.severity.value}): {e.description}")
+        lines.append(
+            f"- [{e.id}] {e.category.value} ({e.severity.value}, status={e.status.value}): {e.description}"
+        )
+        if e.status == ConflictStatus.RESOLVED and e.resolution:
+            lines.append(f"    resolved earlier: {e.resolution}")
         if e.suggested_resolution:
             lines.append(f"    suggested: {e.suggested_resolution}")
     if comment:
@@ -298,7 +302,7 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
 
     if not goals and not activities:
         logger.info("Conflict analysis: empty plan — nothing to analyze")
-        return {"planning_brief": brief}
+        return {"planning_brief": brief, "unapplied_directed_conflicts": []}
 
     # Revision continuity (F17c): on a request-changes loop, feed the prior
     # conflicts + clinician instruction back so the analyst carries each forward
@@ -357,10 +361,20 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
                     logger.warning("Conflict LLM call failed with no response (attempt 1), retrying: %s", e)
                 continue
             # Graceful degradation: keep the brief's existing conflicts, continue.
+            # No analysis ran, so no enforcement signal — return an empty list
+            # explicitly so a stale value from an earlier pass can't linger.
             logger.error("Conflict analysis failed after retry — keeping existing conflicts: %s", e)
-            return {"planning_brief": brief, "conflict_prompt": user_prompt}
+            return {
+                "planning_brief": brief,
+                "conflict_prompt": user_prompt,
+                "unapplied_directed_conflicts": [],
+            }
 
     fresh: list[ConflictEntry] = []
+    # F18c enforcement signal: prior conflicts the clinician directed resolved
+    # that are STILL detected in this plan — i.e. the composer did not apply the
+    # directed resolution. The compose loop uses this to retry once, then flag.
+    unapplied_directed: list[str] = []
     malformed = 0
     for r in (raw_conflicts or []):
         try:
@@ -371,8 +385,19 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
             continue
         if entry is not None:
             fresh.append(entry)
+            if (
+                entry.id in prior_by_id
+                and bool(r.get("clinician_directed"))
+                and entry.status == ConflictStatus.DETECTED
+            ):
+                unapplied_directed.append(entry.id)
     if malformed:
         logger.info("Conflict analysis: skipped %d malformed conflict item(s)", malformed)
+    if unapplied_directed:
+        logger.warning(
+            "Conflict analysis: %d clinician-directed resolution(s) NOT applied: %s",
+            len(unapplied_directed), unapplied_directed,
+        )
 
     # On a revision pass (F17c) the analyst is prompted to carry every prior
     # conflict forward — resolved (status="resolved" + clinician resolution) or
@@ -404,4 +429,8 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
         counts["other"],
     )
 
-    return {"planning_brief": brief, "conflict_prompt": user_prompt}
+    return {
+        "planning_brief": brief,
+        "conflict_prompt": user_prompt,
+        "unapplied_directed_conflicts": unapplied_directed,
+    }

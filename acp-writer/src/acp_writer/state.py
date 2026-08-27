@@ -49,9 +49,14 @@ class CarePlanComposerState(TypedDict, total=False):
     # review round {decision, comment, reviewer, ...}; the newest is the round to
     # act on now, earlier rounds are standing context/constraints.
     careplan_review_history: list[dict[str, Any]]
-    # Raw latest clinician instruction on a request-changes loop. The conflict
-    # analyst reads it to record which conflicts were directed resolved (F17c).
+    # Raw latest clinician instruction on a request-changes loop. Rendered into
+    # the composer's Clinician-directed changes section every iteration (F18a);
+    # the conflict analyst reads it to judge which conflicts were directed (F17c).
     careplan_feedback: str
+    # F18c enforcement retry: message listing directed resolutions the previous
+    # composer attempt failed to apply. Set only by the compose pipeline's
+    # enforcement step; rendered inside the Clinician-directed changes section.
+    directive_enforcement_note: str
 
     # Phase 1: Plan Composer outputs
     planning_brief: dict[str, Any]
@@ -63,6 +68,10 @@ class CarePlanComposerState(TypedDict, total=False):
 
     # Phase 1: Conflict Analyst outputs
     conflict_prompt: str  # rendered user prompt, captured for AI-InputPrompt (WS3)
+    # Ids of prior conflicts the clinician directed resolved that are STILL
+    # detected after a revision — the F18c enforcement signal. Always set by the
+    # analyst on a revision pass ([] when everything directed was applied).
+    unapplied_directed_conflicts: list[str]
 
     # Phase 2: FHIR Bundle Generator outputs
     fhir_bundle: dict[str, Any]

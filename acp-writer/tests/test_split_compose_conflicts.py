@@ -176,40 +176,18 @@ def test_prompts_ferry_compose_to_generate_bundle():
     assert input_prompts, "deployed bundle lost AI-InputPrompt DocRefs (F2)"
 
 
-def test_seed_feedback_comment_and_conflicts():
-    """F16a: _seed_feedback emits the clinician comment followed by the prior
-    conflicts block so 'resolve the identified conflicts' has a referent."""
-    fb = llm_reasoning._seed_feedback(
-        "resolve all identified conflicts as you suggested",
-        [{"id": "conf-1", "category": "overlap", "description": "two diets",
-          "suggested_resolution": "combine them"}],
-    )
-    assert "resolve all identified conflicts as you suggested" in fb
-    assert "## Previously identified conflicts" in fb
-    assert "two diets" in fb
-    assert "Suggested: combine them" in fb
-
-
-def test_seed_feedback_comment_only_when_no_prior_conflicts():
-    """Control: no prior conflicts → comment only, no conflicts block."""
-    fb = llm_reasoning._seed_feedback("please revise the plan", [])
-    assert "please revise the plan" in fb
-    assert "## Previously identified conflicts" not in fb
-
-
-def test_seed_feedback_empty_on_first_pass():
-    assert llm_reasoning._seed_feedback("", []) == ""
-
-
-def test_prior_conflicts_seed_the_composer_feedback():
-    """F16a end-to-end through /compose: a request-changes call carrying the
-    prior brief ref threads the previously-detected conflicts into the composer's
-    seeded feedback. Before F16a only the free-text comment reached the composer,
-    leaving 'resolve the identified conflicts' with nothing to act on."""
+def test_prior_conflicts_reach_the_composer_state():
+    """F18a through /compose: a request-changes call threads the prior brief
+    (with its conflicts) and the clinician comment into composer STATE — the
+    durable channel plan_composer renders every iteration. brief_review_feedback
+    starts EMPTY: seeding clinician directives there was the F18 bug (the
+    internal reviewer overwrites that channel each iteration)."""
     captured = {}
 
     def _capture_compose(state):
         captured["feedback"] = state.get("brief_review_feedback", "")
+        captured["careplan_feedback"] = state.get("careplan_feedback", "")
+        captured["prior"] = state.get("prior_planning_brief") or {}
         return {"planning_brief": _composed_brief()}
 
     prior_brief = {
@@ -237,19 +215,23 @@ def test_prior_conflicts_seed_the_composer_feedback():
         resp = client.post("/api/v1/compose", json=payload)
 
     assert resp.status_code == 200
-    fb = captured["feedback"]
-    assert "resolve all identified conflicts as you suggested" in fb
-    assert "## Previously identified conflicts" in fb
-    assert "Both guidelines recommend a healthy diet" in fb
-    assert "Suggested: Combine the two diet activities into one" in fb
+    # The reviewer channel starts empty (F18a): clinician content must NOT be
+    # seeded there, or the internal review loop wipes it after iteration 1.
+    assert captured["feedback"] == ""
+    assert captured["careplan_feedback"] == "resolve all identified conflicts as you suggested"
+    prior_conflicts = captured["prior"].get("conflicts") or []
+    assert prior_conflicts and prior_conflicts[0]["id"] == "conf-xyz"
+    assert prior_conflicts[0]["suggested_resolution"] == "Combine the two diet activities into one"
 
 
-def test_first_pass_has_no_prior_conflict_block():
-    """Control for F16a: first pass (no prior_brief_ref) → empty seeded feedback."""
+def test_first_pass_has_no_prior_brief_or_clinician_feedback():
+    """Control for F18a: first pass (no prior_brief_ref) → authoring state."""
     captured = {}
 
     def _capture_compose(state):
         captured["feedback"] = state.get("brief_review_feedback", "")
+        captured["careplan_feedback"] = state.get("careplan_feedback", "")
+        captured["prior"] = state.get("prior_planning_brief") or {}
         return {"planning_brief": _composed_brief()}
 
     with patch.object(llm_reasoning, "_phi_store", None), \
@@ -262,6 +244,8 @@ def test_first_pass_has_no_prior_conflict_block():
 
     assert resp.status_code == 200
     assert captured["feedback"] == ""
+    assert captured["careplan_feedback"] == ""
+    assert captured["prior"] == {}
 
 
 def test_generate_bundle_without_prompts_has_no_input_prompt_docrefs():

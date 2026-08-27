@@ -24,7 +24,7 @@ from acp_writer.planning_brief import (
     coerce_conflicts,
     conflict_id,
     normalize_review_history,
-    render_conflicts_feedback,
+    render_clinician_directives,
     render_feedback_history,
 )
 
@@ -364,11 +364,11 @@ class TestCoerceConflicts:
         ConflictEntry.model_validate(c)
 
 
-class TestRenderConflictsFeedback:
-    """F16a: prior conflicts render into a compact composer-feedback block."""
+class TestRenderClinicianDirectives:
+    """F18a: the durable clinician-directives composer section."""
 
-    def _conflict(self) -> dict:
-        return {
+    def _conflict(self, **over) -> dict:
+        c = {
             "id": "conf-abc12345",
             "category": "divergent_target",
             "severity": "warning",
@@ -380,17 +380,23 @@ class TestRenderConflictsFeedback:
                 {"cpg_id": "SYN-DM2-2026-001"},
             ],
         }
+        c.update(over)
+        return c
 
     def test_empty_is_blank(self):
-        assert render_conflicts_feedback(None) == ""
-        assert render_conflicts_feedback([]) == ""
+        assert render_clinician_directives(None) == ""
+        assert render_clinician_directives([], comment="") == ""
 
-    def test_renders_all_fields_compactly(self):
-        block = render_conflicts_feedback([self._conflict()])
-        assert "## Previously identified conflicts" in block
+    def test_renders_instruction_and_referents_compactly(self):
+        block = render_clinician_directives(
+            [self._conflict()], comment="resolve all conflicts as suggested"
+        )
+        assert "## Clinician-directed changes (MANDATORY" in block
+        assert "### Clinician instruction (this round)" in block
+        assert "resolve all conflicts as suggested" in block
+        assert "### Unresolved conflicts" in block
         assert "[conf-abc12345]" in block
         assert "divergent_target" in block
-        assert "warning" in block
         assert "Two guidelines set different BP targets" in block
         assert "Rationale: HTN <140/90 vs DM2 <130/80" in block
         assert "Suggested: Prefer the diabetes guideline's <130/80 target" in block
@@ -399,9 +405,37 @@ class TestRenderConflictsFeedback:
         # Compact — no raw JSON dump of the conflict object.
         assert "{" not in block
 
+    def test_resolved_conflicts_listed_as_keep_resolved(self):
+        resolved = self._conflict(
+            id="conf-done", status="resolved", resolution="Merged the diet items"
+        )
+        block = render_clinician_directives(
+            [resolved, self._conflict()], comment="now resolve the BP conflict"
+        )
+        assert "### Resolved in earlier rounds" in block
+        assert "[conf-done]: Merged the diet items" in block
+        # Resolved conflicts are NOT in the unresolved referent list.
+        unresolved_section = block.split("### Unresolved conflicts")[1].split(
+            "### Resolved in earlier rounds")[0]
+        assert "conf-done" not in unresolved_section
+
+    def test_enforcement_note_rendered_first(self):
+        block = render_clinician_directives(
+            [self._conflict()], comment="resolve as suggested",
+            enforcement_note="- [conf-abc12345] was not applied",
+        )
+        assert "### NOT APPLIED in your previous attempt" in block
+        assert "- [conf-abc12345] was not applied" in block
+        assert block.index("NOT APPLIED") < block.index("Clinician instruction")
+
+    def test_comment_only(self):
+        block = render_clinician_directives([], comment="please remove the statin activity")
+        assert "please remove the statin activity" in block
+        assert "### Unresolved conflicts" not in block
+
     def test_coerces_loose_shapes(self):
         # Bare-string / legacy conflicts must not raise (coerced first).
-        block = render_conflicts_feedback(["two guidelines disagree on BP"])
+        block = render_clinician_directives(["two guidelines disagree on BP"], comment="x")
         assert "two guidelines disagree on BP" in block
 
 

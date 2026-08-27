@@ -19,6 +19,7 @@ from acp_writer.planning_brief import (
     PlanningBrief,
     coerce_conflicts,
     normalize_review_history,
+    render_clinician_directives,
     render_feedback_history,
 )
 from acp_writer.prompts.plan_composer import (
@@ -97,24 +98,26 @@ def _sanitize_provenance(brief_data: dict, default_cpg: str) -> None:
                 item["source_cpg"] = default_cpg
 
 
-def _format_prior_plan(prior_goals: list[dict], prior_activities: list[dict]) -> str:
-    """Render the prior brief's goals + activities as the authoritative revision
-    base (F17a). Returns "" in authoring mode (no prior plan) so the user prompt
-    is unchanged. Conflicts are intentionally NOT rendered here — they reach the
-    composer through the seeded reviewer feedback block (render_conflicts_feedback),
-    so rendering them again would duplicate them.
+def _format_base_plan(base_goals: list[dict], base_activities: list[dict]) -> str:
+    """Render the revision base's goals + activities (F17a/F18b). Returns "" in
+    authoring mode (no base) so the user prompt is unchanged. On the first loop
+    iteration the base is the clinician-reviewed prior brief; on later
+    iterations it is the LATEST DRAFT, so internal-reviewer fixes build on the
+    directed changes already applied instead of reverting to the prior plan.
+    Conflicts are intentionally NOT rendered here — they reach the composer
+    through the "Clinician-directed changes" section (render_clinician_directives).
     """
-    if not prior_goals and not prior_activities:
+    if not base_goals and not base_activities:
         return ""
     return (
-        "\n## Prior Care Plan (authoritative base — revise minimally)\n"
-        "This is the plan you previously produced and the clinician reviewed. "
-        "Reproduce it verbatim and apply ONLY the changes the feedback requires; "
-        "do not add, re-word, or re-code untouched items.\n\n"
-        "### Prior Goals\n"
-        f"{json.dumps(prior_goals, indent=2, default=str)}\n\n"
-        "### Prior Activities\n"
-        f"{json.dumps(prior_activities, indent=2, default=str)}\n"
+        "\n## Care Plan Base (authoritative — revise minimally)\n"
+        "This is the current plan under revision. Reproduce it and apply ONLY "
+        "the changes the Clinician-directed changes section and the Reviewer "
+        "Feedback require; do not add, re-word, or re-code untouched items.\n\n"
+        "### Base Goals\n"
+        f"{json.dumps(base_goals, indent=2, default=str)}\n\n"
+        "### Base Activities\n"
+        f"{json.dumps(base_activities, indent=2, default=str)}\n"
     )
 
 
@@ -136,14 +139,34 @@ def plan_composer(state: CarePlanComposerState) -> dict:
     output_dir = state.get("output_dir", "")
 
     # Revision mode (F17a): a prior brief in state means this is a request-changes
-    # loop. The prior goals/activities are the authoritative base — the composer
-    # reproduces them and applies only the feedback's changes, instead of
-    # regenerating a fresh plan around the same conflicts. The monolith never sets
-    # this key (it is one-shot from an IPS bundle), so it always authors.
+    # loop. The monolith never sets this key (it is one-shot from an IPS bundle),
+    # so it always authors.
     prior_brief = state.get("prior_planning_brief") or {}
-    prior_goals = prior_brief.get("goals") or []
-    prior_activities = prior_brief.get("activities") or []
-    is_revision = bool(prior_goals or prior_activities)
+    is_revision = bool(prior_brief.get("goals") or prior_brief.get("activities"))
+
+    # Evolving base (F18b): iteration 1 revises the clinician-reviewed prior
+    # brief; once the loop has produced a draft (state["planning_brief"]), later
+    # iterations revise THAT draft — otherwise every internal-reviewer round
+    # would rebuild from the prior brief and revert the clinician-directed
+    # changes applied in earlier iterations.
+    draft_brief = state.get("planning_brief") or {}
+    base_brief = draft_brief if (is_revision and (draft_brief.get("goals") or draft_brief.get("activities"))) else prior_brief
+    base_goals = base_brief.get("goals") or []
+    base_activities = base_brief.get("activities") or []
+
+    # Durable clinician channel (F18a): rendered EVERY iteration straight from
+    # state — never via brief_review_feedback, which the internal reviewer
+    # overwrites each round (the F18 bug). Carries the clinician's instruction,
+    # the prior conflicts with suggestions, and any F18c enforcement note.
+    clinician_directives = ""
+    if is_revision:
+        clinician_directives = render_clinician_directives(
+            prior_brief.get("conflicts"),
+            comment=state.get("careplan_feedback", ""),
+            enforcement_note=state.get("directive_enforcement_note", ""),
+        )
+        if clinician_directives:
+            clinician_directives = f"\n{clinician_directives}\n"
 
     # Accumulated clinician feedback across the review loop (F17b). Rendered
     # oldest-first so standing constraints from earlier rounds don't expire, and
@@ -182,7 +205,8 @@ def plan_composer(state: CarePlanComposerState) -> dict:
         conditions=_format_conditions(condition_codes),
         dmn_results=_format_dmn_results(dmn_results),
         recommendations=_format_recommendations(recommendations),
-        prior_plan=_format_prior_plan(prior_goals, prior_activities),
+        prior_plan=_format_base_plan(base_goals, base_activities),
+        clinician_directives=clinician_directives,
         feedback_history=feedback_history_text,
         applicable_cpgs=json.dumps(cpg_ids),
         feedback=feedback_text,

@@ -294,56 +294,96 @@ def coerce_conflicts(raw: list | None) -> list[dict]:
     return cleaned
 
 
-def render_conflicts_feedback(conflicts: list | None) -> str:
-    """Render previously-detected conflicts into a compact composer-feedback block.
+def _render_conflict_lines(c: dict, lines: list[str]) -> None:
+    """Append one conflict's rendered lines (header, rationale, suggestion,
+    sources) to ``lines``. Shared by :func:`render_clinician_directives`."""
+    header = f"- [{c.get('id', '')}] {c.get('category', 'other')}"
+    severity = c.get("severity")
+    if severity:
+        header += f" ({severity})"
+    header += f": {c.get('description', '')}".rstrip()
+    lines.append(header)
+    rationale = c.get("rationale")
+    if rationale:
+        lines.append(f"  Rationale: {rationale}")
+    suggestion = c.get("suggested_resolution")
+    if suggestion:
+        lines.append(f"  Suggested: {suggestion}")
+    src_tokens = []
+    for s in c.get("sources") or []:
+        if not isinstance(s, dict) or not s.get("cpg_id"):
+            continue
+        token = str(s["cpg_id"])
+        if s.get("recommendation_id"):
+            token += f"/{s['recommendation_id']}"
+        src_tokens.append(token)
+    if src_tokens:
+        lines.append(f"  Sources: {', '.join(src_tokens)}")
 
-    On a request-changes recomposition the clinician's comment may reference the
-    flagged conflicts ("resolve all identified conflicts as you suggested") — but
-    the composer only sees the comment, never the conflicts themselves. This
-    renders the prior brief's conflicts into a "## Previously identified
-    conflicts" block that is fed alongside the comment so the LLM has a referent
-    for both halves. Each entry lists id, category, severity, description,
-    analyst rationale, suggested resolution, and the implicated CPG/rec ids.
 
-    Compact by construction (no raw JSON). Returns "" when there is nothing to
-    render so callers can concatenate unconditionally. Lives here (next to
-    :func:`coerce_conflicts`) rather than in the split-path service so the
-    monolith can reuse it when it grows a care-plan review loop (see issue #174).
+def render_clinician_directives(
+    prior_conflicts: list | None,
+    comment: str = "",
+    enforcement_note: str = "",
+) -> str:
+    """Render the durable "Clinician-directed changes" composer section (F18a).
+
+    This is the clinician's channel into a revision pass. It is rendered on
+    EVERY composer iteration directly from state — never transported through
+    ``brief_review_feedback``, which the internal brief_reviewer overwrites
+    each iteration (the F18 bug: clinician directives piggybacked on that
+    channel were wiped after iteration 1, so later iterations reverted the
+    directed resolutions).
+
+    Contents: the clinician's current instruction, the prior plan's UNRESOLVED
+    conflicts (the instruction's referents, each with its suggested
+    resolution), and any conflicts already resolved in earlier rounds (which
+    must stay resolved). ``enforcement_note`` carries the F18c retry message
+    ("these directed resolutions were not applied — apply them now").
+
+    Returns "" when there is nothing to direct (authoring pass) so callers can
+    concatenate unconditionally. Lives here (next to :func:`coerce_conflicts`)
+    so the monolith can reuse it when it grows a care-plan review loop (#174).
     """
-    conflicts = coerce_conflicts(conflicts)
-    if not conflicts:
+    conflicts = coerce_conflicts(prior_conflicts)
+    comment = (comment or "").strip()
+    unresolved = [c for c in conflicts if c.get("status") != ConflictStatus.RESOLVED.value]
+    resolved = [c for c in conflicts if c.get("status") == ConflictStatus.RESOLVED.value]
+    if not comment and not conflicts and not enforcement_note:
         return ""
+
     lines = [
-        "## Previously identified conflicts",
-        "The prior plan carried the plan-level conflicts below. Revise the plan "
-        "to resolve them where clinically appropriate — a genuinely resolved "
-        "conflict simply won't recur in the regenerated plan. These are advisory: "
-        "do NOT force a change that is not clinically sound.",
-        "",
+        "## Clinician-directed changes (MANDATORY — apply in this revision)",
+        "A clinician reviewed the prior plan at the review gate. Their "
+        "instructions are authoritative: apply them to every conflict and item "
+        "they address. Only exception: if a directed change would be clinically "
+        "unsafe for this patient, leave the affected items unchanged — it will "
+        "be surfaced to the clinician rather than silently applied.",
     ]
-    for c in conflicts:
-        header = f"- [{c.get('id', '')}] {c.get('category', 'other')}"
-        severity = c.get("severity")
-        if severity:
-            header += f" ({severity})"
-        header += f": {c.get('description', '')}".rstrip()
-        lines.append(header)
-        rationale = c.get("rationale")
-        if rationale:
-            lines.append(f"  Rationale: {rationale}")
-        suggestion = c.get("suggested_resolution")
-        if suggestion:
-            lines.append(f"  Suggested: {suggestion}")
-        src_tokens = []
-        for s in c.get("sources") or []:
-            if not isinstance(s, dict) or not s.get("cpg_id"):
-                continue
-            token = str(s["cpg_id"])
-            if s.get("recommendation_id"):
-                token += f"/{s['recommendation_id']}"
-            src_tokens.append(token)
-        if src_tokens:
-            lines.append(f"  Sources: {', '.join(src_tokens)}")
+    if enforcement_note:
+        lines.append("")
+        lines.append("### NOT APPLIED in your previous attempt — apply these NOW")
+        lines.append(enforcement_note)
+    if comment:
+        lines.append("")
+        lines.append("### Clinician instruction (this round)")
+        lines.append(comment)
+    if unresolved:
+        lines.append("")
+        lines.append("### Unresolved conflicts — the instruction's referents")
+        lines.append(
+            'When the instruction says to resolve conflicts "as suggested", '
+            "apply each conflict's Suggested line below. Conflicts the "
+            "instruction does NOT address must be preserved exactly as they are."
+        )
+        for c in unresolved:
+            _render_conflict_lines(c, lines)
+    if resolved:
+        lines.append("")
+        lines.append("### Resolved in earlier rounds — keep resolved, do NOT reintroduce")
+        for c in resolved:
+            res = c.get("resolution") or ""
+            lines.append(f"- [{c.get('id', '')}]: {res}".rstrip(": "))
     return "\n".join(lines)
 
 

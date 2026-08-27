@@ -69,22 +69,29 @@ is correct and expected; the reviewing clinician decides.
 
 PLAN_COMPOSER_REVISION = """\
 ## Revising an existing care plan (CRITICAL)
-This is a REVISION of a care plan a clinician already reviewed. The "Prior Care \
-Plan" below is the AUTHORITATIVE BASE — reproduce it and change ONLY what the \
-clinician's feedback requires. The authoring-mode rule about preserving every \
-conflict does NOT apply here: at the review gate the clinician's instructions \
-are authoritative.
-- Apply the clinician's directed conflict resolutions. When they say to resolve \
-a conflict "as suggested," apply that conflict's suggested_resolution: for an \
-OVERLAP, merge the duplicative items into a single activity (attributed to the \
-appropriate CPG); for a DIVERGENT TARGET, keep the preferred target goal and \
-DROP the superseded one; for a CONTRADICTION, keep the directed activity and \
-drop the other; for a DIVERGENT SCHEDULE, keep the chosen schedule.
+This is a REVISION of a care plan a clinician already reviewed. The "Care Plan \
+Base" below is the AUTHORITATIVE BASE — reproduce it and change ONLY what the \
+"Clinician-directed changes" section and the current Reviewer Feedback require. \
+The authoring-mode rule about preserving every conflict does NOT apply here: at \
+the review gate the clinician's instructions are authoritative.
+- The "Clinician-directed changes" section is MANDATORY. Apply the clinician's \
+directed conflict resolutions. When they say to resolve a conflict "as \
+suggested," apply that conflict's Suggested line: for an OVERLAP, merge the \
+duplicative items into a single activity (attributed to the appropriate CPG); \
+for a DIVERGENT TARGET, keep the preferred target goal and DROP the superseded \
+one; for a CONTRADICTION, keep the directed activity and drop the other; for a \
+DIVERGENT SCHEDULE, keep the chosen schedule. The ONLY reason to leave a \
+directed change unapplied is that it would be clinically unsafe for this \
+patient — never skip one silently for any other reason.
+- Reviewer Feedback (when present) lists CURRENT internal review issues with \
+your latest draft — fix those too, WITHOUT undoing any clinician-directed \
+change you already applied.
 - Preserve every conflict the clinician has NOT ruled on EXACTLY as it is — do \
 NOT merge, reconcile, or harmonize those; leave both items intact with their \
 own provenance.
 - NO unrequested additions: do NOT create new goals, activities, or content \
-unless the feedback explicitly asks for them.
+unless the clinician's instruction or the Reviewer Feedback explicitly asks \
+for them.
 - Keep every untouched item VERBATIM — identical description, codes, dose, \
 route, frequency, source_recommendation_id, and source_cpg. Do not re-word or \
 re-code an item the feedback did not touch.
@@ -151,6 +158,7 @@ Demographics: {demographics}
 ## Retrieved Recommendations
 {recommendations}
 {prior_plan}
+{clinician_directives}
 {feedback_history}
 {feedback}
 
