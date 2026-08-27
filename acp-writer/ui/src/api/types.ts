@@ -234,9 +234,14 @@ export interface components {
             goalId?: string;
             detail?: string;
         };
+        /** @description A plan-level conflict flagged by the conflict_analyst node. Persisted plans reconstruct these from the conflict Provenance resources' extensions (never from note text); the live review view carries them on the brief. */
         PlanConflict: {
+            /** @description Semantic (index-free) id, stable across request-changes regeneration. */
             id: string;
-            /** @enum {string} */
+            /**
+             * @description Display severity; drives the UI alert variant (info=blue, warning/critical=amber/red).
+             * @enum {string}
+             */
             severity?: "info" | "warning" | "critical";
             /**
              * @description The kind of conflict the analyst detected.
@@ -248,14 +253,18 @@ export interface components {
              * @enum {string}
              */
             status?: "detected" | "acknowledged" | "resolved";
-            /** @description Analyst confidence ("low" | "medium" | "high"). */
+            /** @description Analyst confidence ("low" | "medium" | "high"); recorded as the AIconfidence extension on the Provenance. */
             confidence?: string;
+            /** @description Clinician-legible summary of the conflict. */
             description: string;
             /** @description The guideline recommendations that give rise to the conflict. */
             sources?: components["schemas"]["ConflictSource"][];
         };
+        /** @description One guideline recommendation contributing to a conflict. */
         ConflictSource: {
+            /** @description Source CPG identifier (e.g. SYN-HTN-2026-001). */
             cpgId: string;
+            /** @description Source recommendation identifier within the CPG. */
             recommendationId?: string;
             /** @description Short quote from the source recommendation */
             excerpt?: string;
@@ -264,6 +273,7 @@ export interface components {
         CarePlanView: {
             goals?: components["schemas"]["PlanGoal"][];
             activities?: components["schemas"]["PlanActivity"][];
+            /** @description Plan-level conflicts. For a persisted plan these are read back from the bundle's conflict Provenance resources; at the review gate they come from the planning brief. */
             conflicts?: components["schemas"]["PlanConflict"][];
             /** @description Raw FHIR bundle for the JSON viewer only. UI does not parse this for display. */
             fhirBundle?: {
@@ -298,10 +308,13 @@ export interface components {
         };
         /** @description Identity of the human verifier. A SMART-on-FHIR launch would populate this from the token's fhirUser claim; today it is an optional request override (falls back to the ACP_REVIEWER_* config defaults). */
         ReviewerRef: {
+            /** @description Human-readable verifier name recorded on the AI-Provenance. */
             display: string;
-            /** @description e.g. "Practitioner/demo-clinician". */
+            /** @description FHIR reference to the verifier, e.g. "Practitioner/demo-clinician". */
             reference?: string;
+            /** @description Identifier system for the verifier (paired with identifierValue). */
             identifierSystem?: string;
+            /** @description Identifier value for the verifier (paired with identifierSystem). */
             identifierValue?: string;
         };
         FeedbackItem: {

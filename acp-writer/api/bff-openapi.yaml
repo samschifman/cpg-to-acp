@@ -355,10 +355,19 @@ components:
 
     PlanConflict:
       type: object
+      description: >
+        A plan-level conflict flagged by the conflict_analyst node. Persisted
+        plans reconstruct these from the conflict Provenance resources' extensions
+        (never from note text); the live review view carries them on the brief.
       required: [id, description]
       properties:
-        id: { type: string }
-        severity: { type: string, enum: [info, warning, critical] }
+        id:
+          type: string
+          description: Semantic (index-free) id, stable across request-changes regeneration.
+        severity:
+          type: string
+          enum: [info, warning, critical]
+          description: Display severity; drives the UI alert variant (info=blue, warning/critical=amber/red).
         category:
           type: string
           enum: [overlap, contradiction, divergent_target, divergent_schedule, other]
@@ -369,8 +378,10 @@ components:
           description: Lifecycle — flips to acknowledged when a reviewer approves.
         confidence:
           type: string
-          description: Analyst confidence ("low" | "medium" | "high").
-        description: { type: string }
+          description: Analyst confidence ("low" | "medium" | "high"); recorded as the AIconfidence extension on the Provenance.
+        description:
+          type: string
+          description: Clinician-legible summary of the conflict.
         sources:
           type: array
           description: The guideline recommendations that give rise to the conflict.
@@ -378,10 +389,11 @@ components:
 
     ConflictSource:
       type: object
+      description: One guideline recommendation contributing to a conflict.
       required: [cpgId]
       properties:
-        cpgId: { type: string }
-        recommendationId: { type: string }
+        cpgId: { type: string, description: Source CPG identifier (e.g. SYN-HTN-2026-001). }
+        recommendationId: { type: string, description: Source recommendation identifier within the CPG. }
         excerpt: { type: string, description: Short quote from the source recommendation, for display. }
 
     # ---- Care plan (careplan review gate + persisted list/detail) ----
@@ -397,7 +409,13 @@ components:
       properties:
         goals: { type: array, items: { $ref: '#/components/schemas/PlanGoal' } }
         activities: { type: array, items: { $ref: '#/components/schemas/PlanActivity' } }
-        conflicts: { type: array, items: { $ref: '#/components/schemas/PlanConflict' } }
+        conflicts:
+          type: array
+          description: >
+            Plan-level conflicts. For a persisted plan these are read back from the
+            bundle's conflict Provenance resources; at the review gate they come
+            from the planning brief.
+          items: { $ref: '#/components/schemas/PlanConflict' }
         fhirBundle:
           type: object
           description: Raw FHIR bundle for the JSON viewer only. UI does not parse this for display.
@@ -448,10 +466,10 @@ components:
         (falls back to the ACP_REVIEWER_* config defaults).
       required: [display]
       properties:
-        display: { type: string }
-        reference: { type: string, description: 'e.g. "Practitioner/demo-clinician".' }
-        identifierSystem: { type: string }
-        identifierValue: { type: string }
+        display: { type: string, description: Human-readable verifier name recorded on the AI-Provenance. }
+        reference: { type: string, description: 'FHIR reference to the verifier, e.g. "Practitioner/demo-clinician".' }
+        identifierSystem: { type: string, description: Identifier system for the verifier (paired with identifierValue). }
+        identifierValue: { type: string, description: Identifier value for the verifier (paired with identifierSystem). }
 
     FeedbackItem:
       type: object

@@ -26,6 +26,7 @@ Set `MLFLOW_TRACKING_URI` to point your services at the MLflow server:
 - `extract_patient_data` — FHIR Bundle parsing
 - `invoke_decisions` / `invoke_decisions_dynamic` — DMN decision evaluation
 - `evaluate_jit_dmn` — individual JIT decision engine calls
+- `conflict_analyst` — LLM plan-level conflict detection
 - `build_careplan` — FHIR CarePlan construction
 
 ### cpg-ingester (CLI tools)

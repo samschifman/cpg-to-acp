@@ -13,13 +13,31 @@ Two-phase LangGraph pipeline:
 4. **Recommendation Retriever** — Search vector store for applicable recommendations
 5. **Plan Composer** — LLM maps decisions + recommendations → Planning Brief
 6. **Brief Reviewer** — Adversarial LLM review (clinical pharmacist persona, max 2 loops)
+7. **Conflict Analyst** — LLM flags plan-level conflicts (overlap / contradiction / divergent target / divergent schedule) across the brief's goals and activities; annotates the brief only — never edits goals or activities. See [Conflict surfacing](#conflict-surfacing)
 
 **Phase 2 — FHIR Generation:**
-7. **FHIR Bundle Generator** — Deterministic FHIR R4 from Planning Brief (no LLM)
-8. **Terminology Validator** — Verify all codes against SNOMED/RxNorm/LOINC/ICD-10
-9. **FHIR Syntax Validator** — Structural validation + AI Transparency IG compliance
-10. **FHIR Semantic Reviewer** — LLM review for clinical coherence (max 2 loops)
-11. **FHIR Server Writer** — POST to HAPI FHIR + approve/reject workflow
+8. **FHIR Bundle Generator** — Deterministic FHIR R4 from Planning Brief (no LLM)
+9. **Terminology Validator** — Verify all codes against SNOMED/RxNorm/LOINC/ICD-10
+10. **FHIR Syntax Validator** — Structural validation + AI Transparency IG compliance
+11. **FHIR Semantic Reviewer** — LLM review for clinical coherence (max 2 loops)
+12. **FHIR Server Writer** — POST to HAPI FHIR + approve/reject workflow
+
+```mermaid
+flowchart TD
+    A[Condition Scanner] --> B[Guideline Resolver]
+    B --> C[DMN Executor]
+    C --> D[Recommendation Retriever]
+    D --> E[Plan Composer]
+    E --> F[Brief Reviewer]
+    F -->|request changes| E
+    F -->|approved| G[Conflict Analyst]
+    G --> H[FHIR Bundle Generator]
+    H --> I[Terminology Validator]
+    I --> J[FHIR Syntax Validator]
+    J --> K[FHIR Semantic Reviewer]
+    K -->|request changes| H
+    K -->|approved| L[FHIR Server Writer]
+```
 
 ### Sub-components
 
@@ -90,8 +108,38 @@ Every care plan bundle includes:
 - **AIAST `meta.security`** on all generated resources
 - **AI-Device** resource (AI Transparency IG profile)
 - **AI-Provenance** with CPG derivation lineage
-- **Per-activity Provenance** linking to source recommendations
-- On approval: AIAST → CLINAST_AIRPT, clinician added as verifier
+- **AI-InputPrompt** DocumentReferences for the captured LLM prompts (when `ACP_CAPTURE_PROMPTS=true`)
+- **AI-ModelCard** DocumentReference (when `LLM_MODEL_CARD_URL` is set)
+- **Per-activity Provenance** linking to source recommendations, with an `AIconfidence` extension
+- On approval: AIAST → CLINAST_AIRPT, clinician added as a `verifier` human agent
+
+acp-writer targets the HL7 [AI Transparency on FHIR IG](https://build.fhir.org/ig/HL7/aitransparency-ig). See [`docs/ai-transparency.md`](../docs/ai-transparency.md) for the full conformance inventory, the conflict-Provenance pattern, and the custom extension table.
+
+### Conflict surfacing
+
+The **Conflict Analyst** node inspects the composed Planning Brief and flags plan-level conflicts an LLM can reasonably judge — it applies no clinical knowledge base and runs no DMN. Categories:
+
+| Category | Meaning |
+|---|---|
+| `overlap` | Two guidelines contribute substantially-the-same activity (e.g. both recommend a healthy diet) |
+| `contradiction` | Two plan items cannot both be followed as written (e.g. titrate a drug up vs. reduce it) |
+| `divergent_target` | Conflicting goal targets (e.g. BP <140/90 vs. <130/80) |
+| `divergent_schedule` | Conflicting timing/frequency for related activities |
+
+No conflict is auto-resolved — every conflicting item stays in the plan and the clinician acts through the review gate. Each conflict is recorded as a FHIR **Provenance** (AI-Provenance profile) that targets the affected activities/goals via `targetPath`, lists the source recommendations as entities, carries an AI-authored rationale note, and stores `conflict-id` / `-description` / `-severity` / `-category` / `-status` + `AIconfidence` extensions. The CarePlan carries exactly one `careplan-conflict-detected` marker extension. Conflicts read back from these Provenances when a stored plan is viewed (not only in the live run-review view).
+
+### Configuration (AI Transparency + reviewer identity)
+
+| Env var | Purpose |
+|---|---|
+| `ACP_CAPTURE_PROMPTS` | `true` to emit AI-InputPrompt DocumentReferences for the captured prompts |
+| `LLM_MODEL_CARD_URL` | URL of the model card; emitted as an AI-ModelCard DocumentReference |
+| `ACP_REVIEWER_DISPLAY` | Default reviewer display name recorded as the verifier on approval |
+| `ACP_REVIEWER_REFERENCE` | Default reviewer FHIR reference (e.g. `Practitioner/123`) |
+| `ACP_REVIEWER_ID_SYSTEM` | Identifier system for the default reviewer |
+| `ACP_REVIEWER_ID_VALUE` | Identifier value for the default reviewer |
+
+The reviewer identity is a SMART-on-FHIR-ready seam: a request may override the configured default per-approval. See `services/reviewer.py`.
 
 ## Clinical Data Extraction
 
