@@ -238,7 +238,27 @@ export interface components {
             id: string;
             /** @enum {string} */
             severity?: "info" | "warning" | "critical";
+            /**
+             * @description The kind of conflict the analyst detected.
+             * @enum {string}
+             */
+            category?: "overlap" | "contradiction" | "divergent_target" | "divergent_schedule" | "other";
+            /**
+             * @description Lifecycle — flips to acknowledged when a reviewer approves.
+             * @enum {string}
+             */
+            status?: "detected" | "acknowledged" | "resolved";
+            /** @description Analyst confidence ("low" | "medium" | "high"). */
+            confidence?: string;
             description: string;
+            /** @description The guideline recommendations that give rise to the conflict. */
+            sources?: components["schemas"]["ConflictSource"][];
+        };
+        ConflictSource: {
+            cpgId: string;
+            recommendationId?: string;
+            /** @description Short quote from the source recommendation */
+            excerpt?: string;
         };
         /** @description View-model reused by CarePlanReviewPanel and CarePlanDetail, rendered by GoalCard/ActivityCard/ConflictAlert. Raw FHIR is included ONLY for the "View FHIR JSON" viewer. NOTE: this is a deliberately flattened first cut. The internal model carries richer provenance (targets, dose/route/frequency, source refs, DMN audit); extending the view-model with those fields is tracked in #128. */
         CarePlanView: {
@@ -268,11 +288,21 @@ export interface components {
         };
         ReviewAction: {
             decision: components["schemas"]["ReviewDecision"];
+            /** @description Legacy display-name shortcut; prefer `reviewer`. */
             clinician?: string;
+            reviewer?: components["schemas"]["ReviewerRef"];
             /** @description Overall free-text note. */
             comment?: string;
             /** @description Per-item feedback (CarePlanReviewPanel/FeedbackInput). Required-ish when decision=request_changes. */
             feedback?: components["schemas"]["FeedbackItem"][];
+        };
+        /** @description Identity of the human verifier. A SMART-on-FHIR launch would populate this from the token's fhirUser claim; today it is an optional request override (falls back to the ACP_REVIEWER_* config defaults). */
+        ReviewerRef: {
+            display: string;
+            /** @description e.g. "Practitioner/demo-clinician". */
+            reference?: string;
+            identifierSystem?: string;
+            identifierValue?: string;
         };
         FeedbackItem: {
             /** @description References a PlanGoal/PlanActivity/PlanConflict.id in the CarePlanView. */
@@ -284,6 +314,7 @@ export interface components {
             decisionEngine?: {
                 available?: boolean;
                 modelsDeployed?: number;
+                /** @description Deployed DMN decision models (SystemStatus page). */
                 decisions?: {
                     id: string;
                     name: string;
@@ -294,6 +325,7 @@ export interface components {
                 available?: boolean;
                 guidelines?: number;
                 recommendations?: number;
+                /** @description Registered clinical practice guidelines (SystemStatus page). */
                 cpgs?: {
                     cpgId: string;
                     title: string;

@@ -13,6 +13,11 @@ from acp_writer.nodes.fhir_server_writer import (
 )
 from acp_writer.planning_brief import (
     ActivityType,
+    ConflictCategory,
+    ConflictEntry,
+    ConflictSeverity,
+    ConflictSource,
+    ConflictStatus,
     FHIRCode,
     PlanActivity,
     PlanGoal,
@@ -20,6 +25,8 @@ from acp_writer.planning_brief import (
     ReviewStatus,
     TargetValue,
 )
+from acp_writer.services.ai_transparency import ACP_EXT_BASE, is_conflict_provenance
+from acp_writer.services.reviewer import ReviewerContext
 from acp_writer.validators.fhir_bundle_builder import build_fhir_bundle
 
 import pytest
@@ -38,6 +45,42 @@ def _sample_bundle() -> dict:
                 source_recommendation_id="rec-1",
                 source_cpg="SYN-HTN-2026-001",
             ),
+        ],
+        review_status=ReviewStatus.APPROVED,
+    )
+    return build_fhir_bundle(brief)
+
+
+def _bundle_with_conflict() -> dict:
+    brief = PlanningBrief(
+        patient_reference="Patient/patient-1",
+        applicable_cpgs=["SYN-HTN-2026-001", "SYN-DM2-2026-001"],
+        goals=[PlanGoal(description="Lower BP", source_cpg="SYN-HTN-2026-001")],
+        activities=[
+            PlanActivity(
+                type=ActivityType.MEDICATION,
+                description="Lisinopril",
+                dose="10 mg",
+                source_recommendation_id="rec-1",
+                source_cpg="SYN-HTN-2026-001",
+            ),
+        ],
+        conflicts=[
+            ConflictEntry(
+                id="conf-x",
+                category=ConflictCategory.DIVERGENT_TARGET,
+                severity=ConflictSeverity.WARNING,
+                status=ConflictStatus.DETECTED,
+                description="different targets",
+                rationale="a vs b",
+                confidence="high",
+                goal_indices=[0],
+                activity_indices=[0],
+                sources=[
+                    ConflictSource(cpg_id="SYN-HTN-2026-001", recommendation_id="rec-1"),
+                    ConflictSource(cpg_id="SYN-DM2-2026-001", recommendation_id="rec-2"),
+                ],
+            )
         ],
         review_status=ReviewStatus.APPROVED,
     )
@@ -208,3 +251,78 @@ class TestApprovalWorkflow:
 
     def test_reject_not_found(self):
         assert reject_care_plan("nonexistent", "reason") is None
+
+
+class TestApproveReviewerAndConflict:
+    def _store(self, bundle: dict) -> str:
+        return fhir_server_writer({
+            "fhir_bundle": bundle,
+            "patient_reference": "Patient/patient-1",
+        })["careplan_id"]
+
+    def test_reviewer_context_becomes_verifier(self):
+        cp_id = self._store(_sample_bundle())
+        reviewer = ReviewerContext(
+            display="Dr. Alice",
+            reference="Practitioner/alice",
+            identifier_system="http://hl7.org/fhir/sid/us-npi",
+            identifier_value="123",
+        )
+        approve_care_plan(cp_id, reviewer=reviewer)
+
+        who = None
+        for entry in get_care_plan(cp_id)["bundle"]["entry"]:
+            r = entry["resource"]
+            if r["resourceType"] == "Provenance":
+                for a in r.get("agent", []):
+                    if a.get("type", {}).get("coding", [{}])[0].get("code") == "verifier":
+                        who = a["who"]
+        assert who is not None
+        assert who["display"] == "Dr. Alice"
+        assert who["reference"] == "Practitioner/alice"
+        assert who["identifier"] == {
+            "system": "http://hl7.org/fhir/sid/us-npi", "value": "123"
+        }
+
+    def test_default_reviewer_when_none(self, monkeypatch):
+        monkeypatch.delenv("ACP_REVIEWER_DISPLAY", raising=False)
+        cp_id = self._store(_sample_bundle())
+        approve_care_plan(cp_id)
+        displays = [
+            a["who"].get("display")
+            for e in get_care_plan(cp_id)["bundle"]["entry"]
+            if e["resource"]["resourceType"] == "Provenance"
+            for a in e["resource"].get("agent", [])
+            if a.get("type", {}).get("coding", [{}])[0].get("code") == "verifier"
+        ]
+        assert "Demo Clinician" in displays
+
+    def test_approve_flips_conflict_status(self):
+        cp_id = self._store(_bundle_with_conflict())
+        approve_care_plan(cp_id, clinician="Dr. Smith")
+
+        conflict_provs = [
+            e["resource"]
+            for e in get_care_plan(cp_id)["bundle"]["entry"]
+            if e["resource"]["resourceType"] == "Provenance"
+            and is_conflict_provenance(e["resource"])
+        ]
+        assert len(conflict_provs) == 1
+        status = {
+            ext["url"]: ext for ext in conflict_provs[0]["extension"]
+        }[f"{ACP_EXT_BASE}/conflict-status"]
+        assert status["valueCode"] == "acknowledged"
+
+    def test_back_compat_clinician_string(self):
+        cp_id = self._store(_sample_bundle())
+        # legacy positional/keyword clinician still works
+        result = approve_care_plan(cp_id, reviewer="Dr. Legacy")
+        assert result["status"] == "active"
+        displays = [
+            a["who"].get("display")
+            for e in get_care_plan(cp_id)["bundle"]["entry"]
+            if e["resource"]["resourceType"] == "Provenance"
+            for a in e["resource"].get("agent", [])
+            if a.get("type", {}).get("coding", [{}])[0].get("code") == "verifier"
+        ]
+        assert "Dr. Legacy" in displays

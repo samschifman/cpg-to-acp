@@ -191,3 +191,75 @@ class TestConflictProvenance:
             occurred="t",
         )
         assert prov["target"] == [{"reference": "urn:uuid:cp"}]
+
+
+class TestSourceDisplayRoundTrip:
+    def test_full(self):
+        d = ait._source_display("SYN-HTN", "rec-1", "target <140/90")
+        assert ait.parse_source_display(d) == {
+            "cpgId": "SYN-HTN",
+            "recommendationId": "rec-1",
+            "excerpt": "target <140/90",
+        }
+
+    def test_cpg_only(self):
+        d = ait._source_display("SYN-HTN", None, None)
+        assert ait.parse_source_display(d) == {"cpgId": "SYN-HTN"}
+
+    def test_identifier_is_authoritative_for_rec(self):
+        # display carries no rec, but the entity identifier does.
+        d = ait._source_display("SYN-HTN", None, "quote")
+        parsed = ait.parse_source_display(d, rec_from_identifier="rec-99")
+        assert parsed["recommendationId"] == "rec-99"
+        assert parsed["excerpt"] == "quote"
+
+    def test_excerpt_with_em_dash_inside(self):
+        # excerpt itself may contain " — "; only the first split matters.
+        d = ait._source_display("C", "r", "a — b — c")
+        assert ait.parse_source_display(d)["excerpt"] == "a — b — c"
+
+
+class TestConflictProvenanceReadBack:
+    def _prov(self):
+        return ait.build_conflict_provenance(
+            prov_uid="cp-1",
+            conflict=_conflict(),
+            careplan_urn="urn:uuid:cp",
+            goal_urns=[],
+            activity_urn_map={0: "urn:uuid:med0"},
+            device_urn="urn:uuid:dev",
+            recorded="t",
+            occurred="t",
+        )
+
+    def test_is_conflict_provenance(self):
+        assert ait.is_conflict_provenance(self._prov()) is True
+
+    def test_non_conflict_provenance(self):
+        plain = ait.build_ai_provenance(
+            prov_uid="p", targets=[{"reference": "urn:uuid:cp"}],
+            device_urn="urn:uuid:dev", recorded="t", occurred="t",
+        )
+        assert ait.is_conflict_provenance(plain) is False
+
+    def test_round_trip_scalars(self):
+        pc = ait.plan_conflict_from_provenance(self._prov())
+        assert pc["id"] == "conf-x"
+        assert pc["description"] == "two diets"
+        assert pc["severity"] == "info"
+        assert pc["category"] == "overlap"
+        assert pc["status"] == "detected"
+        assert pc["confidence"] == "low"
+
+    def test_round_trip_sources(self):
+        pc = ait.plan_conflict_from_provenance(self._prov())
+        assert pc["sources"] == [
+            {"cpgId": "A", "recommendationId": "r1", "excerpt": "diet"},
+        ]
+
+    def test_returns_none_for_non_conflict(self):
+        plain = ait.build_ai_provenance(
+            prov_uid="p", targets=[{"reference": "urn:uuid:cp"}],
+            device_urn="urn:uuid:dev", recorded="t", occurred="t",
+        )
+        assert ait.plan_conflict_from_provenance(plain) is None

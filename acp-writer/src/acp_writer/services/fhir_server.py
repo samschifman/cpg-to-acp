@@ -68,7 +68,11 @@ async def update_status(careplan_id: str, request: Request):
     data = await request.json()
     new_status = data.get("status")
     if new_status == "active":
-        result = approve_care_plan(careplan_id, clinician=data.get("clinician"))
+        from acp_writer.services.reviewer import reviewer_from_payload
+        payload = data.get("reviewer")
+        if not payload and data.get("clinician"):
+            payload = {"display": data["clinician"]}
+        result = approve_care_plan(careplan_id, reviewer=reviewer_from_payload(payload))
     elif new_status == "entered-in-error":
         result = reject_care_plan(careplan_id, reason=data.get("reason", "No reason provided"))
     else:

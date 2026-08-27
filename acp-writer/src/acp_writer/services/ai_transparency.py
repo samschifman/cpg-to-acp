@@ -277,6 +277,90 @@ def _conflict_extensions(conflict: Any) -> list[dict]:
     return exts
 
 
+def _source_display(cpg_id: str, rec_id: str | None, excerpt: str | None) -> str:
+    """Human-readable ConflictSource label. Round-trips via ``parse_source_display``."""
+    display = f"CPG {cpg_id}"
+    if rec_id:
+        display += f" · rec {rec_id}"
+    if excerpt:
+        display += f" — {excerpt}"
+    return display
+
+
+def parse_source_display(display: str, rec_from_identifier: str | None = None) -> dict:
+    """Inverse of ``_source_display`` → ``{cpgId, recommendationId?, excerpt?}``.
+
+    ``rec_from_identifier`` (the entity's ``what.identifier.value``) is
+    authoritative for the recommendation id when present.
+    """
+    excerpt: str | None = None
+    base = display
+    if " — " in base:
+        base, excerpt = base.split(" — ", 1)
+    rec = rec_from_identifier
+    if " · rec " in base:
+        cpg_part, rec_part = base.split(" · rec ", 1)
+        cpg = cpg_part[4:] if cpg_part.startswith("CPG ") else cpg_part
+        rec = rec or rec_part
+    else:
+        cpg = base[4:] if base.startswith("CPG ") else base
+    src: dict = {"cpgId": cpg}
+    if rec:
+        src["recommendationId"] = rec
+    if excerpt:
+        src["excerpt"] = excerpt
+    return src
+
+
+def is_conflict_provenance(prov: dict) -> bool:
+    """True if a Provenance carries the conflict-id extension (WS4 record)."""
+    return any(
+        e.get("url") == f"{ACP_EXT_BASE}/conflict-id"
+        for e in prov.get("extension", [])
+    )
+
+
+def plan_conflict_from_provenance(prov: dict) -> dict | None:
+    """Reconstruct a BFF ``PlanConflict`` from a conflict Provenance.
+
+    Uses the Provenance extensions exclusively for scalar metadata (never the
+    note text) and the ``entity[]`` for sources.
+    """
+    exts = {e.get("url"): e for e in prov.get("extension", [])}
+    id_ext = exts.get(f"{ACP_EXT_BASE}/conflict-id")
+    if not id_ext:
+        return None
+
+    pc: dict = {
+        "id": id_ext.get("valueString", ""),
+        "description": exts.get(f"{ACP_EXT_BASE}/conflict-description", {}).get("valueString", ""),
+    }
+    sev = exts.get(f"{ACP_EXT_BASE}/conflict-severity", {}).get("valueCode")
+    if sev:
+        pc["severity"] = sev
+    cat = exts.get(f"{ACP_EXT_BASE}/conflict-category", {}).get("valueCode")
+    if cat:
+        pc["category"] = cat
+    status = exts.get(f"{ACP_EXT_BASE}/conflict-status", {}).get("valueCode")
+    if status:
+        pc["status"] = status
+    conf = exts.get(AICONFIDENCE_EXT)
+    if conf:
+        coding = (conf.get("valueCodeableConcept", {}).get("coding") or [{}])[0]
+        if coding.get("code"):
+            pc["confidence"] = coding["code"]
+
+    sources: list[dict] = []
+    for e in prov.get("entity", []):
+        if e.get("role") == "source":
+            what = e.get("what", {})
+            rec = what.get("identifier", {}).get("value")
+            sources.append(parse_source_display(what.get("display", ""), rec))
+    if sources:
+        pc["sources"] = sources
+    return pc
+
+
 def build_conflict_provenance(
     prov_uid: str,
     conflict: Any,
@@ -314,13 +398,9 @@ def build_conflict_provenance(
 
     entities: list[dict] = []
     for src in conflict.sources:
-        parts = [f"CPG {src.cpg_id}"]
-        if src.recommendation_id:
-            parts.append(f"rec {src.recommendation_id}")
-        display = ": ".join([parts[0], " ".join(parts[1:])]) if len(parts) > 1 else parts[0]
-        if src.excerpt:
-            display = f"{display} — {src.excerpt}"
-        what: dict[str, Any] = {"display": display}
+        what: dict[str, Any] = {
+            "display": _source_display(src.cpg_id, src.recommendation_id, src.excerpt),
+        }
         if src.recommendation_id:
             what["identifier"] = {"value": src.recommendation_id}
         entities.append({"role": "source", "what": what})

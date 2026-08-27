@@ -57,6 +57,16 @@ POLICY_DIR="$RENDERED_POLICY_DIR"
 LLM_BASE_URL="${MAAS_GATEWAY_URL}/${MAAS_ROUTE_SEGMENT}"
 LLM_MODEL="${ACP_WRITER_LLM_MODEL:-$LLM_MODEL_DEFAULT}"
 
+# AI Transparency on FHIR (issue #169). Prompts embed patient data — set
+# ACP_CAPTURE_PROMPTS=false before touching real PHI. Reviewer defaults are the
+# demo verifier recorded on approve when a review request carries no override.
+ACP_CAPTURE_PROMPTS="${ACP_CAPTURE_PROMPTS:-true}"
+LLM_MODEL_CARD_URL="${LLM_MODEL_CARD_URL:-}"
+ACP_REVIEWER_DISPLAY="${ACP_REVIEWER_DISPLAY:-Demo Clinician}"
+ACP_REVIEWER_REFERENCE="${ACP_REVIEWER_REFERENCE:-Practitioner/demo-clinician}"
+ACP_REVIEWER_ID_SYSTEM="${ACP_REVIEWER_ID_SYSTEM:-}"
+ACP_REVIEWER_ID_VALUE="${ACP_REVIEWER_ID_VALUE:-}"
+
 # Read secrets from K8s Secrets (never from env vars or files)
 { set +x; } 2>/dev/null
 LLM_API_KEY=$(read_secret llm-credentials LLM_API_KEY)
@@ -144,7 +154,9 @@ deploy_sandboxes() {
         "PYTHONPATH=/app/src" \
         "LITELLM_URL=${LLM_BASE_URL}" \
         "LLM_MODEL=${LLM_MODEL}" \
-        "LLM_API_KEY=${LLM_API_KEY}"
+        "LLM_API_KEY=${LLM_API_KEY}" \
+        "ACP_CAPTURE_PROMPTS=${ACP_CAPTURE_PROMPTS}" \
+        "LLM_MODEL_CARD_URL=${LLM_MODEL_CARD_URL}"
 
     # FHIR Server
     create_acp_sandbox "sb-fhir-server" "acp-writer-fhir-srv" "acp-writer-fhir-srv.yaml" \
@@ -154,7 +166,11 @@ deploy_sandboxes() {
         "PYTHONPATH=/app/src" \
         "FHIR_SERVER_URL=http://cpg-mock-ehr-medplum-server.${NAMESPACE}.svc.cluster.local:8103/fhir/R4" \
         "FHIR_CLIENT_ID=${FHIR_CLIENT_ID:-}" \
-        "FHIR_CLIENT_SECRET=${FHIR_CLIENT_SECRET:-}"
+        "FHIR_CLIENT_SECRET=${FHIR_CLIENT_SECRET:-}" \
+        "ACP_REVIEWER_DISPLAY=${ACP_REVIEWER_DISPLAY}" \
+        "ACP_REVIEWER_REFERENCE=${ACP_REVIEWER_REFERENCE}" \
+        "ACP_REVIEWER_ID_SYSTEM=${ACP_REVIEWER_ID_SYSTEM}" \
+        "ACP_REVIEWER_ID_VALUE=${ACP_REVIEWER_ID_VALUE}"
 
     # Wait for background sandbox-create processes to settle
     sleep 5
