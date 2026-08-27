@@ -41,10 +41,14 @@ class CarePlanComposerState(TypedDict, total=False):
 
     # Phase 1: Plan Composer outputs
     planning_brief: dict[str, Any]
+    plan_composer_prompt: str  # rendered user prompt, captured for AI-InputPrompt (WS3)
 
     # Phase 1: Brief Reviewer
     brief_review_count: int
     brief_review_feedback: str
+
+    # Phase 1: Conflict Analyst outputs
+    conflict_prompt: str  # rendered system+user prompt, captured for AI-InputPrompt (WS3)
 
     # Phase 2: FHIR Bundle Generator outputs
     fhir_bundle: dict[str, Any]

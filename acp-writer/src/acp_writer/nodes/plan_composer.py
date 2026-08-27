@@ -14,7 +14,7 @@ import mlflow
 from cpg_contracts import content_to_text, get_llm
 
 from acp_writer.output import write_artifact
-from acp_writer.planning_brief import PlanningBrief
+from acp_writer.planning_brief import PlanningBrief, coerce_conflicts
 from acp_writer.prompts.plan_composer import PLAN_COMPOSER_SYSTEM, PLAN_COMPOSER_USER
 from acp_writer.state import CarePlanComposerState
 
@@ -69,32 +69,6 @@ def _format_demographics(demographics: dict) -> str:
     if demographics.get("birth_date"):
         parts.append(f"DOB: {demographics['birth_date']}")
     return ", ".join(parts) if parts else "Unknown"
-
-
-def _sanitize_conflicts(brief_data: dict) -> None:
-    """Coerce LLM-produced conflicts into valid ConflictEntry format."""
-    raw_conflicts = brief_data.get("conflicts", [])
-    if not raw_conflicts:
-        return
-    cleaned = []
-    for item in raw_conflicts:
-        if isinstance(item, str):
-            cleaned.append({
-                "description": item,
-                "activity_indices": [],
-                "sources": [],
-            })
-        elif isinstance(item, dict):
-            if "activity_indices" not in item or "sources" not in item:
-                cleaned.append({
-                    "description": item.get("description", str(item)),
-                    "activity_indices": item.get("activity_indices", []),
-                    "sources": item.get("sources", item.get("recommendation_ids", [])),
-                    "resolution": item.get("resolution"),
-                })
-            else:
-                cleaned.append(item)
-    brief_data["conflicts"] = cleaned
 
 
 def _sanitize_provenance(brief_data: dict, default_cpg: str) -> None:
@@ -190,7 +164,7 @@ def plan_composer(state: CarePlanComposerState) -> dict:
 
     try:
         brief_data = _parse_brief_from_response(content_to_text(response.content))
-        _sanitize_conflicts(brief_data)
+        brief_data["conflicts"] = coerce_conflicts(brief_data.get("conflicts"))
         _sanitize_provenance(brief_data, cpg_ids[0] if cpg_ids else "unspecified")
         brief = PlanningBrief.model_validate(brief_data)
         brief_dict = brief.model_dump(mode="json")
@@ -208,6 +182,7 @@ def plan_composer(state: CarePlanComposerState) -> dict:
         return {
             "planning_brief": brief_dict,
             "brief_review_feedback": "",
+            "plan_composer_prompt": user_prompt,
         }
 
     except (json.JSONDecodeError, Exception) as e:
@@ -223,4 +198,5 @@ def plan_composer(state: CarePlanComposerState) -> dict:
                 "review_feedback": f"LLM response parse error: {e}",
             },
             "brief_review_feedback": "",
+            "plan_composer_prompt": user_prompt,
         }

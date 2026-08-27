@@ -8,7 +8,11 @@ from pydantic import ValidationError
 from acp_writer.planning_brief import (
     ActivityType,
     ActivityWorkflow,
+    ConflictCategory,
     ConflictEntry,
+    ConflictSeverity,
+    ConflictSource,
+    ConflictStatus,
     DMNAuditEntry,
     FHIRCode,
     PlanActivity,
@@ -16,6 +20,8 @@ from acp_writer.planning_brief import (
     PlanningBrief,
     ReviewStatus,
     TargetValue,
+    coerce_conflicts,
+    conflict_id,
 )
 
 
@@ -204,23 +210,103 @@ class TestPlanActivity:
 
 
 class TestConflictEntry:
-    def test_conflict(self):
+    def test_new_model(self):
         c = ConflictEntry(
+            id="conf-abc123",
+            category=ConflictCategory.DIVERGENT_TARGET,
+            severity=ConflictSeverity.WARNING,
             description="Conflicting BP targets from two guidelines",
-            activity_indices=[0, 1],
-            sources=["CPG-A", "CPG-B"],
+            goal_indices=[0, 1],
+            sources=[
+                ConflictSource(cpg_id="SYN-HTN-2026-001", recommendation_id="rec-1"),
+                ConflictSource(cpg_id="SYN-DM2-2026-001", recommendation_id="rec-2"),
+            ],
         )
+        assert c.status == ConflictStatus.DETECTED
+        assert c.detected_by == "llm"
         assert len(c.sources) == 2
         assert c.resolution is None
 
-    def test_with_resolution(self):
+    def test_defaults(self):
+        c = ConflictEntry(id="conf-1", description="x")
+        assert c.category == ConflictCategory.OTHER
+        assert c.severity == ConflictSeverity.WARNING
+        assert c.goal_indices == []
+        assert c.activity_indices == []
+        assert c.sources == []
+
+    def test_json_roundtrip(self):
         c = ConflictEntry(
-            description="Duplicate monitoring",
-            activity_indices=[2, 3],
-            sources=["rec-1", "rec-2"],
-            resolution="Merged into single monitoring activity",
+            id="conf-1",
+            category=ConflictCategory.CONTRADICTION,
+            description="titrate up vs. reduce lisinopril",
+            activity_indices=[0, 3],
+            sources=[ConflictSource(cpg_id="A", recommendation_id="r1", excerpt="q")],
+            confidence="high",
         )
-        assert c.resolution is not None
+        restored = ConflictEntry.model_validate(c.model_dump(mode="json"))
+        assert restored == c
+
+
+class TestConflictId:
+    def test_deterministic(self):
+        sources = [ConflictSource(cpg_id="A", recommendation_id="r1")]
+        a = conflict_id(ConflictCategory.OVERLAP, sources)
+        b = conflict_id(ConflictCategory.OVERLAP, sources)
+        assert a == b
+        assert a.startswith("conf-")
+
+    def test_order_insensitive(self):
+        s1 = [ConflictSource(cpg_id="A", recommendation_id="r1"),
+              ConflictSource(cpg_id="B", recommendation_id="r2")]
+        s2 = list(reversed(s1))
+        assert conflict_id(ConflictCategory.OVERLAP, s1) == conflict_id(ConflictCategory.OVERLAP, s2)
+
+    def test_category_and_content_key_change_id(self):
+        sources = [ConflictSource(cpg_id="A", recommendation_id="r1")]
+        base = conflict_id(ConflictCategory.OVERLAP, sources)
+        assert conflict_id(ConflictCategory.CONTRADICTION, sources) != base
+        assert conflict_id(ConflictCategory.OVERLAP, sources, content_key="bp") != base
+
+    def test_falls_back_to_cpg_ids(self):
+        # No recommendation ids → cpg ids drive the hash (still stable).
+        s = [ConflictSource(cpg_id="A"), ConflictSource(cpg_id="B")]
+        assert conflict_id(ConflictCategory.OVERLAP, s) == conflict_id(
+            ConflictCategory.OVERLAP, list(reversed(s))
+        )
+
+
+class TestCoerceConflicts:
+    def test_empty(self):
+        assert coerce_conflicts(None) == []
+        assert coerce_conflicts([]) == []
+
+    def test_bare_string(self):
+        [c] = coerce_conflicts(["Two guidelines disagree on BP target"])
+        assert c["description"] == "Two guidelines disagree on BP target"
+        assert c["detected_by"] == "composer"
+        assert c["id"].startswith("conf-")
+        ConflictEntry.model_validate(c)  # must validate
+
+    def test_legacy_sources_list_of_str(self):
+        [c] = coerce_conflicts([
+            {"description": "dup monitoring", "activity_indices": [2, 3], "sources": ["CPG-A", "CPG-B"]}
+        ])
+        assert c["sources"] == [{"cpg_id": "CPG-A"}, {"cpg_id": "CPG-B"}]
+        ConflictEntry.model_validate(c)
+
+    def test_legacy_recommendation_ids_key(self):
+        [c] = coerce_conflicts([{"description": "x", "recommendation_ids": ["r1"]}])
+        assert c["sources"] == [{"cpg_id": "r1"}]
+        assert "recommendation_ids" not in c
+        ConflictEntry.model_validate(c)
+
+    def test_preserves_existing_id_and_detected_by(self):
+        [c] = coerce_conflicts([
+            {"id": "conf-keep", "description": "x", "detected_by": "llm", "sources": []}
+        ])
+        assert c["id"] == "conf-keep"
+        assert c["detected_by"] == "llm"
 
 
 class TestPlanningBrief:

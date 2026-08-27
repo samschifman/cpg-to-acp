@@ -28,8 +28,6 @@ steps to "process".
 especially when DMN logic drove the decision.
 - Include workflow context (actor, escalation, monitoring_trigger) when \
 the recommendation implies process steps — this data feeds BPMN generation later.
-- Flag potential conflicts when the same clinical target is addressed by \
-multiple recommendations with different approaches.
 - You MUST produce at least one goal for every care plan. Each goal should \
 have a measurable target when clinically appropriate. Activities without \
 a corresponding goal are incomplete and will be rejected by the FHIR generator.
@@ -117,7 +115,6 @@ Respond with a JSON object matching this schema exactly:
       }} or null
     }}
   ],
-  "conflicts": [],
   "review_status": "pending"
 }}
 """
