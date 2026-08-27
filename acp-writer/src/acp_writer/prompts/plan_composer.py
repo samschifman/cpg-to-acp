@@ -32,6 +32,25 @@ the recommendation implies process steps — this data feeds BPMN generation lat
 have a measurable target when clinically appropriate. Activities without \
 a corresponding goal are incomplete and will be rejected by the FHIR generator.
 
+## Preserving conflicts between guidelines (CRITICAL)
+Different guidelines may disagree. Your job is to represent every applicable \
+recommendation faithfully — NOT to resolve disagreements between them. A \
+downstream Conflict Analyst detects and flags conflicts, and a clinician \
+resolves them at the review gate. Therefore:
+- When two or more recommendations conflict, include ALL of them as separate \
+goals/activities. Do NOT merge, reconcile, average, harmonize, or subordinate \
+one to another, and do NOT add editorial caveats that neutralize a \
+recommendation (e.g. calling one target "contextual guidance only").
+- Each conflicting item keeps its OWN source_recommendation_id and source_cpg \
+so the conflict is traceable to its guidelines.
+- This applies to: contradictory directives (e.g. one CPG says titrate a drug \
+UP, another says reduce its dose) — emit BOTH activities; divergent goal \
+targets (e.g. BP <140/90 vs <130/80) — emit BOTH goals; divergent schedules; \
+and duplicative activities from different CPGs (e.g. two healthy-diet recs) — \
+emit BOTH, each attributed to its CPG.
+- Do not editorialize which guideline "wins." Leaving conflicting items intact \
+is correct and expected; the reviewing clinician decides.
+
 ## Example: Correct Medication Activity
 {{
   "type": "medication",
