@@ -107,6 +107,37 @@ class TestBundleReadBack:
         _g, _a, conflicts = _extract_view_from_bundle(bundle)
         assert conflicts == []
 
+    def test_medium_confidence_round_trips_back_to_medium(self):
+        # F8: the analyst's "medium" is stored on the AIconfidence extension as
+        # the certainty-rating code "moderate" (no "medium" code exists there).
+        # Read-back must invert that mapping so the UI sees "medium" again,
+        # not the persisted "moderate".
+        brief = _brief_with_conflict()
+        brief.conflicts[0].confidence = "medium"
+        bundle = build_fhir_bundle(brief)
+        _g, _a, conflicts = _extract_view_from_bundle(bundle)
+        assert conflicts[0]["confidence"] == "medium"
+
+    def test_source_with_display_delimiters_round_trips_exactly(self):
+        # F9: a cpg id / excerpt that itself contains the display-string
+        # delimiters (" · rec ", " — ") must survive the round-trip intact.
+        # The old display-string parse corrupted these; structural source
+        # extensions carry the exact values.
+        brief = _brief_with_conflict()
+        brief.conflicts[0].sources = [
+            ConflictSource(
+                cpg_id="CPG · rec tricky",
+                recommendation_id="rec-9",
+                excerpt="goal — target <140/90 · rec note",
+            )
+        ]
+        bundle = build_fhir_bundle(brief)
+        _g, _a, conflicts = _extract_view_from_bundle(bundle)
+        src = conflicts[0]["sources"][0]
+        assert src["cpgId"] == "CPG · rec tricky"
+        assert src["recommendationId"] == "rec-9"
+        assert src["excerpt"] == "goal — target <140/90 · rec note"
+
 
 class TestEntryMapping:
     def test_maps_snake_to_camel(self):

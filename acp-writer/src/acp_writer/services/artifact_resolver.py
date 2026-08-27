@@ -9,6 +9,7 @@ cpg-phi bucket; non-PHI data (recommendations) in cpg-artifacts.
 import logging
 from typing import Any
 
+import mlflow
 from cpg_contracts.artifact_store import ArtifactStore
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ def _fetch_ref(store: ArtifactStore, ref: str) -> dict | None:
         return None
 
 
+@mlflow.trace(name="plan_conflict_from_entry")
 def plan_conflict_from_entry(entry: dict) -> dict:
     """Map a planning-brief ``ConflictEntry`` dict → the BFF ``PlanConflict`` shape.
 

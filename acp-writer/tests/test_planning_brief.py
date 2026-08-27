@@ -224,7 +224,6 @@ class TestConflictEntry:
             ],
         )
         assert c.status == ConflictStatus.DETECTED
-        assert c.detected_by == "llm"
         assert len(c.sources) == 2
         assert c.resolution is None
 
@@ -285,7 +284,6 @@ class TestCoerceConflicts:
     def test_bare_string(self):
         [c] = coerce_conflicts(["Two guidelines disagree on BP target"])
         assert c["description"] == "Two guidelines disagree on BP target"
-        assert c["detected_by"] == "composer"
         assert c["id"].startswith("conf-")
         ConflictEntry.model_validate(c)  # must validate
 
@@ -302,12 +300,11 @@ class TestCoerceConflicts:
         assert "recommendation_ids" not in c
         ConflictEntry.model_validate(c)
 
-    def test_preserves_existing_id_and_detected_by(self):
+    def test_preserves_existing_id(self):
         [c] = coerce_conflicts([
-            {"id": "conf-keep", "description": "x", "detected_by": "llm", "sources": []}
+            {"id": "conf-keep", "description": "x", "sources": []}
         ])
         assert c["id"] == "conf-keep"
-        assert c["detected_by"] == "llm"
 
     # --- F7: coerce_conflicts must be total (never raise on loose input) ---
 
@@ -353,10 +350,9 @@ class TestCoerceConflicts:
         ConflictEntry.model_validate(c)
 
     def test_conflict_entry_instances_accepted(self):
-        entry = ConflictEntry(id="conf-1", description="x", detected_by="llm")
+        entry = ConflictEntry(id="conf-1", description="x")
         [c] = coerce_conflicts([entry])
         assert c["id"] == "conf-1"
-        assert c["detected_by"] == "llm"
         ConflictEntry.model_validate(c)
 
     def test_non_string_description_coerced(self):
@@ -445,7 +441,7 @@ class TestPlanningBriefCoercesConflicts:
 
     def test_clean_brief_is_idempotent(self):
         clean = self._base([
-            {"id": "conf-x", "description": "x", "detected_by": "llm",
+            {"id": "conf-x", "description": "x",
              "category": "overlap", "severity": "info", "sources": [{"cpg_id": "CPG-A"}]}
         ])
         once = PlanningBrief.model_validate(clean)

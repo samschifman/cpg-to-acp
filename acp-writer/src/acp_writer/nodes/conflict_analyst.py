@@ -25,7 +25,6 @@ from acp_writer.planning_brief import (
     ConflictSource,
     ConflictStatus,
     _coerce_enum,
-    coerce_conflicts,
     conflict_id,
 )
 from acp_writer.prompts.conflict_analyst import (
@@ -198,7 +197,6 @@ def _build_entry(
         goal_indices=goal_indices,
         activity_indices=activity_indices,
         sources=sources,
-        detected_by="llm",
     )
 
 
@@ -222,38 +220,6 @@ def _parse_conflicts(content: str) -> list[dict]:
     return conflicts
 
 
-def _carry_forward(fresh: list[ConflictEntry], prior: list[dict]) -> None:
-    """Copy clinician-set status/resolution from prior conflicts onto freshly
-    detected ones with a matching (semantic) id. Mutates ``fresh`` in place."""
-    prior_by_id = {c.get("id"): c for c in prior if c.get("id")}
-    for entry in fresh:
-        p = prior_by_id.get(entry.id)
-        if p and p.get("status") in (ConflictStatus.ACKNOWLEDGED.value, ConflictStatus.RESOLVED.value):
-            entry.status = ConflictStatus(p["status"])
-            entry.resolution = p.get("resolution")
-
-
-def _merge_composer(fresh: list[ConflictEntry], prior: list[dict]) -> list[ConflictEntry]:
-    """Keep legacy composer-detected conflicts unless a fresh analyst conflict
-    supersedes them (same category with intersecting affected indices)."""
-    kept: list[ConflictEntry] = []
-    for c in prior:
-        if c.get("detected_by") != "composer":
-            continue
-        c_ai, c_gi = set(c.get("activity_indices") or []), set(c.get("goal_indices") or [])
-        superseded = any(
-            e.category.value == c.get("category")
-            and (set(e.activity_indices) & c_ai or set(e.goal_indices) & c_gi)
-            for e in fresh
-        )
-        if not superseded:
-            try:
-                kept.append(ConflictEntry.model_validate(c))
-            except Exception as exc:  # noqa: BLE001 — defensive; never fail the run on legacy data
-                logger.warning("Skipping un-coercible composer conflict: %s", exc)
-    return kept
-
-
 @mlflow.trace(name="conflict_analyst")
 def conflict_analyst(state: CarePlanComposerState) -> dict:
     """Detect plan-level conflicts and annotate the planning brief."""
@@ -265,8 +231,6 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
     if not goals and not activities:
         logger.info("Conflict analysis: empty plan — nothing to analyze")
         return {"planning_brief": brief}
-
-    prior = coerce_conflicts(brief.get("conflicts"))
 
     user_prompt = CONFLICT_ANALYST_USER.format(
         goals=_format_goals(goals),
@@ -333,8 +297,15 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
     if malformed:
         logger.info("Conflict analysis: skipped %d malformed conflict item(s)", malformed)
 
-    _carry_forward(fresh, prior)
-    merged = fresh + _merge_composer(fresh, prior)
+    # The analyst re-runs on a freshly composed brief every time, so its output
+    # is authoritative — there is no prior-conflict carry-forward here. On a
+    # request-changes loop a genuinely resolved conflict simply is not
+    # re-detected (its disappearance is the success signal). Per-conflict status
+    # carry-over — recording a clinician's acknowledgement/resolution and
+    # replaying it — is tracked in issue #172, where it will be rebuilt against
+    # the conflict Provenances (the durable store) rather than brief state.
+    # TODO(#172): per-conflict resolution recording + carry-over via Provenance.
+    merged = fresh
     _uniquify_ids(merged)
 
     brief["conflicts"] = [e.model_dump(mode="json") for e in merged]

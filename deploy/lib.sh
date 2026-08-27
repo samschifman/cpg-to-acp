@@ -245,6 +245,35 @@ label_pod() {
         --overwrite 2>/dev/null
 }
 
+expose_service() {
+    # Expose a sandbox's port as a K8s Service, retrying transient failures.
+    # A failure here silently breaks the pod-split path (no in-cluster DNS name
+    # for the pod), so on persistent failure we surface the real error and fail
+    # the deploy rather than swallowing it. Usage:
+    #   expose_service <sandbox-name> [port] [scheme]
+    local name="$1"
+    local port="${2:-8080}"
+    local scheme="${3:-http}"
+    local attempts=3
+    local out=""
+
+    for attempt in $(seq 1 "$attempts"); do
+        if out=$(openshell service expose "$name" "$port" "$scheme" 2>&1); then
+            return 0
+        fi
+        # An already-exposed service is success, not a failure to retry.
+        if echo "$out" | grep -qiE 'already ex[il]st'; then
+            return 0
+        fi
+        log "  service expose for $name failed (attempt ${attempt}/${attempts}); retrying in 3s..."
+        sleep 3
+    done
+
+    echo "ERROR: could not expose service for '$name' on port ${port} after ${attempts} attempts:" >&2
+    echo "$out" >&2
+    return 1
+}
+
 # --- Build helpers ---
 
 start_build_and_wait() {

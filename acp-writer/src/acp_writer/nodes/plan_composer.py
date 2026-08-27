@@ -143,7 +143,6 @@ def plan_composer(state: CarePlanComposerState) -> dict:
         dmn_results=_format_dmn_results(dmn_results),
         recommendations=_format_recommendations(recommendations),
         applicable_cpgs=json.dumps(cpg_ids),
-        dmn_audit_trail=json.dumps(dmn_results, default=str),
         feedback=feedback_text,
     )
 
@@ -164,6 +163,11 @@ def plan_composer(state: CarePlanComposerState) -> dict:
 
     try:
         brief_data = _parse_brief_from_response(content_to_text(response.content))
+        # The DMN audit trail is authoritative data the executor already built —
+        # inject it directly rather than asking the LLM to echo it back through
+        # the prompt (F10). This removes a large, error-prone round-trip and
+        # guarantees the recorded trail matches what actually executed.
+        brief_data["dmn_audit_trail"] = dmn_results
         brief_data["conflicts"] = coerce_conflicts(brief_data.get("conflicts"))
         _sanitize_provenance(brief_data, cpg_ids[0] if cpg_ids else "unspecified")
         brief = PlanningBrief.model_validate(brief_data)

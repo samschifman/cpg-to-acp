@@ -91,7 +91,6 @@ class TestConflictAnalyst:
         c = ConflictEntry.model_validate(conflicts[0])
         assert c.category.value == "overlap"
         assert c.activity_indices == [0, 1]
-        assert c.detected_by == "llm"
         # F16b: _build_entry carries the analyst's suggested_resolution through.
         assert c.suggested_resolution == (
             "Combine the two diet activities into a single lifestyle activity"
@@ -130,7 +129,7 @@ class TestConflictAnalyst:
         brief = _brief()
         brief["conflicts"] = [{
             "id": "conf-prior", "category": "overlap", "severity": "info",
-            "description": "pre-existing", "detected_by": "composer",
+            "description": "pre-existing",
             "activity_indices": [0], "sources": [],
         }]
         result = conflict_analyst(_state(brief))
@@ -145,54 +144,11 @@ class TestConflictAnalyst:
         result = conflict_analyst(_state())  # must not raise
         assert result["planning_brief"]["conflicts"] == []
 
-    @patch("acp_writer.nodes.conflict_analyst.get_llm")
-    def test_composer_conflict_superseded(self, mock_get_llm):
-        mock_get_llm.return_value = _mock_llm(_OVERLAP_JSON)
-        brief = _brief()
-        brief["conflicts"] = [{
-            "id": "conf-old", "category": "overlap", "severity": "info",
-            "description": "composer's overlap on the same diet activities",
-            "detected_by": "composer", "activity_indices": [0], "sources": [],
-        }]
-        result = conflict_analyst(_state(brief))
-        conflicts = result["planning_brief"]["conflicts"]
-        assert len(conflicts) == 1  # composer's version dropped in favor of analyst's
-        assert conflicts[0]["detected_by"] == "llm"
-
-    @patch("acp_writer.nodes.conflict_analyst.get_llm")
-    def test_composer_conflict_retained_when_distinct(self, mock_get_llm):
-        mock_get_llm.return_value = _mock_llm(_OVERLAP_JSON)
-        brief = _brief()
-        brief["conflicts"] = [{
-            "id": "conf-distinct", "category": "contradiction", "severity": "warning",
-            "description": "composer flagged the medication",
-            "detected_by": "composer", "activity_indices": [2], "sources": [],
-        }]
-        result = conflict_analyst(_state(brief))
-        ids = {c["id"] for c in result["planning_brief"]["conflicts"]}
-        assert "conf-distinct" in ids  # untouched by analyst → kept
-        assert len(ids) == 2
-
-    @patch("acp_writer.nodes.conflict_analyst.get_llm")
-    def test_carry_forward_status(self, mock_get_llm):
-        mock_get_llm.return_value = _mock_llm(_OVERLAP_JSON)
-        # Precompute the id the analyst will assign, then seed a prior
-        # acknowledged conflict with that id so status carries forward.
-        first = conflict_analyst(_state())
-        cid = first["planning_brief"]["conflicts"][0]["id"]
-
-        brief = _brief()
-        brief["conflicts"] = [{
-            "id": cid, "category": "overlap", "severity": "info",
-            "description": "acknowledged earlier", "detected_by": "llm",
-            "status": "acknowledged", "resolution": "clinician noted",
-            "activity_indices": [0, 1], "sources": [],
-        }]
-        mock_get_llm.return_value = _mock_llm(_OVERLAP_JSON)
-        result = conflict_analyst(_state(brief))
-        c = result["planning_brief"]["conflicts"][0]
-        assert c["status"] == "acknowledged"
-        assert c["resolution"] == "clinician noted"
+    # NOTE: The composer-conflict merge and status carry-forward tests were
+    # removed with F11 (issue #169). The composer no longer detects conflicts,
+    # and the analyst is authoritative on each fresh run — there is no
+    # carry-forward. Per-conflict status carry-over is deferred to #172, where
+    # it will be rebuilt against the conflict Provenances, not brief state.
 
     @patch("acp_writer.nodes.conflict_analyst.get_llm")
     def test_empty_brief_passthrough(self, mock_get_llm):

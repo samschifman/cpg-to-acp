@@ -19,6 +19,8 @@ import os
 from importlib import metadata
 from typing import TYPE_CHECKING, Any
 
+import mlflow
+
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import ordering risk
     from acp_writer.services.reviewer import ReviewerContext
 
@@ -99,6 +101,17 @@ _CONFIDENCE_TO_CERTAINTY = {
     "moderate": "moderate",
     "high": "high",
     "very-low": "very-low",
+}
+
+# Inverse of the forward map above, used when reading conflicts back off a
+# stored Provenance: the certainty-rating code is what got persisted, so
+# "moderate" must resolve back to the analyst's "medium" (its only forward
+# source). Codes that already match an analyst level pass through unchanged.
+_CERTAINTY_TO_CONFIDENCE = {
+    "very-low": "very-low",
+    "low": "low",
+    "moderate": "medium",
+    "high": "high",
 }
 
 
@@ -402,6 +415,7 @@ def is_conflict_provenance(prov: dict) -> bool:
     )
 
 
+@mlflow.trace(name="plan_conflict_from_provenance")
 def plan_conflict_from_provenance(prov: dict) -> dict | None:
     """Reconstruct a BFF ``PlanConflict`` from a conflict Provenance.
 
@@ -432,13 +446,40 @@ def plan_conflict_from_provenance(prov: dict) -> dict | None:
     conf = exts.get(AICONFIDENCE_EXT)
     if conf:
         coding = (conf.get("valueCodeableConcept", {}).get("coding") or [{}])[0]
-        if coding.get("code"):
-            pc["confidence"] = coding["code"]
+        code = coding.get("code")
+        if code:
+            # The certainty-rating code is what got persisted; map it back to
+            # the analyst's confidence vocabulary so a "medium" that was stored
+            # as "moderate" reads back as "medium" (F8). Unknown codes pass
+            # through unchanged.
+            pc["confidence"] = _CERTAINTY_TO_CONFIDENCE.get(code, code)
 
     sources: list[dict] = []
     for e in prov.get("entity", []):
-        if e.get("role") == "source":
-            what = e.get("what", {})
+        if e.get("role") != "source":
+            continue
+        what = e.get("what", {})
+        src_exts = {
+            x.get("url"): x.get("valueString") for x in e.get("extension", [])
+        }
+        cpg_id = src_exts.get(f"{ACP_EXT_BASE}/conflict-source-cpg-id")
+        if cpg_id:
+            # Structural source fields (F9) are authoritative when present —
+            # no display-string parsing, so a cpg id or excerpt containing the
+            # display delimiters can't corrupt the round-trip.
+            src: dict = {"cpgId": cpg_id}
+            rec = src_exts.get(
+                f"{ACP_EXT_BASE}/conflict-source-recommendation-id"
+            ) or what.get("identifier", {}).get("value")
+            if rec:
+                src["recommendationId"] = rec
+            excerpt = src_exts.get(f"{ACP_EXT_BASE}/conflict-source-excerpt")
+            if excerpt:
+                src["excerpt"] = excerpt
+            sources.append(src)
+        else:
+            # Legacy Provenance without structural source extensions — fall
+            # back to parsing the human-readable display string.
             rec = what.get("identifier", {}).get("value")
             sources.append(parse_source_display(what.get("display", ""), rec))
     if sources:
@@ -446,6 +487,7 @@ def plan_conflict_from_provenance(prov: dict) -> dict | None:
     return pc
 
 
+@mlflow.trace(name="build_conflict_provenance")
 def build_conflict_provenance(
     prov_uid: str,
     conflict: Any,
@@ -488,7 +530,22 @@ def build_conflict_provenance(
         }
         if src.recommendation_id:
             what["identifier"] = {"value": src.recommendation_id}
-        entities.append({"role": "source", "what": what})
+        # Structural source fields (F9) so read-back never parses the display
+        # string. The display is retained for human readers only.
+        source_exts: list[dict] = [
+            {"url": f"{ACP_EXT_BASE}/conflict-source-cpg-id", "valueString": src.cpg_id},
+        ]
+        if src.recommendation_id:
+            source_exts.append({
+                "url": f"{ACP_EXT_BASE}/conflict-source-recommendation-id",
+                "valueString": src.recommendation_id,
+            })
+        if src.excerpt:
+            source_exts.append({
+                "url": f"{ACP_EXT_BASE}/conflict-source-excerpt",
+                "valueString": src.excerpt,
+            })
+        entities.append({"role": "source", "what": what, "extension": source_exts})
 
     provenance = build_ai_provenance(
         prov_uid=prov_uid,

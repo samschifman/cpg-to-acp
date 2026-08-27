@@ -103,7 +103,6 @@ Respond with a JSON object matching this schema exactly:
 {{
   "patient_reference": "{patient_reference}",
   "applicable_cpgs": {applicable_cpgs},
-  "dmn_audit_trail": {dmn_audit_trail},
   "goals": [
     {{
       "description": "Goal description",

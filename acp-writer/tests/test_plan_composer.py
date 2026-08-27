@@ -246,6 +246,29 @@ class TestPlanComposer:
         assert "Missing monitoring activity" in user_msg
 
     @patch("acp_writer.nodes.plan_composer.get_llm")
+    def test_dmn_audit_trail_injected_from_state_not_llm(self, mock_get_llm):
+        # F10: the DMN audit trail is authoritative data the executor already
+        # built. It is injected into the brief in code, not echoed back through
+        # the LLM prompt. Even though SAMPLE_BRIEF_JSON carries an empty
+        # dmn_audit_trail, the composed brief must reflect state["dmn_results"].
+        mock_llm = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = SAMPLE_BRIEF_JSON  # has "dmn_audit_trail": []
+        mock_llm.invoke.return_value = mock_response
+        mock_get_llm.return_value = mock_llm
+
+        state = self._make_state()
+        result = plan_composer(state)
+
+        trail = result["planning_brief"]["dmn_audit_trail"]
+        assert len(trail) == len(state["dmn_results"]) == 1
+        assert trail[0]["model_id"] == "treatment-recommendation"
+
+        # And the prompt no longer serializes the audit trail into the LLM input.
+        user_prompt = result["plan_composer_prompt"]
+        assert "dmn_audit_trail" not in user_prompt
+
+    @patch("acp_writer.nodes.plan_composer.get_llm")
     def test_writes_artifact(self, mock_get_llm, tmp_path):
         mock_llm = MagicMock()
         mock_response = MagicMock()

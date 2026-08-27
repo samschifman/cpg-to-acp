@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+import mlflow
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -129,7 +130,7 @@ class ConflictSource(BaseModel):
 
 class ConflictEntry(BaseModel):
     """A plan-level conflict between goals/activities, detected by the
-    conflict_analyst node (or, legacy, the composer)."""
+    conflict_analyst node."""
 
     id: str  # stable, semantic — see conflict_id()
     category: ConflictCategory = ConflictCategory.OTHER
@@ -141,9 +142,10 @@ class ConflictEntry(BaseModel):
     goal_indices: list[int] = Field(default_factory=list)
     activity_indices: list[int] = Field(default_factory=list)
     sources: list[ConflictSource] = Field(default_factory=list)
+    # resolution: kept for the #172 per-conflict resolution-recording flow, where
+    # a clinician's instruction will be recorded on the conflict Provenance.
     resolution: str | None = None  # clinician's instruction once resolved
     suggested_resolution: str | None = None  # analyst's conservative suggestion for the reviewing clinician (advisory only — never auto-applied)
-    detected_by: str = "llm"  # "llm" | "composer"
 
 
 def conflict_id(
@@ -229,6 +231,7 @@ def _norm_source(s) -> dict | None:
     return None
 
 
+@mlflow.trace(name="coerce_conflicts")
 def coerce_conflicts(raw: list | None) -> list[dict]:
     """Upgrade legacy / loosely-shaped conflict entries into new-shape dicts.
 
@@ -253,7 +256,6 @@ def coerce_conflicts(raw: list | None) -> list[dict]:
                 "sources": [],
                 "goal_indices": [],
                 "activity_indices": [],
-                "detected_by": "composer",
             }
         elif isinstance(item, dict):
             entry = dict(item)
@@ -270,7 +272,6 @@ def coerce_conflicts(raw: list | None) -> list[dict]:
             entry.setdefault("goal_indices", [])
             entry.setdefault("activity_indices", [])
             entry["description"] = str(entry.get("description") or "")
-            entry.setdefault("detected_by", "composer")
             if "category" in entry:
                 entry["category"] = _coerce_enum(
                     entry.get("category"), ConflictCategory, ConflictCategory.OTHER
