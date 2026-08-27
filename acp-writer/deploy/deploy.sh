@@ -142,6 +142,17 @@ oc apply -f "$SCRIPT_DIR/orchestrator/acpwriter-props.yaml" -n "$NAMESPACE" 2>/d
     || log "WARNING: acpwriter-props apply failed"
 oc apply -f "$SCRIPT_DIR/orchestrator/acp-writer-workflow.yaml" -n "$NAMESPACE" 2>/dev/null \
     || log "WARNING: SonataFlow workflow apply failed"
+# The SonataFlow operator mounts the workflow definition into the running
+# `acpwriter` pod via a ConfigMap; a re-apply that only changes the workflow
+# body does not always roll the pod, so the old definition keeps serving. Force
+# a restart so the new flow (e.g. careplan_review_history threading) takes
+# effect. Dev-only: this drops any in-flight workflow instances.
+if oc get deployment/acpwriter -n "$NAMESPACE" >/dev/null 2>&1; then
+    oc rollout restart deployment/acpwriter -n "$NAMESPACE" 2>/dev/null \
+        || log "WARNING: acpwriter rollout restart failed"
+    oc rollout status deployment/acpwriter -n "$NAMESPACE" --timeout=120s 2>/dev/null \
+        || log "WARNING: acpwriter rollout did not complete in time"
+fi
 
 # --- Step 5: Deploy MCP server ---
 

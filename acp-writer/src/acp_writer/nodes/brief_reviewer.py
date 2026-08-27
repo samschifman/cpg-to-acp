@@ -14,7 +14,11 @@ from cpg_contracts import content_to_text, get_llm
 from acp_writer.llm_json import loads_json
 from acp_writer.output import write_artifact
 from acp_writer.planning_brief import PlanningBrief, ReviewStatus
-from acp_writer.prompts.brief_reviewer import BRIEF_REVIEWER_SYSTEM, BRIEF_REVIEWER_USER
+from acp_writer.prompts.brief_reviewer import (
+    BRIEF_REVIEWER_REVISION_NOTE,
+    BRIEF_REVIEWER_SYSTEM,
+    BRIEF_REVIEWER_USER,
+)
 from acp_writer.state import CarePlanComposerState
 
 logger = logging.getLogger(__name__)
@@ -71,7 +75,15 @@ def brief_reviewer(state: CarePlanComposerState) -> dict:
     allergy_codes = state.get("allergy_codes", [])
     recommendations = state.get("recommendations", [])
 
+    # F17: on a request-changes revision the composer minimally revised an
+    # already-approved base plan, so the reviewer should judge the changes for
+    # safety rather than demand authoring-style completeness rewrites.
+    prior_brief = state.get("prior_planning_brief") or {}
+    is_revision = bool(prior_brief.get("goals") or prior_brief.get("activities"))
+    revision_note = BRIEF_REVIEWER_REVISION_NOTE if is_revision else ""
+
     user_prompt = BRIEF_REVIEWER_USER.format(
+        revision_note=revision_note,
         patient_reference=patient_ref,
         conditions=_format_code_list(condition_codes),
         medications=_format_code_list(medication_codes),

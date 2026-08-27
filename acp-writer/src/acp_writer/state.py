@@ -39,6 +39,20 @@ class CarePlanComposerState(TypedDict, total=False):
     # Phase 1: Recommendation Retriever outputs
     recommendations: list[dict[str, Any]]
 
+    # Phase 1: Plan Composer inputs (request-changes loop)
+    # The prior planning brief on a request-changes recomposition. Its goals +
+    # activities are the authoritative base the composer revises in place (F17a);
+    # its conflicts seed the analyst's revision continuity (F17c). Absent on a
+    # first pass and in the one-shot monolith path → composer authors from scratch.
+    prior_planning_brief: dict[str, Any]
+    # Accumulated clinician review history, oldest-first (F17b). Each entry is a
+    # review round {decision, comment, reviewer, ...}; the newest is the round to
+    # act on now, earlier rounds are standing context/constraints.
+    careplan_review_history: list[dict[str, Any]]
+    # Raw latest clinician instruction on a request-changes loop. The conflict
+    # analyst reads it to record which conflicts were directed resolved (F17c).
+    careplan_feedback: str
+
     # Phase 1: Plan Composer outputs
     planning_brief: dict[str, Any]
     plan_composer_prompt: str  # rendered user prompt, captured for AI-InputPrompt (WS3)

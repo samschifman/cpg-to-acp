@@ -19,10 +19,13 @@ from acp_writer.planning_brief import (
     PlanGoal,
     PlanningBrief,
     ReviewStatus,
+    RevisionRound,
     TargetValue,
     coerce_conflicts,
     conflict_id,
+    normalize_review_history,
     render_conflicts_feedback,
+    render_feedback_history,
 )
 
 
@@ -532,3 +535,108 @@ class TestPlanningBrief:
             "Observation/bp-001",
             "Condition/diabetes-001",
         ]
+
+
+class TestFeedbackHistory:
+    """F17b: accumulated clinician feedback rendered oldest-first, with the
+    newest round marked current and older rounds under a growth guard."""
+
+    def _rounds(self, n: int) -> list[dict]:
+        return [
+            {"decision": "request_changes", "comment": f"change number {i}",
+             "clinician": {"display": f"Dr. {i}"}, "completed_at": f"2026-08-27T0{i}:00:00Z"}
+            for i in range(1, n + 1)
+        ]
+
+    def test_empty_is_blank(self):
+        assert render_feedback_history(None) == ""
+        assert render_feedback_history([]) == ""
+        # Rounds with no comment (e.g. an approve) render nothing.
+        assert render_feedback_history([{"decision": "approve", "comment": ""}]) == ""
+
+    def test_three_rounds_oldest_first_newest_marked_current(self):
+        block = render_feedback_history(self._rounds(3))
+        assert "## Feedback history (oldest first)" in block
+        # Oldest first: round 1 appears before round 3.
+        assert block.index("change number 1") < block.index("change number 3")
+        # Newest round is flagged as the one to act on now.
+        assert "(address THIS round now)" in block
+        newest_header = block.split("### Round 3")[1].splitlines()[0]
+        assert "address THIS round now" in newest_header
+        # Round 1 is NOT marked current.
+        assert "### Round 1" in block
+        round1_header = block.split("### Round 1")[1].splitlines()[0]
+        assert "address THIS round now" not in round1_header
+        # Standing-constraint guidance is present.
+        assert "standing context" in block
+
+    def test_growth_guard_summarizes_older_rounds(self):
+        # 5 rounds: the oldest 2 collapse to one-line summaries, the newest 3
+        # render in full (### headers).
+        block = render_feedback_history(self._rounds(5))
+        assert block.count("### Round") == 3
+        assert "### Round 3" in block  # verbatim
+        assert "### Round 5" in block  # verbatim
+        assert "### Round 1" not in block  # summarized
+        assert "### Round 2" not in block  # summarized
+        # Older rounds still appear as one-line summaries.
+        assert "- Round 1 (Dr. 1): change number 1" in block
+        assert "- Round 2 (Dr. 2): change number 2" in block
+
+    def test_skips_empty_comment_rounds_but_keeps_numbering(self):
+        rounds = [
+            {"decision": "request_changes", "comment": "first ask", "clinician": "Dr. A"},
+            {"decision": "approve", "comment": ""},
+            {"decision": "request_changes", "comment": "second ask", "clinician": "Dr. B"},
+        ]
+        block = render_feedback_history(rounds)
+        assert "first ask" in block
+        assert "second ask" in block
+        # Round numbers reflect original position (3, not 2, for the last).
+        assert "### Round 3" in block
+
+
+class TestNormalizeReviewHistory:
+    def test_flattens_to_audit_shape(self):
+        rounds = normalize_review_history([
+            {"decision": "request_changes", "comment": "  fix BP  ",
+             "clinician": {"display": "Dr. Reynolds"}, "completed_at": "2026-08-27T01:00:00Z"},
+        ])
+        assert rounds == [{
+            "round": 1,
+            "comment": "fix BP",
+            "reviewer": "Dr. Reynolds",
+            "timestamp": "2026-08-27T01:00:00Z",
+            "decision": "request_changes",
+        }]
+
+    def test_reviewer_fallbacks(self):
+        # dict without display → name → id → default; bare string; missing.
+        assert normalize_review_history([{"reviewer": "Dr. Bare"}])[0]["reviewer"] == "Dr. Bare"
+        assert normalize_review_history([{"clinician": {"name": "N"}}])[0]["reviewer"] == "N"
+        assert normalize_review_history([{"comment": "x"}])[0]["reviewer"] == "clinician"
+
+    def test_skips_non_dict_entries(self):
+        assert normalize_review_history(["oops", None, {"comment": "ok"}]) == [
+            {"round": 3, "comment": "ok", "reviewer": "clinician",
+             "timestamp": None, "decision": None},
+        ]
+
+    def test_revision_round_serializes_on_brief(self):
+        brief = PlanningBrief(
+            patient_reference="Patient/1",
+            applicable_cpgs=["CPG-A"],
+            goals=[PlanGoal(description="g", source_cpg="CPG-A")],
+            activities=[],
+            revision_history=[RevisionRound(round=1, comment="fix it", reviewer="Dr. A")],
+        )
+        data = brief.model_dump(mode="json")
+        assert data["revision_history"][0]["round"] == 1
+        assert data["revision_history"][0]["comment"] == "fix it"
+
+    def test_revision_history_defaults_empty(self):
+        brief = PlanningBrief(
+            patient_reference="Patient/1", applicable_cpgs=["CPG-A"],
+            goals=[PlanGoal(description="g", source_cpg="CPG-A")], activities=[],
+        )
+        assert brief.revision_history == []

@@ -347,6 +347,102 @@ def render_conflicts_feedback(conflicts: list | None) -> str:
     return "\n".join(lines)
 
 
+def _reviewer_display(review: dict) -> str:
+    """Best-effort human name for the clinician who submitted a review round.
+
+    The review object carries the reviewer under ``clinician`` (split path) or
+    ``reviewer`` (monolith), as either a ReviewerContext dict or a bare string.
+    Falls back to "clinician" so a round is never dropped for a missing name."""
+    who = review.get("clinician")
+    if who is None:
+        who = review.get("reviewer")
+    if isinstance(who, dict):
+        return who.get("display") or who.get("name") or who.get("id") or "clinician"
+    if isinstance(who, str) and who.strip():
+        return who.strip()
+    return "clinician"
+
+
+def normalize_review_history(raw: list | None) -> list[dict]:
+    """Normalize accumulated care-plan review rounds into RevisionRound dicts (F17b).
+
+    The workflow accumulates each ``careplanReview`` (``{decision, comment,
+    clinician, completed_at, ...}``) oldest-first across the review loop. This
+    flattens them to the compact audit shape stored on the brief and rendered
+    for the composer. Round numbers are 1-based and assigned before any
+    filtering so they stay stable. Non-dict entries are skipped.
+    """
+    rounds: list[dict] = []
+    for i, review in enumerate(raw or []):
+        if not isinstance(review, dict):
+            continue
+        rounds.append({
+            "round": i + 1,
+            "comment": str(review.get("comment") or "").strip(),
+            "reviewer": _reviewer_display(review),
+            "timestamp": review.get("completed_at") or review.get("timestamp"),
+            "decision": review.get("decision"),
+        })
+    return rounds
+
+
+# The most recent N rounds render in full; older rounds collapse to one-liners so
+# a long review loop can't blow the composer prompt (F17b growth guard).
+_VERBATIM_ROUNDS = 3
+
+
+def render_feedback_history(history: list | None) -> str:
+    """Render accumulated clinician feedback oldest-first for the composer (F17b).
+
+    Each revision otherwise sees only the latest comment, so earlier
+    instructions — including standing constraints ("never add X") that no brief
+    artifact can carry — silently expire. This renders every round that carried
+    a comment, marks the newest as the one to act on now, and treats earlier
+    rounds as standing context. Growth guard: only the most recent
+    ``_VERBATIM_ROUNDS`` rounds render in full; older ones collapse to one-line
+    summaries. Returns "" when no round carried a comment so callers can
+    concatenate unconditionally.
+    """
+    rounds = [r for r in normalize_review_history(history) if r["comment"]]
+    if not rounds:
+        return ""
+    total = len(rounds)
+    cutoff = total - _VERBATIM_ROUNDS  # rounds before this index are summarized
+    lines = ["## Feedback history (oldest first)"]
+    for idx, r in enumerate(rounds):
+        if idx < cutoff:
+            summary = r["comment"].splitlines()[0][:200]
+            lines.append(f"- Round {r['round']} ({r['reviewer']}): {summary}")
+        else:
+            header = f"### Round {r['round']} — {r['reviewer']}"
+            if idx == total - 1:
+                header += " (address THIS round now)"
+            lines.append("")
+            lines.append(header)
+            lines.append(r["comment"])
+    lines.append("")
+    lines.append(
+        "Address the newest round now. Earlier rounds are standing context and "
+        "constraints — do not undo changes you already applied for them, and do "
+        'not violate a standing instruction (e.g. "never add X").'
+    )
+    return "\n".join(lines)
+
+
+class RevisionRound(BaseModel):
+    """One clinician request-changes round, recorded on the brief (F17b).
+
+    Accumulated across a care-plan review loop so the stored brief — and each
+    round's AI-InputPrompt DocRef — carries the full feedback history, not just
+    the latest comment (an AI-transparency win)."""
+
+    round: int
+    comment: str = ""
+    reviewer: str | None = None
+    timestamp: str | None = None
+    decision: str | None = None
+
+
 class ReviewStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -364,6 +460,7 @@ class PlanningBrief(BaseModel):
     goals: list[PlanGoal]
     activities: list[PlanActivity]
     conflicts: list[ConflictEntry] = Field(default_factory=list)
+    revision_history: list[RevisionRound] = Field(default_factory=list)
     review_status: ReviewStatus = ReviewStatus.PENDING
     review_feedback: str | None = None
 

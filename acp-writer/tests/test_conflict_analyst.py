@@ -241,3 +241,131 @@ class TestConflictAnalyst:
         assert len(ids) == 2
         assert len(set(ids)) == 2
         assert any(i.endswith("-2") for i in ids)
+
+
+class TestConflictAnalystRevisionContinuity:
+    """F17c: on a request-changes revision, the analyst carries prior conflicts
+    forward — resolved or still present — with their ORIGINAL ids, so the review
+    UI shows the same conflicts progressing instead of a fresh-looking set."""
+
+    _PRIOR_ID = "conf-known01"
+
+    def _prior_conflict(self) -> dict:
+        return {
+            "id": self._PRIOR_ID,
+            "category": "overlap",
+            "severity": "info",
+            "description": "Both guidelines recommend a healthy diet",
+            "suggested_resolution": "Combine the two diet activities into one",
+            "goal_indices": [],
+            "activity_indices": [0, 1],
+            "sources": [
+                {"cpg_id": "SYN-HTN-2026-001", "recommendation_id": "htn-rec-004"},
+                {"cpg_id": "SYN-DM2-2026-001", "recommendation_id": "dm2-rec-004"},
+            ],
+        }
+
+    def _revision_state(self) -> dict:
+        state = _state()
+        state["prior_planning_brief"] = {"conflicts": [self._prior_conflict()]}
+        state["careplan_feedback"] = "resolve all identified conflicts as you suggested"
+        return state
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_resolved_conflict_keeps_id_and_records_resolution(self, mock_get_llm):
+        # The clinician directed resolution and the plan merged the diets — the
+        # analyst re-emits the prior conflict resolved, with empty indices, SAME id.
+        llm_out = json.dumps({"conflicts": [{
+            "id": self._PRIOR_ID,
+            "category": "overlap",
+            "status": "resolved",
+            "resolution": "Resolve as suggested — merged the two diet activities into one",
+            "description": "Both guidelines recommend a healthy diet",
+            "goal_indices": [],
+            "activity_indices": [],
+            "sources": [],
+        }]})
+        mock_get_llm.return_value = _mock_llm(llm_out)
+
+        result = conflict_analyst(self._revision_state())
+        conflicts = result["planning_brief"]["conflicts"]
+        assert len(conflicts) == 1
+        c = ConflictEntry.model_validate(conflicts[0])
+        assert c.id == self._PRIOR_ID  # same id, not recomputed
+        assert c.status.value == "resolved"
+        assert "merged the two diet activities" in c.resolution
+        # sources fell back to the prior conflict's (LLM omitted them)
+        assert len(c.sources) == 2
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_surviving_conflict_keeps_id(self, mock_get_llm):
+        # The clinician did not resolve it — re-emit with the same id, detected.
+        llm_out = json.dumps({"conflicts": [{
+            "id": self._PRIOR_ID,
+            "category": "overlap",
+            "status": "detected",
+            "description": "Both guidelines recommend a healthy diet",
+            "goal_indices": [],
+            "activity_indices": [0, 1],
+            "sources": [{"cpg_id": "SYN-HTN-2026-001", "recommendation_id": "htn-rec-004"}],
+        }]})
+        mock_get_llm.return_value = _mock_llm(llm_out)
+
+        result = conflict_analyst(self._revision_state())
+        c = ConflictEntry.model_validate(result["planning_brief"]["conflicts"][0])
+        assert c.id == self._PRIOR_ID
+        assert c.status.value == "detected"
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_revision_prompt_carries_prior_conflicts_and_comment(self, mock_get_llm):
+        from acp_writer.prompts.conflict_analyst import CONFLICT_ANALYST_REVISION
+
+        mock = _mock_llm(json.dumps({"conflicts": []}))
+        mock_get_llm.return_value = mock
+        conflict_analyst(self._revision_state())
+
+        messages = mock.invoke.call_args[0][0]
+        system_msg, user_msg = messages[0]["content"], messages[1]["content"]
+        # revision addendum present in the system prompt
+        assert CONFLICT_ANALYST_REVISION.strip() in system_msg
+        # prior conflict id + clinician instruction present in the user prompt
+        assert self._PRIOR_ID in user_msg
+        assert "resolve all identified conflicts as you suggested" in user_msg
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_new_conflict_alongside_carried_forward(self, mock_get_llm):
+        # A carried-forward resolved prior conflict PLUS a brand-new one (no id →
+        # computed, detected). Both survive.
+        llm_out = json.dumps({"conflicts": [
+            {"id": self._PRIOR_ID, "category": "overlap", "status": "resolved",
+             "resolution": "merged", "description": "diets merged",
+             "goal_indices": [], "activity_indices": [], "sources": []},
+            {"category": "divergent_target", "severity": "warning",
+             "description": "BP targets differ", "goal_indices": [0, 1],
+             "activity_indices": [], "sources": [{"cpg_id": "SYN-DM2-2026-001"}]},
+        ]})
+        mock_get_llm.return_value = _mock_llm(llm_out)
+
+        result = conflict_analyst(self._revision_state())
+        conflicts = result["planning_brief"]["conflicts"]
+        assert len(conflicts) == 2
+        by_id = {c["id"]: c for c in conflicts}
+        assert by_id[self._PRIOR_ID]["status"] == "resolved"
+        fresh = [c for c in conflicts if c["id"] != self._PRIOR_ID][0]
+        assert fresh["status"] == "detected"
+        assert fresh["category"] == "divergent_target"
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_authoring_prompt_unchanged_without_prior(self, mock_get_llm):
+        from acp_writer.prompts.conflict_analyst import (
+            CONFLICT_ANALYST_REVISION,
+            CONFLICT_ANALYST_SYSTEM,
+        )
+
+        mock = _mock_llm(_OVERLAP_JSON)
+        mock_get_llm.return_value = mock
+        conflict_analyst(_state())  # no prior_planning_brief
+
+        system_msg = mock.invoke.call_args[0][0][0]["content"]
+        assert system_msg == CONFLICT_ANALYST_SYSTEM
+        assert CONFLICT_ANALYST_REVISION.strip() not in system_msg

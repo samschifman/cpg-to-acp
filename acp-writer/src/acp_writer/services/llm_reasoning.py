@@ -312,19 +312,20 @@ def _seed_feedback(careplan_feedback: str, prior_conflicts: list | None = None) 
     return "\n\n".join(parts)
 
 
-def _prior_conflicts(data: dict) -> list:
-    """Resolve the prior planning brief's conflicts for a request-changes loop.
+def _prior_brief(data: dict) -> dict:
+    """Resolve the prior planning brief for a request-changes loop (F16a/F17a).
 
     ``prior_brief_ref`` is empty ("") on the first pass — guard for that before
-    touching the store. The stored artifact IS the planning brief dict, so its
-    ``conflicts`` are read directly (issue #169 F16a).
+    touching the store. The stored artifact IS the planning brief dict; its
+    goals/activities are the composer's revision base (F17a) and its conflicts
+    seed the reviewer-feedback block + analyst continuity (F16a/F17c). Returns
+    ``{}`` when there is no prior brief (first pass) so callers stay in authoring
+    mode.
     """
     if not data.get("prior_brief_ref"):
-        return []
+        return {}
     prior_brief = resolve_ref(data, "prior_brief", _phi_store)
-    if isinstance(prior_brief, dict):
-        return prior_brief.get("conflicts") or []
-    return []
+    return prior_brief if isinstance(prior_brief, dict) else {}
 
 
 def _prompt_artifact(state: dict) -> dict:
@@ -354,6 +355,7 @@ def _compose_pipeline(data: dict) -> dict:
     ``/compose`` handler runs this in a worker thread (C9) to avoid stalling the
     event loop for the duration of the whole reasoning pipeline."""
     recommendations = resolve_ref(data, "recommendations", _store)
+    prior_brief = _prior_brief(data)
     state = {
         "patient_reference": data.get("patient_reference", ""),
         "patient_demographics": data.get("patient_demographics", {}),
@@ -367,8 +369,15 @@ def _compose_pipeline(data: dict) -> dict:
         "llm_model": LLM_MODEL,
         "llm_api_key": LLM_API_KEY,
         "brief_review_count": 0,
+        # Prior brief drives plan_composer revision mode + analyst continuity
+        # (F17a/F17c); its conflicts also seed the reviewer-feedback block (F16a).
+        "prior_planning_brief": prior_brief,
+        "careplan_review_history": data.get("careplan_review_history", []),
+        # Raw latest clinician instruction — the analyst reads it on a revision
+        # pass to record which conflicts the clinician directed resolved (F17c).
+        "careplan_feedback": data.get("careplan_feedback", ""),
         "brief_review_feedback": _seed_feedback(
-            data.get("careplan_feedback", ""), _prior_conflicts(data)
+            data.get("careplan_feedback", ""), prior_brief.get("conflicts") or []
         ),
     }
 
@@ -421,6 +430,7 @@ async def compose_async(request: Request, background_tasks: BackgroundTasks):
 def _run_compose_background(data: dict, callback_url: str, process_instance_id: str):
     try:
         recommendations = resolve_ref(data, "recommendations", _store)
+        prior_brief = _prior_brief(data)
         state = {
             "patient_reference": data.get("patient_reference", ""),
             "patient_demographics": data.get("patient_demographics", {}),
@@ -434,8 +444,15 @@ def _run_compose_background(data: dict, callback_url: str, process_instance_id: 
             "llm_model": LLM_MODEL,
             "llm_api_key": LLM_API_KEY,
             "brief_review_count": 0,
+            # Prior brief drives plan_composer revision mode + analyst continuity
+            # (F17a/F17c); its conflicts also seed the reviewer-feedback block (F16a).
+            "prior_planning_brief": prior_brief,
+            "careplan_review_history": data.get("careplan_review_history", []),
+            # Raw latest clinician instruction — the analyst reads it on a revision
+            # pass to record which conflicts the clinician directed resolved (F17c).
+            "careplan_feedback": data.get("careplan_feedback", ""),
             "brief_review_feedback": _seed_feedback(
-                data.get("careplan_feedback", ""), _prior_conflicts(data)
+                data.get("careplan_feedback", ""), prior_brief.get("conflicts") or []
             ),
         }
 

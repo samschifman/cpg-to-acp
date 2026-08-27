@@ -124,6 +124,21 @@ class TestBundleReadBack:
         _g, _a, conflicts = _extract_view_from_bundle(bundle)
         assert conflicts == []
 
+    def test_resolution_round_trips_via_provenance(self):
+        # F17c: a resolved conflict's clinician resolution note survives the
+        # bundle round-trip via the conflict-resolution Provenance extension.
+        brief = _brief_with_conflict()
+        brief.conflicts[0].status = ConflictStatus.RESOLVED
+        brief.conflicts[0].resolution = (
+            "Resolve as suggested — kept the diabetes <130/80 target, dropped <140/90"
+        )
+        bundle = build_fhir_bundle(brief)
+        _g, _a, conflicts = _extract_view_from_bundle(bundle)
+        assert conflicts[0]["status"] == "resolved"
+        assert conflicts[0]["resolution"] == (
+            "Resolve as suggested — kept the diabetes <130/80 target, dropped <140/90"
+        )
+
     def test_medium_confidence_round_trips_back_to_medium(self):
         # F8: the analyst's "medium" is stored on the AIconfidence extension as
         # the certainty-rating code "moderate" (no "medium" code exists there).
@@ -172,6 +187,15 @@ class TestEntryMapping:
         assert pc["suggestedResolution"] == (
             "Prefer the diabetes guideline's <130/80 target and note the divergence"
         )
+
+    def test_maps_resolution(self):
+        # F17c: the live read path maps the clinician resolution note too.
+        pc = plan_conflict_from_entry({
+            "id": "c1", "description": "d", "status": "resolved",
+            "resolution": "merged the two diet activities",
+        })
+        assert pc["status"] == "resolved"
+        assert pc["resolution"] == "merged the two diet activities"
 
     def test_minimal_entry(self):
         pc = plan_conflict_from_entry({"id": "c1", "description": "d"})

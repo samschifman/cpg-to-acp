@@ -15,8 +15,16 @@ from cpg_contracts import content_to_text, get_llm
 
 from acp_writer.llm_json import loads_json
 from acp_writer.output import write_artifact
-from acp_writer.planning_brief import PlanningBrief, coerce_conflicts
-from acp_writer.prompts.plan_composer import PLAN_COMPOSER_SYSTEM, PLAN_COMPOSER_USER
+from acp_writer.planning_brief import (
+    PlanningBrief,
+    coerce_conflicts,
+    normalize_review_history,
+    render_feedback_history,
+)
+from acp_writer.prompts.plan_composer import (
+    PLAN_COMPOSER_USER,
+    compose_system_prompt,
+)
 from acp_writer.state import CarePlanComposerState
 
 logger = logging.getLogger(__name__)
@@ -89,6 +97,27 @@ def _sanitize_provenance(brief_data: dict, default_cpg: str) -> None:
                 item["source_cpg"] = default_cpg
 
 
+def _format_prior_plan(prior_goals: list[dict], prior_activities: list[dict]) -> str:
+    """Render the prior brief's goals + activities as the authoritative revision
+    base (F17a). Returns "" in authoring mode (no prior plan) so the user prompt
+    is unchanged. Conflicts are intentionally NOT rendered here — they reach the
+    composer through the seeded reviewer feedback block (render_conflicts_feedback),
+    so rendering them again would duplicate them.
+    """
+    if not prior_goals and not prior_activities:
+        return ""
+    return (
+        "\n## Prior Care Plan (authoritative base — revise minimally)\n"
+        "This is the plan you previously produced and the clinician reviewed. "
+        "Reproduce it verbatim and apply ONLY the changes the feedback requires; "
+        "do not add, re-word, or re-code untouched items.\n\n"
+        "### Prior Goals\n"
+        f"{json.dumps(prior_goals, indent=2, default=str)}\n\n"
+        "### Prior Activities\n"
+        f"{json.dumps(prior_activities, indent=2, default=str)}\n"
+    )
+
+
 def _parse_brief_from_response(content: str) -> dict[str, Any]:
     """Extract JSON from LLM response, handling markdown code blocks."""
     return loads_json(content)
@@ -105,6 +134,21 @@ def plan_composer(state: CarePlanComposerState) -> dict:
     applicable_cpgs = state.get("applicable_cpgs", [])
     feedback = state.get("brief_review_feedback", "")
     output_dir = state.get("output_dir", "")
+
+    # Revision mode (F17a): a prior brief in state means this is a request-changes
+    # loop. The prior goals/activities are the authoritative base — the composer
+    # reproduces them and applies only the feedback's changes, instead of
+    # regenerating a fresh plan around the same conflicts. The monolith never sets
+    # this key (it is one-shot from an IPS bundle), so it always authors.
+    prior_brief = state.get("prior_planning_brief") or {}
+    prior_goals = prior_brief.get("goals") or []
+    prior_activities = prior_brief.get("activities") or []
+    is_revision = bool(prior_goals or prior_activities)
+
+    # Accumulated clinician feedback across the review loop (F17b). Rendered
+    # oldest-first so standing constraints from earlier rounds don't expire, and
+    # recorded on the brief for the audit trail / AI-InputPrompt DocRef.
+    review_history = state.get("careplan_review_history") or []
 
     cpg_ids = [c.get("cpg_id", c) if isinstance(c, dict) else c for c in applicable_cpgs]
 
@@ -129,25 +173,34 @@ def plan_composer(state: CarePlanComposerState) -> dict:
     if feedback:
         feedback_text = f"\n## Reviewer Feedback (address these issues)\n{feedback}"
 
+    history_block = render_feedback_history(review_history)
+    feedback_history_text = f"\n{history_block}\n" if history_block else ""
+
     user_prompt = PLAN_COMPOSER_USER.format(
         patient_reference=patient_ref,
         demographics=_format_demographics(demographics),
         conditions=_format_conditions(condition_codes),
         dmn_results=_format_dmn_results(dmn_results),
         recommendations=_format_recommendations(recommendations),
+        prior_plan=_format_prior_plan(prior_goals, prior_activities),
+        feedback_history=feedback_history_text,
         applicable_cpgs=json.dumps(cpg_ids),
         feedback=feedback_text,
     )
 
     review_round = state.get("brief_review_count", 0)
-    logger.info("── Plan Composer (round %d) ──", review_round + 1)
+    logger.info(
+        "── Plan Composer (round %d, %s mode) ──",
+        review_round + 1,
+        "revision" if is_revision else "authoring",
+    )
 
     llm = get_llm(state)
     logger.info("Calling LLM...")
     t0 = time.time()
 
     response = llm.invoke([
-        {"role": "system", "content": PLAN_COMPOSER_SYSTEM},
+        {"role": "system", "content": compose_system_prompt(is_revision)},
         {"role": "user", "content": user_prompt},
     ])
 
@@ -162,6 +215,11 @@ def plan_composer(state: CarePlanComposerState) -> dict:
         # guarantees the recorded trail matches what actually executed.
         brief_data["dmn_audit_trail"] = dmn_results
         brief_data["conflicts"] = coerce_conflicts(brief_data.get("conflicts"))
+        # Record the accumulated clinician feedback on the brief (F17b) — injected
+        # in code, not asked of the LLM, so the audit trail is authoritative. Left
+        # untouched (default []) on authoring / monolith runs with no history.
+        if review_history:
+            brief_data["revision_history"] = normalize_review_history(review_history)
         _sanitize_provenance(brief_data, cpg_ids[0] if cpg_ids else "unspecified")
         brief = PlanningBrief.model_validate(brief_data)
         brief_dict = brief.model_dump(mode="json")

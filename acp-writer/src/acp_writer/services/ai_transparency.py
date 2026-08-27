@@ -302,6 +302,15 @@ def _conflict_extensions(conflict: Any) -> list[dict]:
             "url": f"{ACP_EXT_BASE}/conflict-suggested-resolution",
             "valueString": suggested,
         })
+    # The clinician's applied resolution on a resolved conflict (F17c) — the
+    # note that says what was done. Persisted so a resolved conflict reads back
+    # with its resolution, not just a "resolved" status.
+    resolution = getattr(conflict, "resolution", None)
+    if resolution:
+        exts.append({
+            "url": f"{ACP_EXT_BASE}/conflict-resolution",
+            "valueString": resolution,
+        })
     confidence_ext = ai_confidence_ext(conflict.confidence)
     if confidence_ext:
         exts.append(confidence_ext)
@@ -443,6 +452,9 @@ def plan_conflict_from_provenance(prov: dict) -> dict | None:
     suggested = exts.get(f"{ACP_EXT_BASE}/conflict-suggested-resolution", {}).get("valueString")
     if suggested:
         pc["suggestedResolution"] = suggested
+    resolution = exts.get(f"{ACP_EXT_BASE}/conflict-resolution", {}).get("valueString")
+    if resolution:
+        pc["resolution"] = resolution
     conf = exts.get(AICONFIDENCE_EXT)
     if conf:
         coding = (conf.get("valueCodeableConcept", {}).get("coding") or [{}])[0]

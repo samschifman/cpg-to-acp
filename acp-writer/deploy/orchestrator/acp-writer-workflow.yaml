@@ -5,7 +5,7 @@ metadata:
   annotations:
     sonataflow.org/profile: dev
     sonataflow.org/description: "ACP Writer pipeline orchestration"
-    sonataflow.org/version: "0.2.2"
+    sonataflow.org/version: "0.3.0"
 spec:
   podTemplate:
     container:
@@ -169,6 +169,11 @@ spec:
               # conflicts as you suggested" resolvable. Empty "" on the first pass
               # (composerData is not set yet); llm_reasoning guards for that.
               prior_brief_ref: '${ .composerData.planning_brief_ref // "" }'
+              # Full accumulated clinician review history, oldest-first (issue #169
+              # F17b). Each revision otherwise sees only the latest comment, so
+              # earlier instructions — including standing constraints ("never add
+              # X") — silently expire. Empty [] on the first pass.
+              careplan_review_history: '${ .careplanReviewHistory // [] }'
         eventRef: composeDone
         eventDataFilter:
           toStateData: "${ .composerData }"
@@ -275,7 +280,10 @@ spec:
         type: inject
         data: {}
         stateDataFilter:
-          output: "${ . + {careplanReviewCount: ((.careplanReviewCount // 0) + 1)} }"
+          # Bump the round counter AND append this round to the accumulated
+          # review history (issue #169 F17b), so a request_changes loop back to
+          # ComposePlan carries every prior comment, not just the latest.
+          output: "${ . + {careplanReviewCount: ((.careplanReviewCount // 0) + 1), careplanReviewHistory: ((.careplanReviewHistory // []) + [.careplanReview])} }"
         transition: CheckCarePlanReview
 
       - name: CheckCarePlanReview

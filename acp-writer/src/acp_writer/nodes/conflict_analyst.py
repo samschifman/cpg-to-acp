@@ -25,11 +25,12 @@ from acp_writer.planning_brief import (
     ConflictSource,
     ConflictStatus,
     _coerce_enum,
+    coerce_conflicts,
     conflict_id,
 )
 from acp_writer.prompts.conflict_analyst import (
-    CONFLICT_ANALYST_SYSTEM,
     CONFLICT_ANALYST_USER,
+    conflict_analyst_system_prompt,
 )
 from acp_writer.state import CarePlanComposerState
 
@@ -97,6 +98,39 @@ def _format_medications(medication_codes: list[dict]) -> str:
     )
 
 
+def _load_prior_conflicts(state: CarePlanComposerState) -> list[ConflictEntry]:
+    """Validate the prior brief's conflicts into entries for revision continuity
+    (F17c). Coerces loose/legacy shapes first; drops any that still won't
+    validate rather than sinking the analyst. Empty on an authoring/first pass."""
+    prior_brief = state.get("prior_planning_brief") or {}
+    entries: list[ConflictEntry] = []
+    for c in coerce_conflicts(prior_brief.get("conflicts") or []):
+        try:
+            entries.append(ConflictEntry.model_validate(c))
+        except Exception as exc:  # noqa: BLE001 — skip an unvalidatable prior conflict
+            logger.warning("Skipping unvalidatable prior conflict %r: %s", c, exc)
+    return entries
+
+
+def _format_prior_conflicts(prior: list[ConflictEntry], comment: str) -> str:
+    """Render the prior conflicts + clinician instruction for the revision pass
+    (F17c). Returns "" when there is nothing to carry forward so the authoring
+    user prompt is unchanged."""
+    if not prior and not comment:
+        return ""
+    lines = ["", "## Previously flagged conflicts (carry each forward by id)"]
+    for e in prior:
+        lines.append(f"- [{e.id}] {e.category.value} ({e.severity.value}): {e.description}")
+        if e.suggested_resolution:
+            lines.append(f"    suggested: {e.suggested_resolution}")
+    if comment:
+        lines.append("")
+        lines.append("## Clinician instruction")
+        lines.append(comment)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _content_key(
     goal_indices: list[int],
     activity_indices: list[int],
@@ -144,15 +178,29 @@ def _uniquify_ids(entries: list[ConflictEntry]) -> None:
 
 
 def _build_entry(
-    raw: dict, goals: list[dict], activities: list[dict]
+    raw: dict,
+    goals: list[dict],
+    activities: list[dict],
+    prior_by_id: dict[str, ConflictEntry] | None = None,
 ) -> ConflictEntry | None:
     """Validate one raw LLM conflict into a ConflictEntry, clamping indices.
     Returns None when the item is not an object or all referenced indices are
     out of range. Defensive against malformed items — every field access is
-    guarded/coerced so a single bad conflict can't crash the advisory step."""
+    guarded/coerced so a single bad conflict can't crash the advisory step.
+
+    On a revision pass (F17c) ``prior_by_id`` maps a previously-flagged
+    conflict's id to its entry. When the LLM echoes a prior id, this preserves
+    that id/category/sources for continuity and honors ``status``/``resolution``
+    (so a resolved conflict is RECORDED, not silently gone). A carried-forward
+    conflict is kept even with empty indices, because a resolved conflict may
+    describe items that no longer exist in the revised plan."""
     if not isinstance(raw, dict):
         logger.warning("Dropping non-object conflict item: %r", raw)
         return None
+
+    prior_by_id = prior_by_id or {}
+    raw_id = str(raw["id"]).strip() if raw.get("id") else ""
+    prior = prior_by_id.get(raw_id)
 
     goal_indices = [
         i for i in (raw.get("goal_indices") or []) if isinstance(i, int) and 0 <= i < len(goals)
@@ -160,7 +208,9 @@ def _build_entry(
     activity_indices = [
         i for i in (raw.get("activity_indices") or []) if isinstance(i, int) and 0 <= i < len(activities)
     ]
-    if not goal_indices and not activity_indices:
+    # A fresh conflict must reference at least one live item; a carried-forward
+    # prior conflict (esp. a resolved one) may legitimately have none.
+    if not goal_indices and not activity_indices and prior is None:
         logger.warning("Dropping conflict with no valid indices: %s", raw.get("description"))
         return None
 
@@ -179,22 +229,46 @@ def _build_entry(
         except Exception as exc:  # noqa: BLE001 — drop the bad source, keep the conflict
             logger.warning("Dropping malformed conflict source %r: %s", s, exc)
 
-    category = _coerce_enum(raw.get("category"), ConflictCategory, ConflictCategory.OTHER)
-    severity = _coerce_enum(raw.get("severity"), ConflictSeverity, ConflictSeverity.WARNING)
-    content_key = _content_key(goal_indices, activity_indices, goals, activities)
+    category = _coerce_enum(
+        raw.get("category"), ConflictCategory,
+        prior.category if prior else ConflictCategory.OTHER,
+    )
+    severity = _coerce_enum(
+        raw.get("severity"), ConflictSeverity,
+        prior.severity if prior else ConflictSeverity.WARNING,
+    )
+    status = _coerce_enum(raw.get("status"), ConflictStatus, ConflictStatus.DETECTED)
+
+    if prior is not None:
+        # Continuity: keep the original id, and fall back to the prior conflict's
+        # sources/description when the LLM omitted them on the carry-forward.
+        entry_id = prior.id
+        if not sources:
+            sources = list(prior.sources)
+    else:
+        content_key = _content_key(goal_indices, activity_indices, goals, activities)
+        entry_id = conflict_id(category, sources, content_key)
+
+    resolution = str(raw["resolution"]) if raw.get("resolution") else (
+        prior.resolution if prior else None
+    )
 
     return ConflictEntry(
-        id=conflict_id(category, sources, content_key),
+        id=entry_id,
         category=category,
         severity=severity,
-        status=ConflictStatus.DETECTED,
-        description=str(raw.get("description") or ""),
+        status=status,
+        description=str(raw.get("description") or (prior.description if prior else "")),
         rationale=(str(raw["rationale"]) if raw.get("rationale") else None),
-        suggested_resolution=(str(raw["suggested_resolution"]) if raw.get("suggested_resolution") else None),
+        suggested_resolution=(
+            str(raw["suggested_resolution"]) if raw.get("suggested_resolution")
+            else (prior.suggested_resolution if prior else None)
+        ),
         confidence=(str(raw["confidence"]) if raw.get("confidence") else None),
         goal_indices=goal_indices,
         activity_indices=activity_indices,
         sources=sources,
+        resolution=resolution,
     )
 
 
@@ -226,6 +300,15 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
         logger.info("Conflict analysis: empty plan — nothing to analyze")
         return {"planning_brief": brief}
 
+    # Revision continuity (F17c): on a request-changes loop, feed the prior
+    # conflicts + clinician instruction back so the analyst carries each forward
+    # (resolved or surviving) with its original id, instead of re-detecting a
+    # fresh-looking set. Empty on an authoring / first pass → byte-identical.
+    prior_conflicts = _load_prior_conflicts(state)
+    prior_by_id = {e.id: e for e in prior_conflicts}
+    clinician_comment = (state.get("careplan_feedback") or "").strip()
+    is_revision = bool(prior_by_id)
+
     user_prompt = CONFLICT_ANALYST_USER.format(
         goals=_format_goals(goals),
         activities=_format_activities(activities),
@@ -235,12 +318,13 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
         )
         or "None recorded.",
         medications=_format_medications(state.get("medication_codes") or []),
+        revision_context=_format_prior_conflicts(prior_conflicts, clinician_comment),
     )
 
-    logger.info("── Conflict Analyst ──")
+    logger.info("── Conflict Analyst (%s) ──", "revision" if is_revision else "authoring")
     llm = get_llm(state)
     messages = [
-        {"role": "system", "content": CONFLICT_ANALYST_SYSTEM},
+        {"role": "system", "content": conflict_analyst_system_prompt(is_revision)},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -280,7 +364,7 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
     malformed = 0
     for r in (raw_conflicts or []):
         try:
-            entry = _build_entry(r, goals, activities)
+            entry = _build_entry(r, goals, activities, prior_by_id)
         except Exception as exc:  # noqa: BLE001 — advisory step must never crash the run
             logger.warning("Skipping malformed conflict item (%s): %r", exc, r)
             malformed += 1
@@ -290,14 +374,14 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
     if malformed:
         logger.info("Conflict analysis: skipped %d malformed conflict item(s)", malformed)
 
-    # The analyst re-runs on a freshly composed brief every time, so its output
-    # is authoritative — there is no prior-conflict carry-forward here. On a
-    # request-changes loop a genuinely resolved conflict simply is not
-    # re-detected (its disappearance is the success signal). Per-conflict status
-    # carry-over — recording a clinician's acknowledgement/resolution and
-    # replaying it — is tracked in issue #172, where it will be rebuilt against
-    # the conflict Provenances (the durable store) rather than brief state.
-    # TODO(#172): per-conflict resolution recording + carry-over via Provenance.
+    # On a revision pass (F17c) the analyst is prompted to carry every prior
+    # conflict forward — resolved (status="resolved" + clinician resolution) or
+    # still present (same id) — so the review UI shows the SAME conflicts
+    # progressing rather than a fresh-looking set. Continuity is prompt-level
+    # plus id preservation in _build_entry; there is no separate carry-forward
+    # store. If the model drops a prior conflict entirely (neither resolved nor
+    # re-detected), it is gone — acceptable at this layer. Durable per-conflict
+    # resolution recording against the conflict Provenances is tracked in #172.
     merged = fresh
     _uniquify_ids(merged)
 
