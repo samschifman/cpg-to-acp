@@ -35,7 +35,8 @@ def plan_conflict_from_entry(entry: dict) -> dict:
         "description": entry.get("description", ""),
     }
     for src_key, dst_key in (("severity", "severity"), ("category", "category"),
-                             ("status", "status"), ("confidence", "confidence")):
+                             ("status", "status"), ("confidence", "confidence"),
+                             ("suggested_resolution", "suggestedResolution")):
         val = entry.get(src_key)
         if val:
             pc[dst_key] = val

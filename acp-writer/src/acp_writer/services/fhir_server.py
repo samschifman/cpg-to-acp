@@ -37,6 +37,8 @@ async def write(request: Request):
     In the in-run gate model, WriteFHIR only executes after the care-plan
     review gate approves, so the bundle is written as active by default.
     """
+    from acp_writer.services.reviewer import reviewer_from_payload
+
     data = await request.json()
     fhir_bundle = resolve_ref(data, "fhir_bundle", _phi_store)
     approved = data.get("approved", True)
@@ -44,6 +46,11 @@ async def write(request: Request):
         "fhir_bundle": fhir_bundle,
         "patient_reference": data.get("patient_reference", ""),
         "approved": approved,
+        # The approving clinician from the care-plan review gate. Threaded so the
+        # deployed path records the verifier + acknowledges conflicts (#169 F1).
+        "reviewer": reviewer_from_payload(
+            data.get("reviewer"), clinician=data.get("clinician")
+        ).model_dump(),
     }
     result = fhir_server_writer(state)
     return result
@@ -69,10 +76,8 @@ async def update_status(careplan_id: str, request: Request):
     new_status = data.get("status")
     if new_status == "active":
         from acp_writer.services.reviewer import reviewer_from_payload
-        payload = data.get("reviewer")
-        if not payload and data.get("clinician"):
-            payload = {"display": data["clinician"]}
-        result = approve_care_plan(careplan_id, reviewer=reviewer_from_payload(payload))
+        reviewer = reviewer_from_payload(data.get("reviewer"), clinician=data.get("clinician"))
+        result = approve_care_plan(careplan_id, reviewer=reviewer)
     elif new_status == "entered-in-error":
         result = reject_care_plan(careplan_id, reason=data.get("reason", "No reason provided"))
     else:

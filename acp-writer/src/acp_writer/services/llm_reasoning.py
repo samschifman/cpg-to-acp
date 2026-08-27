@@ -33,6 +33,7 @@ from acp_writer.nodes.brief_reviewer import brief_reviewer
 from acp_writer.nodes.conflict_analyst import conflict_analyst
 from acp_writer.nodes.fhir_semantic_reviewer import fhir_semantic_reviewer
 from acp_writer.pipeline import MAX_BRIEF_REVIEWS
+from acp_writer.planning_brief import render_conflicts_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -278,23 +279,72 @@ def _run_retrieve_background(data: dict, callback_url: str, process_instance_id:
     post_callback(callback_url, process_instance_id, "retrieve-done", result)
 
 
-def _seed_feedback(careplan_feedback: str) -> str:
+def _seed_feedback(careplan_feedback: str, prior_conflicts: list | None = None) -> str:
     """Turn clinician care-plan review feedback into initial composer feedback.
 
     When a clinician requests changes, the workflow re-enters ComposePlan with
-    their comment in ``careplan_feedback``. Seeding it as the composer's initial
-    ``brief_review_feedback`` makes ``plan_composer`` address it on the first
-    pass (it renders under "Reviewer Feedback (address these issues)"), so the
-    regenerated planning brief actually reflects the requested changes. Empty
-    on the initial run — normal composition, no seeded feedback.
+    their comment in ``careplan_feedback`` and a ref to the prior brief. Seeding
+    the comment as the composer's initial ``brief_review_feedback`` makes
+    ``plan_composer`` address it on the first pass (it renders under "Reviewer
+    Feedback (address these issues)"), so the regenerated planning brief actually
+    reflects the requested changes.
+
+    ``prior_conflicts`` (the previous brief's conflicts, issue #169 F16a) are
+    rendered into a "## Previously identified conflicts" block appended after the
+    comment, giving the composer a referent for feedback like "resolve all
+    identified conflicts as you suggested" — otherwise the comment names conflicts
+    the composer can't see. Returns "" on the initial run (no comment, no prior
+    conflicts) — normal composition, no seeded feedback.
     """
     careplan_feedback = (careplan_feedback or "").strip()
-    if not careplan_feedback:
+    conflict_block = render_conflicts_feedback(prior_conflicts or [])
+    if not careplan_feedback and not conflict_block:
         return ""
-    return (
-        "A clinician reviewed the previous care plan and requested the "
-        f"following changes. Revise the plan to address them:\n{careplan_feedback}"
-    )
+    parts: list[str] = []
+    if careplan_feedback:
+        parts.append(
+            "A clinician reviewed the previous care plan and requested the "
+            f"following changes. Revise the plan to address them:\n{careplan_feedback}"
+        )
+    if conflict_block:
+        parts.append(conflict_block)
+    return "\n\n".join(parts)
+
+
+def _prior_conflicts(data: dict) -> list:
+    """Resolve the prior planning brief's conflicts for a request-changes loop.
+
+    ``prior_brief_ref`` is empty ("") on the first pass — guard for that before
+    touching the store. The stored artifact IS the planning brief dict, so its
+    ``conflicts`` are read directly (issue #169 F16a).
+    """
+    if not data.get("prior_brief_ref"):
+        return []
+    prior_brief = resolve_ref(data, "prior_brief", _phi_store)
+    if isinstance(prior_brief, dict):
+        return prior_brief.get("conflicts") or []
+    return []
+
+
+def _prompt_artifact(state: dict) -> dict:
+    """Capture rendered prompts from composer state for AI-InputPrompt DocRefs.
+
+    The monolith keeps ``plan_composer_prompt``/``conflict_prompt`` in state so
+    ``fhir_bundle_generator`` can emit AI-InputPrompt DocumentReferences. The
+    split path must ferry them across the compose→generate-bundle service
+    boundary or the deployed bundle silently loses that prompt traceability
+    (issue #169 F2). Rendered prompts embed patient data, so they go to the PHI
+    store. Returns ``{}`` when no prompts were captured (e.g. capture disabled).
+    """
+    prompts = {
+        k: state[k]
+        for k in ("plan_composer_prompt", "conflict_prompt")
+        if state.get(k)
+    }
+    if not prompts:
+        return {}
+    _, ref = store_artifact(_phi_store, f"{uuid4()}/prompts.json", prompts)
+    return {"prompts_ref": ref} if ref else {"prompts": prompts}
 
 
 @app.post("/api/v1/compose")
@@ -315,7 +365,9 @@ async def compose(request: Request):
         "llm_model": LLM_MODEL,
         "llm_api_key": LLM_API_KEY,
         "brief_review_count": 0,
-        "brief_review_feedback": _seed_feedback(data.get("careplan_feedback", "")),
+        "brief_review_feedback": _seed_feedback(
+            data.get("careplan_feedback", ""), _prior_conflicts(data)
+        ),
     }
 
     for _ in range(MAX_BRIEF_REVIEWS + 1):
@@ -338,10 +390,13 @@ async def compose(request: Request):
     state.update(conflict_analyst(state))
 
     brief = state.get("planning_brief", {})
+    result = _prompt_artifact(state)
     _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
     if ref:
-        return {"planning_brief_ref": ref}
-    return {"planning_brief": brief}
+        result["planning_brief_ref"] = ref
+    else:
+        result["planning_brief"] = brief
+    return result
 
 
 @app.post("/api/v1/compose-async")
@@ -370,7 +425,9 @@ def _run_compose_background(data: dict, callback_url: str, process_instance_id: 
             "llm_model": LLM_MODEL,
             "llm_api_key": LLM_API_KEY,
             "brief_review_count": 0,
-            "brief_review_feedback": _seed_feedback(data.get("careplan_feedback", "")),
+            "brief_review_feedback": _seed_feedback(
+                data.get("careplan_feedback", ""), _prior_conflicts(data)
+            ),
         }
 
         for _ in range(MAX_BRIEF_REVIEWS + 1):
@@ -389,13 +446,14 @@ def _run_compose_background(data: dict, callback_url: str, process_instance_id: 
         state.update(conflict_analyst(state))
 
         brief = state.get("planning_brief", {})
+        result = _prompt_artifact(state)
         _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
         if ref:
-            result = {"planning_brief_ref": ref}
+            result["planning_brief_ref"] = ref
         elif _phi_store:
             raise RuntimeError("Artifact store available but failed to store planning brief")
         else:
-            result = {"planning_brief": brief}
+            result["planning_brief"] = brief
     except Exception as e:
         logger.error("Compose background task failed: %s", e)
         result = {"error": str(e)}

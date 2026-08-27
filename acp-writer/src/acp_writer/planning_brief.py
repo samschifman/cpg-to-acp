@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class FHIRCode(BaseModel):
@@ -142,6 +142,7 @@ class ConflictEntry(BaseModel):
     activity_indices: list[int] = Field(default_factory=list)
     sources: list[ConflictSource] = Field(default_factory=list)
     resolution: str | None = None  # clinician's instruction once resolved
+    suggested_resolution: str | None = None  # analyst's conservative suggestion for the reviewing clinician (advisory only — never auto-applied)
     detected_by: str = "llm"  # "llm" | "composer"
 
 
@@ -168,19 +169,84 @@ def conflict_id(
     return "conf-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
 
 
+_SEVERITY_SYNONYMS = {
+    "critical": ConflictSeverity.CRITICAL,
+    "high": ConflictSeverity.CRITICAL,
+    "severe": ConflictSeverity.CRITICAL,
+    "warning": ConflictSeverity.WARNING,
+    "warn": ConflictSeverity.WARNING,
+    "medium": ConflictSeverity.WARNING,
+    "moderate": ConflictSeverity.WARNING,
+    "info": ConflictSeverity.INFO,
+    "informational": ConflictSeverity.INFO,
+    "low": ConflictSeverity.INFO,
+    "minor": ConflictSeverity.INFO,
+}
+
+
+def _coerce_enum(value, enum_cls, default):
+    """Coerce a raw value into a member of ``enum_cls``, falling back to
+    ``default`` when it can't. Shared by :func:`coerce_conflicts` and the
+    conflict_analyst node so both paths normalize enums identically."""
+    if isinstance(value, enum_cls):
+        return value
+    try:
+        return enum_cls(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _coerce_severity(value) -> ConflictSeverity:
+    """Coerce a severity, mapping common synonyms (``high`` → ``critical``,
+    ``low`` → ``info``, …). Unknown values default to ``warning``."""
+    if isinstance(value, ConflictSeverity):
+        return value
+    if isinstance(value, str):
+        mapped = _SEVERITY_SYNONYMS.get(value.strip().lower())
+        if mapped is not None:
+            return mapped
+    return ConflictSeverity.WARNING
+
+
+def _norm_source(s) -> dict | None:
+    """Normalize one raw conflict source into a ConflictSource-ready dict, or
+    ``None`` if no CPG id can be recovered. Accepts bare strings and both
+    snake_case and camelCase keys, and str-coerces field values."""
+    if isinstance(s, str):
+        return {"cpg_id": s} if s.strip() else None
+    if isinstance(s, dict):
+        cpg = s.get("cpg_id", s.get("cpgId"))
+        if cpg is None or not str(cpg).strip():
+            return None
+        out: dict = {"cpg_id": str(cpg)}
+        rec = s.get("recommendation_id", s.get("recommendationId"))
+        if rec is not None and str(rec).strip():
+            out["recommendation_id"] = str(rec)
+        excerpt = s.get("excerpt")
+        if excerpt is not None and str(excerpt).strip():
+            out["excerpt"] = str(excerpt)
+        return out
+    return None
+
+
 def coerce_conflicts(raw: list | None) -> list[dict]:
     """Upgrade legacy / loosely-shaped conflict entries into new-shape dicts.
 
-    Handles: bare strings (→ description-only), ``sources: list[str]``
-    (→ ``[ConflictSource(cpg_id=...)]``), the legacy ``recommendation_ids``
-    key, and missing ids (computed via :func:`conflict_id`). Entries with no
-    explicit ``detected_by`` are treated as composer output. Returns dicts
-    ready to validate through :class:`ConflictEntry`.
+    Total by construction — never raises. Handles: bare strings
+    (→ description-only), ``sources: list[str]`` and camelCase source keys
+    (→ normalized ConflictSource dicts), the legacy ``recommendation_ids`` key,
+    ConflictEntry/BaseModel instances (via ``model_dump``), enum synonyms
+    (severity ``high`` → ``critical`` etc., unknown categories → ``other``),
+    and missing ids (computed via :func:`conflict_id`). Un-recoverable sources
+    are dropped individually rather than sinking the whole conflict. Returns
+    dicts ready to validate through :class:`ConflictEntry`.
     """
     if not raw:
         return []
     cleaned: list[dict] = []
     for item in raw:
+        if hasattr(item, "model_dump"):
+            item = item.model_dump(mode="json")
         if isinstance(item, str):
             entry: dict = {
                 "description": item,
@@ -196,16 +262,25 @@ def coerce_conflicts(raw: list | None) -> list[dict]:
                 legacy_sources = entry.get("recommendation_ids", [])
             norm_sources: list[dict] = []
             for s in legacy_sources or []:
-                if isinstance(s, str):
-                    norm_sources.append({"cpg_id": s})
-                elif isinstance(s, dict):
-                    norm_sources.append(s)
+                ns = _norm_source(s)
+                if ns is not None:
+                    norm_sources.append(ns)
             entry["sources"] = norm_sources
             entry.pop("recommendation_ids", None)
             entry.setdefault("goal_indices", [])
             entry.setdefault("activity_indices", [])
-            entry.setdefault("description", "")
+            entry["description"] = str(entry.get("description") or "")
             entry.setdefault("detected_by", "composer")
+            if "category" in entry:
+                entry["category"] = _coerce_enum(
+                    entry.get("category"), ConflictCategory, ConflictCategory.OTHER
+                ).value
+            if "severity" in entry:
+                entry["severity"] = _coerce_severity(entry.get("severity")).value
+            if "status" in entry:
+                entry["status"] = _coerce_enum(
+                    entry.get("status"), ConflictStatus, ConflictStatus.DETECTED
+                ).value
         else:
             continue
         if not entry.get("id"):
@@ -216,6 +291,59 @@ def coerce_conflicts(raw: list | None) -> list[dict]:
             )
         cleaned.append(entry)
     return cleaned
+
+
+def render_conflicts_feedback(conflicts: list | None) -> str:
+    """Render previously-detected conflicts into a compact composer-feedback block.
+
+    On a request-changes recomposition the clinician's comment may reference the
+    flagged conflicts ("resolve all identified conflicts as you suggested") — but
+    the composer only sees the comment, never the conflicts themselves. This
+    renders the prior brief's conflicts into a "## Previously identified
+    conflicts" block that is fed alongside the comment so the LLM has a referent
+    for both halves. Each entry lists id, category, severity, description,
+    analyst rationale, suggested resolution, and the implicated CPG/rec ids.
+
+    Compact by construction (no raw JSON). Returns "" when there is nothing to
+    render so callers can concatenate unconditionally. Lives here (next to
+    :func:`coerce_conflicts`) rather than in the split-path service so the
+    monolith can reuse it when it grows a care-plan review loop (see issue #174).
+    """
+    conflicts = coerce_conflicts(conflicts)
+    if not conflicts:
+        return ""
+    lines = [
+        "## Previously identified conflicts",
+        "The prior plan carried the plan-level conflicts below. Revise the plan "
+        "to resolve them where clinically appropriate — a genuinely resolved "
+        "conflict simply won't recur in the regenerated plan. These are advisory: "
+        "do NOT force a change that is not clinically sound.",
+        "",
+    ]
+    for c in conflicts:
+        header = f"- [{c.get('id', '')}] {c.get('category', 'other')}"
+        severity = c.get("severity")
+        if severity:
+            header += f" ({severity})"
+        header += f": {c.get('description', '')}".rstrip()
+        lines.append(header)
+        rationale = c.get("rationale")
+        if rationale:
+            lines.append(f"  Rationale: {rationale}")
+        suggestion = c.get("suggested_resolution")
+        if suggestion:
+            lines.append(f"  Suggested: {suggestion}")
+        src_tokens = []
+        for s in c.get("sources") or []:
+            if not isinstance(s, dict) or not s.get("cpg_id"):
+                continue
+            token = str(s["cpg_id"])
+            if s.get("recommendation_id"):
+                token += f"/{s['recommendation_id']}"
+            src_tokens.append(token)
+        if src_tokens:
+            lines.append(f"  Sources: {', '.join(src_tokens)}")
+    return "\n".join(lines)
 
 
 class ReviewStatus(str, Enum):
@@ -237,3 +365,17 @@ class PlanningBrief(BaseModel):
     conflicts: list[ConflictEntry] = Field(default_factory=list)
     review_status: ReviewStatus = ReviewStatus.PENDING
     review_feedback: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_conflicts_field(cls, data):
+        """Make every PlanningBrief validation site tolerant of legacy/loose
+        conflict shapes. Without this, one malformed conflict (a bare string, a
+        ``high`` severity, a source missing its cpg_id) would raise mid-validate
+        and callers that swallow the error would silently drop the ENTIRE brief
+        — goals, activities and all. Runs :func:`coerce_conflicts` before field
+        validation so the loss can never happen. Idempotent on clean input."""
+        if isinstance(data, dict) and isinstance(data.get("conflicts"), list) and data["conflicts"]:
+            data = dict(data)
+            data["conflicts"] = coerce_conflicts(data["conflicts"])
+        return data

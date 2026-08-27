@@ -293,10 +293,8 @@ async def update_careplan_status(careplan_id: str, request: Request):
     data = await request.json()
     new_status = data.get("status")
     if new_status == "active":
-        payload = data.get("reviewer")
-        if not payload and data.get("clinician"):
-            payload = {"display": data["clinician"]}
-        result = approve_care_plan(careplan_id, reviewer=reviewer_from_payload(payload))
+        reviewer = reviewer_from_payload(data.get("reviewer"), clinician=data.get("clinician"))
+        result = approve_care_plan(careplan_id, reviewer=reviewer)
         if not result:
             raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
         return result

@@ -26,7 +26,7 @@ from acp_writer.planning_brief import (
     TargetValue,
 )
 from acp_writer.services.ai_transparency import ACP_EXT_BASE, is_conflict_provenance
-from acp_writer.services.reviewer import ReviewerContext
+from acp_writer.services.reviewer import ReviewerContext, reviewer_from_payload
 from acp_writer.validators.fhir_bundle_builder import build_fhir_bundle
 
 import pytest
@@ -196,7 +196,7 @@ class TestApprovalWorkflow:
 
     def test_approve(self):
         cp_id = self._store_care_plan()
-        result = approve_care_plan(cp_id, clinician="Dr. Smith")
+        result = approve_care_plan(cp_id, reviewer=ReviewerContext(display="Dr. Smith"))
         assert result["status"] == "active"
 
         cp = get_care_plan(cp_id)
@@ -214,7 +214,7 @@ class TestApprovalWorkflow:
 
     def test_approve_adds_verifier(self):
         cp_id = self._store_care_plan()
-        approve_care_plan(cp_id, clinician="Dr. Smith")
+        approve_care_plan(cp_id, reviewer=ReviewerContext(display="Dr. Smith"))
 
         cp = get_care_plan(cp_id)
         bundle = cp["bundle"]
@@ -299,7 +299,7 @@ class TestApproveReviewerAndConflict:
 
     def test_approve_flips_conflict_status(self):
         cp_id = self._store(_bundle_with_conflict())
-        approve_care_plan(cp_id, clinician="Dr. Smith")
+        approve_care_plan(cp_id, reviewer=ReviewerContext(display="Dr. Smith"))
 
         conflict_provs = [
             e["resource"]
@@ -314,9 +314,12 @@ class TestApproveReviewerAndConflict:
         assert status["valueCode"] == "acknowledged"
 
     def test_back_compat_clinician_string(self):
+        # F12: the legacy bare-clinician field is reconciled by
+        # reviewer_from_payload (the single shim), then approve consumes the
+        # resulting ReviewerContext — no clinician kwarg on approve_care_plan.
         cp_id = self._store(_sample_bundle())
-        # legacy positional/keyword clinician still works
-        result = approve_care_plan(cp_id, reviewer="Dr. Legacy")
+        reviewer = reviewer_from_payload(None, clinician="Dr. Legacy")
+        result = approve_care_plan(cp_id, reviewer=reviewer)
         assert result["status"] == "active"
         displays = [
             a["who"].get("display")
@@ -326,3 +329,80 @@ class TestApproveReviewerAndConflict:
             if a.get("type", {}).get("coding", [{}])[0].get("code") == "verifier"
         ]
         assert "Dr. Legacy" in displays
+
+
+def _verifier_displays(bundle: dict) -> list[str]:
+    return [
+        a["who"].get("display")
+        for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "Provenance"
+        for a in e["resource"].get("agent", [])
+        if a.get("type", {}).get("coding", [{}])[0].get("code") == "verifier"
+    ]
+
+
+class TestWriterApprovedTransition:
+    """F1: the deployed WriteFHIR path (approved=True) must run the FULL approval
+    transition — verifier + conflict-ack — not just the security-tag swap the old
+    _apply_active_tags did. Regression pin for the split-path miss in issue #169.
+    """
+
+    def test_approved_writer_records_verifier(self, monkeypatch):
+        monkeypatch.delenv("ACP_REVIEWER_DISPLAY", raising=False)
+        result = fhir_server_writer({
+            "fhir_bundle": _sample_bundle(),
+            "patient_reference": "Patient/patient-1",
+            "approved": True,
+        })
+        bundle = get_care_plan(result["careplan_id"])["bundle"]
+        # Before F1 the approved writer path added no verifier at all.
+        assert "Demo Clinician" in _verifier_displays(bundle)
+
+    def test_approved_writer_uses_state_reviewer(self):
+        result = fhir_server_writer({
+            "fhir_bundle": _sample_bundle(),
+            "patient_reference": "Patient/patient-1",
+            "approved": True,
+            "reviewer": ReviewerContext(
+                display="Dr. Deployed", reference="Practitioner/dep"
+            ).model_dump(),
+        })
+        bundle = get_care_plan(result["careplan_id"])["bundle"]
+        assert "Dr. Deployed" in _verifier_displays(bundle)
+
+    def test_approved_writer_acknowledges_conflicts(self):
+        result = fhir_server_writer({
+            "fhir_bundle": _bundle_with_conflict(),
+            "patient_reference": "Patient/patient-1",
+            "approved": True,
+        })
+        bundle = get_care_plan(result["careplan_id"])["bundle"]
+        conflict_provs = [
+            e["resource"]
+            for e in bundle["entry"]
+            if e["resource"]["resourceType"] == "Provenance"
+            and is_conflict_provenance(e["resource"])
+        ]
+        assert conflict_provs
+        for prov in conflict_provs:
+            status = {ext["url"]: ext for ext in prov["extension"]}[
+                f"{ACP_EXT_BASE}/conflict-status"
+            ]
+            # Before F1 the deployed path left conflicts as "detected".
+            assert status["valueCode"] == "acknowledged"
+
+    def test_draft_writer_leaves_ai_tags(self):
+        # Not-yet-approved writes stay AIAST with no verifier.
+        result = fhir_server_writer({
+            "fhir_bundle": _sample_bundle(),
+            "patient_reference": "Patient/patient-1",
+            "approved": False,
+        })
+        bundle = get_care_plan(result["careplan_id"])["bundle"]
+        assert _verifier_displays(bundle) == []
+        codes = {
+            sec.get("code")
+            for e in bundle["entry"]
+            for sec in e["resource"].get("meta", {}).get("security", [])
+        }
+        assert "AIAST" in codes

@@ -24,6 +24,7 @@ from acp_writer.planning_brief import (
     ConflictSeverity,
     ConflictSource,
     ConflictStatus,
+    _coerce_enum,
     coerce_conflicts,
     conflict_id,
 )
@@ -105,38 +106,57 @@ def _content_key(
     activities: list[dict],
 ) -> str:
     """Derive the semantic content-key that stabilizes a conflict id across
-    regenerations (see planning_brief.conflict_id)."""
+    regenerations AND keeps distinct same-category conflicts from colliding
+    (see planning_brief.conflict_id). Built for EVERY category from the
+    referenced goals' measures and activities' codes/descriptions — two
+    overlap conflicts on different diet activities get different keys, so their
+    ids differ. Fully bounds-checked and str-coerced (never raises)."""
     tokens: list[str] = []
-    if category == ConflictCategory.DIVERGENT_TARGET.value:
-        for i in goal_indices:
-            measure = (goals[i].get("target_measure_code") or {}) if i < len(goals) else {}
+    for i in goal_indices:
+        if 0 <= i < len(goals):
+            g = goals[i]
+            measure = g.get("target_measure_code") or {}
             tokens.append(
-                (measure.get("code") or measure.get("display") or goals[i].get("description", "")).lower()
-                if i < len(goals) else ""
+                str(measure.get("code") or measure.get("display") or g.get("description") or "")
             )
-    elif category == ConflictCategory.CONTRADICTION.value:
-        for i in activity_indices:
-            if i < len(activities):
-                code = activities[i].get("code") or {}
-                token = code.get("display") or activities[i].get("description", "").split()[:2]
-                tokens.append(
-                    (token if isinstance(token, str) else " ".join(token)).lower()
-                )
-    return "|".join(sorted({t for t in tokens if t}))
+    for i in activity_indices:
+        if 0 <= i < len(activities):
+            a = activities[i]
+            code = a.get("code") or {}
+            display = code.get("display")
+            if not display:
+                display = " ".join(str(a.get("description") or "").split()[:4])
+            tokens.append(str(display))
+    return "|".join(sorted({t.lower() for t in tokens if t}))
 
 
-def _coerce_enum(value, enum_cls, default):
-    try:
-        return enum_cls(value)
-    except (ValueError, TypeError):
-        return default
+def _uniquify_ids(entries: list[ConflictEntry]) -> None:
+    """Deterministically suffix colliding conflict ids (``-2``, ``-3``, …).
+
+    Semantic ids (:func:`conflict_id`) can still collide for same-category
+    conflicts whose sources and content-keys coincide; downstream Provenance
+    and read-back key on the id, so duplicates would clobber each other.
+    Assignment is order-independent (sort by base id then description) so a
+    regeneration assigns the same suffixes. Mutates ``entries`` in place."""
+    seen: dict[str, int] = {}
+    for idx in sorted(range(len(entries)), key=lambda i: (entries[i].id, entries[i].description)):
+        base = entries[idx].id
+        seen[base] = seen.get(base, 0) + 1
+        if seen[base] > 1:
+            entries[idx].id = f"{base}-{seen[base]}"
 
 
 def _build_entry(
     raw: dict, goals: list[dict], activities: list[dict]
 ) -> ConflictEntry | None:
     """Validate one raw LLM conflict into a ConflictEntry, clamping indices.
-    Returns None when all referenced indices are out of range."""
+    Returns None when the item is not an object or all referenced indices are
+    out of range. Defensive against malformed items — every field access is
+    guarded/coerced so a single bad conflict can't crash the advisory step."""
+    if not isinstance(raw, dict):
+        logger.warning("Dropping non-object conflict item: %r", raw)
+        return None
+
     goal_indices = [
         i for i in (raw.get("goal_indices") or []) if isinstance(i, int) and 0 <= i < len(goals)
     ]
@@ -147,9 +167,21 @@ def _build_entry(
         logger.warning("Dropping conflict with no valid indices: %s", raw.get("description"))
         return None
 
-    sources = [
-        ConflictSource(**s) for s in (raw.get("sources") or []) if isinstance(s, dict) and s.get("cpg_id")
-    ]
+    sources: list[ConflictSource] = []
+    for s in (raw.get("sources") or []):
+        if not isinstance(s, dict) or not s.get("cpg_id"):
+            continue
+        try:
+            sources.append(
+                ConflictSource(
+                    cpg_id=str(s.get("cpg_id")),
+                    recommendation_id=(str(s["recommendation_id"]) if s.get("recommendation_id") else None),
+                    excerpt=(str(s["excerpt"]) if s.get("excerpt") else None),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — drop the bad source, keep the conflict
+            logger.warning("Dropping malformed conflict source %r: %s", s, exc)
+
     category = _coerce_enum(raw.get("category"), ConflictCategory, ConflictCategory.OTHER)
     severity = _coerce_enum(raw.get("severity"), ConflictSeverity, ConflictSeverity.WARNING)
     content_key = _content_key(category.value, goal_indices, activity_indices, goals, activities)
@@ -159,9 +191,10 @@ def _build_entry(
         category=category,
         severity=severity,
         status=ConflictStatus.DETECTED,
-        description=raw.get("description") or "",
-        rationale=raw.get("rationale"),
-        confidence=raw.get("confidence"),
+        description=str(raw.get("description") or ""),
+        rationale=(str(raw["rationale"]) if raw.get("rationale") else None),
+        suggested_resolution=(str(raw["suggested_resolution"]) if raw.get("suggested_resolution") else None),
+        confidence=(str(raw["confidence"]) if raw.get("confidence") else None),
         goal_indices=goal_indices,
         activity_indices=activity_indices,
         sources=sources,
@@ -182,6 +215,10 @@ def _parse_conflicts(content: str) -> list[dict]:
     conflicts = data["conflicts"]
     if not isinstance(conflicts, list):
         raise ValueError("'conflicts' is not a list")
+    if not all(isinstance(c, dict) for c in conflicts):
+        # Shape junk (e.g. a list of bare strings) — raise so the one retry can
+        # coax a well-formed response before we fall back to graceful degradation.
+        raise ValueError("each conflict must be a JSON object")
     return conflicts
 
 
@@ -262,21 +299,43 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
             break
         except Exception as e:  # noqa: BLE001 — parse/transport errors both retried once
             if attempt == 0:
-                logger.warning("Conflict parse failed (attempt 1), retrying: %s", e)
-                messages.append({"role": "assistant", "content": last_response_text})
-                messages.append({
-                    "role": "user",
-                    "content": f"That response could not be parsed ({e}). "
-                    "Return ONLY the JSON object with a top-level 'conflicts' list.",
-                })
+                if last_response_text:
+                    # A response arrived but didn't parse — echo it back with a
+                    # correction so the model can fix its own output.
+                    logger.warning("Conflict parse failed (attempt 1), retrying with feedback: %s", e)
+                    messages.append({"role": "assistant", "content": last_response_text})
+                    messages.append({
+                        "role": "user",
+                        "content": f"That response could not be parsed ({e}). "
+                        "Return ONLY the JSON object with a top-level 'conflicts' list.",
+                    })
+                else:
+                    # Transport/empty error before any text — retry with the
+                    # ORIGINAL messages. Never append an empty assistant turn:
+                    # some providers reject empty-content messages outright.
+                    logger.warning("Conflict LLM call failed with no response (attempt 1), retrying: %s", e)
                 continue
             # Graceful degradation: keep the brief's existing conflicts, continue.
             logger.error("Conflict analysis failed after retry — keeping existing conflicts: %s", e)
             return {"planning_brief": brief, "conflict_prompt": rendered_prompt}
 
-    fresh = [e for e in (_build_entry(r, goals, activities) for r in (raw_conflicts or [])) if e]
+    fresh: list[ConflictEntry] = []
+    malformed = 0
+    for r in (raw_conflicts or []):
+        try:
+            entry = _build_entry(r, goals, activities)
+        except Exception as exc:  # noqa: BLE001 — advisory step must never crash the run
+            logger.warning("Skipping malformed conflict item (%s): %r", exc, r)
+            malformed += 1
+            continue
+        if entry is not None:
+            fresh.append(entry)
+    if malformed:
+        logger.info("Conflict analysis: skipped %d malformed conflict item(s)", malformed)
+
     _carry_forward(fresh, prior)
     merged = fresh + _merge_composer(fresh, prior)
+    _uniquify_ids(merged)
 
     brief["conflicts"] = [e.model_dump(mode="json") for e in merged]
 

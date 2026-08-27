@@ -68,6 +68,7 @@ _OVERLAP_JSON = json.dumps({
         "severity": "info",
         "description": "Both guidelines recommend a healthy diet",
         "rationale": "Two lifestyle diet activities are substantially the same",
+        "suggested_resolution": "Combine the two diet activities into a single lifestyle activity",
         "confidence": "high",
         "goal_indices": [],
         "activity_indices": [0, 1],
@@ -91,6 +92,10 @@ class TestConflictAnalyst:
         assert c.category.value == "overlap"
         assert c.activity_indices == [0, 1]
         assert c.detected_by == "llm"
+        # F16b: _build_entry carries the analyst's suggested_resolution through.
+        assert c.suggested_resolution == (
+            "Combine the two diet activities into a single lifestyle activity"
+        )
         assert c.id.startswith("conf-")
         assert "conflict_prompt" in result
 
@@ -197,3 +202,85 @@ class TestConflictAnalyst:
         result = conflict_analyst(_state(brief))
         assert result["planning_brief"]["conflicts"] == []
         mock_get_llm.assert_not_called()
+
+    # --- F3: malformed conflict shapes must never crash the advisory step ---
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_string_conflict_items_retry_then_succeed(self, mock_get_llm):
+        # A list of bare strings is shape junk — it must drive the one retry
+        # (previously it slipped through and crashed _build_entry on str.get()).
+        bad = json.dumps({"conflicts": ["Both CPGs recommend a diet"]})
+        mock = _mock_llm(bad, _OVERLAP_JSON)
+        mock_get_llm.return_value = mock
+        result = conflict_analyst(_state())
+        assert len(result["planning_brief"]["conflicts"]) == 1
+        assert mock.invoke.call_count == 2
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_malformed_source_dropped_conflict_kept(self, mock_get_llm):
+        raw = json.loads(_OVERLAP_JSON)
+        raw["conflicts"][0]["sources"] = ["not-a-dict", {"cpg_id": 123}]
+        mock_get_llm.return_value = _mock_llm(json.dumps(raw))
+        result = conflict_analyst(_state())  # must not raise
+        conflicts = result["planning_brief"]["conflicts"]
+        assert len(conflicts) == 1
+        # string source dropped, int cpg_id coerced to str
+        assert len(conflicts[0]["sources"]) == 1
+        assert conflicts[0]["sources"][0]["cpg_id"] == "123"
+
+    # --- F14: transport error must retry with the ORIGINAL prompt ---
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_transport_error_retries_without_empty_assistant_message(self, mock_get_llm):
+        captured: list[list[dict]] = []
+
+        def invoke(messages):
+            captured.append([dict(m) for m in messages])
+            if len(captured) == 1:
+                raise RuntimeError("connection reset")
+            r = MagicMock()
+            r.content = _OVERLAP_JSON
+            return r
+
+        mock = MagicMock()
+        mock.invoke.side_effect = invoke
+        mock_get_llm.return_value = mock
+
+        result = conflict_analyst(_state())
+        assert len(result["planning_brief"]["conflicts"]) == 1
+        assert mock.invoke.call_count == 2
+        # The retry must reuse the original 2-message prompt — no empty-content
+        # assistant turn (some providers 400 on empty messages).
+        assert len(captured[1]) == 2
+        assert all(m["content"] for m in captured[1])
+
+    # --- F6: distinct same-category conflicts must get distinct ids ---
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_same_category_conflicts_get_distinct_ids(self, mock_get_llm):
+        # Two overlaps, same category, same single source — only the referenced
+        # activity differs. The content-key must keep their ids distinct.
+        raw = {"conflicts": [
+            {"category": "overlap", "severity": "info", "description": "diet",
+             "goal_indices": [], "activity_indices": [0], "sources": [{"cpg_id": "SYN-HTN-2026-001"}]},
+            {"category": "overlap", "severity": "info", "description": "med",
+             "goal_indices": [], "activity_indices": [2], "sources": [{"cpg_id": "SYN-HTN-2026-001"}]},
+        ]}
+        mock_get_llm.return_value = _mock_llm(json.dumps(raw))
+        result = conflict_analyst(_state())
+        ids = [c["id"] for c in result["planning_brief"]["conflicts"]]
+        assert len(ids) == 2
+        assert len(set(ids)) == 2
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_colliding_ids_are_suffixed(self, mock_get_llm):
+        # Two truly identical conflicts collide on the semantic id — the
+        # uniquify pass must suffix the second so downstream keys don't clobber.
+        one = {"category": "overlap", "severity": "info", "description": "dup",
+               "goal_indices": [], "activity_indices": [0], "sources": [{"cpg_id": "SYN-HTN-2026-001"}]}
+        mock_get_llm.return_value = _mock_llm(json.dumps({"conflicts": [dict(one), dict(one)]}))
+        result = conflict_analyst(_state())
+        ids = [c["id"] for c in result["planning_brief"]["conflicts"]]
+        assert len(ids) == 2
+        assert len(set(ids)) == 2
+        assert any(i.endswith("-2") for i in ids)

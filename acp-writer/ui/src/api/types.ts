@@ -257,6 +257,8 @@ export interface components {
             confidence?: string;
             /** @description Clinician-legible summary of the conflict. */
             description: string;
+            /** @description One conservative sentence from the analyst proposing how the clinician might resolve the conflict. Advisory only — never auto-applied. Persisted in the conflict-suggested-resolution extension on the Provenance. */
+            suggestedResolution?: string;
             /** @description The guideline recommendations that give rise to the conflict. */
             sources?: components["schemas"]["ConflictSource"][];
         };

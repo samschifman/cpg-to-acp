@@ -61,6 +61,7 @@ def _brief_with_conflict() -> PlanningBrief:
                 status=ConflictStatus.DETECTED,
                 description="Two guidelines set different BP targets",
                 rationale="HTN targets <140/90; DM2 targets <130/80",
+                suggested_resolution="Prefer the diabetes guideline's <130/80 target and note the divergence",
                 confidence="high",
                 goal_indices=[0, 1],
                 activity_indices=[0],
@@ -85,6 +86,11 @@ class TestBundleReadBack:
         assert c["status"] == "detected"
         assert c["confidence"] == "high"
         assert "different BP targets" in c["description"]
+        # F16b: the analyst's suggested resolution survives the bundle round-trip
+        # via the conflict-suggested-resolution Provenance extension.
+        assert c["suggestedResolution"] == (
+            "Prefer the diabetes guideline's <130/80 target and note the divergence"
+        )
 
     def test_sources_reconstructed(self):
         bundle = build_fhir_bundle(_brief_with_conflict())
@@ -114,6 +120,10 @@ class TestEntryMapping:
         assert pc["sources"][0]["cpgId"] == "SYN-HTN-2026-001"
         assert pc["sources"][0]["recommendationId"] == "rec-123"
         assert pc["sources"][0]["excerpt"] == "<140/90"
+        # F16b: the live (brief-entry) read path maps suggested_resolution too.
+        assert pc["suggestedResolution"] == (
+            "Prefer the diabetes guideline's <130/80 target and note the divergence"
+        )
 
     def test_minimal_entry(self):
         pc = plan_conflict_from_entry({"id": "c1", "description": "d"})

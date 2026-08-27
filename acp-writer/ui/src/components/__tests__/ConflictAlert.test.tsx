@@ -59,4 +59,26 @@ describe("ConflictAlert", () => {
     render(<ConflictAlert conflict={{ id: "c7", description: "no sources" }} />);
     expect(screen.queryByText(/From:/)).not.toBeInTheDocument();
   });
+
+  it("renders the analyst's suggested resolution when present", () => {
+    render(
+      <ConflictAlert
+        conflict={{
+          id: "c8",
+          category: "overlap",
+          description: "Two diet activities",
+          suggestedResolution: "Combine the two dietary-counseling activities into one",
+        }}
+      />,
+    );
+    expect(screen.getByText(/Suggested:/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Combine the two dietary-counseling activities into one/),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the Suggested line when there is no suggestion", () => {
+    render(<ConflictAlert conflict={{ id: "c9", description: "no suggestion" }} />);
+    expect(screen.queryByText(/Suggested:/)).not.toBeInTheDocument();
+  });
 });

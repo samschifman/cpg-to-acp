@@ -24,6 +24,11 @@ export function ConflictAlert({ conflict }: { conflict: PlanConflict }) {
   return (
     <Alert variant={variant} isInline title={title}>
       <p>{conflict.description}</p>
+      {conflict.suggestedResolution && (
+        <p>
+          <b>Suggested:</b> {conflict.suggestedResolution}
+        </p>
+      )}
       {cpgs.length > 0 && (
         <p>
           <b>From:</b> {cpgs.join(" · ")}

@@ -89,10 +89,50 @@ Extensions the IG does not define use the base
 | `conflict-severity` | Provenance | `code` | `info` / `warning` / `critical` |
 | `conflict-category` | Provenance | `code` | `overlap` / `contradiction` / `divergent_target` / `divergent_schedule` / `other` |
 | `conflict-status` | Provenance | `code` | `detected` / `acknowledged` / `resolved` |
+| `conflict-suggested-resolution` | Provenance | `string` | Analyst's one-sentence conservative suggestion for the reviewing clinician — advisory only, never auto-applied |
 
 The `conflict-id` is derived from the category, sources, and a semantic
 content-key (not list indices) so the same conflict keeps its id when the plan
 is regenerated during a request-changes loop.
+
+## Conflict-resolution feedback loop
+
+When a clinician requests changes on the care plan, the plan is **recomposed**,
+not merely re-serialized — goals and activities are decided in the planning
+brief, so regenerating the brief with the clinician's feedback is what actually
+revises the plan. To make a comment like *"resolve all identified conflicts as
+you suggested"* actionable, the request-changes loop feeds two things back into
+the composer:
+
+1. the clinician's free-text **comment** (`careplan_feedback`), and
+2. the **previously identified conflicts** from the prior brief
+   (`prior_brief_ref` → rendered by `planning_brief.render_conflicts_feedback`
+   into a compact "Previously identified conflicts" block that lists each
+   conflict's id, category, severity, description, rationale, **suggested
+   resolution**, and source CPG/recommendation ids).
+
+The analyst emits the `suggested_resolution` per conflict (a conservative,
+one-sentence suggestion — never an instruction the system acts on by itself); it
+is surfaced to the clinician in the review UI and rendered into the feedback
+block above. After recomposition, the conflict analyst re-runs on the new brief:
+a **genuinely resolved conflict simply is not re-detected** — its disappearance
+is the success signal, so there is no separate "mark resolved" step in this loop.
+
+```mermaid
+flowchart LR
+    REV[Clinician: request changes<br/>+ comment] --> COMPOSE[ComposePlan<br/>seed comment + prior conflicts]
+    PRIOR[(Prior brief<br/>conflicts + suggestions)] --> COMPOSE
+    COMPOSE --> ANALYST[Conflict analyst<br/>re-run on new brief]
+    ANALYST --> RESULT{Conflict recurs?}
+    RESULT -->|no| DONE[Resolved — not re-flagged]
+    RESULT -->|yes| REV
+```
+
+Per-conflict *structured* feedback (targeting one specific conflict by
+`FeedbackItem.itemId` and recording an explicit resolution note on its
+Provenance) is out of scope here and tracked in
+[#172](https://github.com/samschifman/cpg-to-acp/issues/172); today the loop
+operates on the whole-plan comment plus the rendered prior-conflict context.
 
 ## Reviewer identity (SMART-on-FHIR seam)
 

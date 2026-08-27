@@ -531,3 +531,32 @@ class TestNodeIntegration:
         }
         fhir_bundle_generator(state)
         assert (tmp_path / "fhir-bundle.json").exists()
+
+    def test_loose_conflict_does_not_empty_bundle(self):
+        # F4: one malformed conflict must not sink the whole brief. Before the
+        # PlanningBrief before-validator, validate raised and the goals/
+        # activities were silently dropped into an empty bundle.
+        from acp_writer.nodes.fhir_bundle_generator import fhir_bundle_generator
+
+        brief = _hypertension_brief().model_dump(mode="json")
+        brief["conflicts"] = [
+            {"description": "loose", "severity": "high", "sources": ["SYN-HTN-2026-001"]}
+        ]
+        result = fhir_bundle_generator({"planning_brief": brief})
+        assert len(result["fhir_bundle"]["entry"]) > 0
+        assert "fhir_generation_error" not in result
+
+    def test_invalid_brief_surfaces_error(self):
+        # F4: a genuinely invalid brief (bad goals/activities) must NOT report an
+        # empty bundle as success — it surfaces fhir_generation_error.
+        from acp_writer.nodes.fhir_bundle_generator import fhir_bundle_generator
+
+        bad = {
+            "patient_reference": "Patient/1",
+            "applicable_cpgs": ["CPG-A"],
+            "goals": [{"description": "g"}],  # missing required source_cpg
+            "activities": [],
+        }
+        result = fhir_bundle_generator({"planning_brief": bad})
+        assert result["fhir_bundle"]["entry"] == []
+        assert result["fhir_generation_error"]

@@ -63,7 +63,9 @@ class CarePlanComposerState(TypedDict, total=False):
     fhir_review_count: int
     fhir_review_feedback: str
 
-    # Phase 2: FHIR Server Writer outputs
+    # Phase 2: FHIR Server Writer inputs/outputs
+    approved: bool
+    reviewer: dict[str, Any]  # approving clinician (ReviewerContext dict form)
     fhir_server_response: dict[str, Any]
     careplan_id: str
     delivery_status: str

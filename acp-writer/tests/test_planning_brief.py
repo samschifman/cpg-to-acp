@@ -22,6 +22,7 @@ from acp_writer.planning_brief import (
     TargetValue,
     coerce_conflicts,
     conflict_id,
+    render_conflicts_feedback,
 )
 
 
@@ -307,6 +308,149 @@ class TestCoerceConflicts:
         ])
         assert c["id"] == "conf-keep"
         assert c["detected_by"] == "llm"
+
+    # --- F7: coerce_conflicts must be total (never raise on loose input) ---
+
+    def test_camelcase_source_keys(self):
+        [c] = coerce_conflicts([
+            {"description": "x", "sources": [
+                {"cpgId": "CPG-A", "recommendationId": "r1", "excerpt": "quote"}
+            ]}
+        ])
+        assert c["sources"] == [
+            {"cpg_id": "CPG-A", "recommendation_id": "r1", "excerpt": "quote"}
+        ]
+        ConflictEntry.model_validate(c)
+
+    def test_source_missing_cpg_id_is_dropped_not_fatal(self):
+        # A source with no recoverable cpg_id must be dropped without sinking
+        # the whole conflict (previously raised inside ConflictSource(**s)).
+        [c] = coerce_conflicts([
+            {"description": "x", "sources": [{"recommendation_id": "r1"}, {"cpg_id": "CPG-A"}]}
+        ])
+        assert c["sources"] == [{"cpg_id": "CPG-A"}]
+        ConflictEntry.model_validate(c)
+
+    def test_non_string_source_fields_coerced(self):
+        [c] = coerce_conflicts([{"description": "x", "sources": [{"cpg_id": 123}]}])
+        assert c["sources"] == [{"cpg_id": "123"}]
+        ConflictEntry.model_validate(c)
+
+    def test_severity_synonyms_coerced(self):
+        [c] = coerce_conflicts([{"description": "x", "severity": "high", "sources": []}])
+        assert c["severity"] == "critical"
+        [c2] = coerce_conflicts([{"description": "x", "severity": "low", "sources": []}])
+        assert c2["severity"] == "info"
+        ConflictEntry.model_validate(c)
+        ConflictEntry.model_validate(c2)
+
+    def test_unknown_category_and_status_defaulted(self):
+        [c] = coerce_conflicts([
+            {"description": "x", "category": "banana", "status": "whatever", "sources": []}
+        ])
+        assert c["category"] == "other"
+        assert c["status"] == "detected"
+        ConflictEntry.model_validate(c)
+
+    def test_conflict_entry_instances_accepted(self):
+        entry = ConflictEntry(id="conf-1", description="x", detected_by="llm")
+        [c] = coerce_conflicts([entry])
+        assert c["id"] == "conf-1"
+        assert c["detected_by"] == "llm"
+        ConflictEntry.model_validate(c)
+
+    def test_non_string_description_coerced(self):
+        [c] = coerce_conflicts([{"description": 42, "sources": []}])
+        assert c["description"] == "42"
+        ConflictEntry.model_validate(c)
+
+
+class TestRenderConflictsFeedback:
+    """F16a: prior conflicts render into a compact composer-feedback block."""
+
+    def _conflict(self) -> dict:
+        return {
+            "id": "conf-abc12345",
+            "category": "divergent_target",
+            "severity": "warning",
+            "description": "Two guidelines set different BP targets",
+            "rationale": "HTN <140/90 vs DM2 <130/80",
+            "suggested_resolution": "Prefer the diabetes guideline's <130/80 target",
+            "sources": [
+                {"cpg_id": "SYN-HTN-2026-001", "recommendation_id": "htn-rec-002"},
+                {"cpg_id": "SYN-DM2-2026-001"},
+            ],
+        }
+
+    def test_empty_is_blank(self):
+        assert render_conflicts_feedback(None) == ""
+        assert render_conflicts_feedback([]) == ""
+
+    def test_renders_all_fields_compactly(self):
+        block = render_conflicts_feedback([self._conflict()])
+        assert "## Previously identified conflicts" in block
+        assert "[conf-abc12345]" in block
+        assert "divergent_target" in block
+        assert "warning" in block
+        assert "Two guidelines set different BP targets" in block
+        assert "Rationale: HTN <140/90 vs DM2 <130/80" in block
+        assert "Suggested: Prefer the diabetes guideline's <130/80 target" in block
+        assert "SYN-HTN-2026-001/htn-rec-002" in block
+        assert "SYN-DM2-2026-001" in block
+        # Compact — no raw JSON dump of the conflict object.
+        assert "{" not in block
+
+    def test_coerces_loose_shapes(self):
+        # Bare-string / legacy conflicts must not raise (coerced first).
+        block = render_conflicts_feedback(["two guidelines disagree on BP"])
+        assert "two guidelines disagree on BP" in block
+
+
+class TestPlanningBriefCoercesConflicts:
+    """F4: a single malformed conflict must never sink the whole brief."""
+
+    def _base(self, conflicts):
+        return {
+            "patient_reference": "Patient/1",
+            "applicable_cpgs": ["CPG-A"],
+            "goals": [{"description": "g", "source_cpg": "CPG-A"}],
+            "activities": [
+                {"type": "lifestyle", "description": "a", "source_cpg": "CPG-A"}
+            ],
+            "conflicts": conflicts,
+        }
+
+    def test_loose_conflict_does_not_drop_goals_and_activities(self):
+        # Before the before-validator, this brief raised on validate — and every
+        # caller that swallowed the error dropped the goals/activities too.
+        brief = PlanningBrief.model_validate(self._base([
+            {"description": "loose", "severity": "high", "sources": ["CPG-A"]}
+        ]))
+        assert len(brief.goals) == 1
+        assert len(brief.activities) == 1
+        assert len(brief.conflicts) == 1
+        assert brief.conflicts[0].severity == ConflictSeverity.CRITICAL
+
+    def test_bare_string_conflict_validates(self):
+        brief = PlanningBrief.model_validate(self._base(["two guidelines disagree"]))
+        assert brief.conflicts[0].description == "two guidelines disagree"
+        assert len(brief.goals) == 1
+
+    def test_source_without_cpg_id_does_not_raise(self):
+        brief = PlanningBrief.model_validate(self._base([
+            {"description": "x", "sources": [{"recommendation_id": "r1"}]}
+        ]))
+        assert brief.conflicts[0].sources == []
+        assert len(brief.activities) == 1
+
+    def test_clean_brief_is_idempotent(self):
+        clean = self._base([
+            {"id": "conf-x", "description": "x", "detected_by": "llm",
+             "category": "overlap", "severity": "info", "sources": [{"cpg_id": "CPG-A"}]}
+        ])
+        once = PlanningBrief.model_validate(clean)
+        twice = PlanningBrief.model_validate(once.model_dump(mode="json"))
+        assert once == twice
 
 
 class TestPlanningBrief:

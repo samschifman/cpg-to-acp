@@ -135,6 +135,7 @@ def _conflict() -> ConflictEntry:
         status=ConflictStatus.DETECTED,
         description="two diets",
         rationale="both recommend a healthy diet",
+        suggested_resolution="Combine the two dietary-counseling activities into one",
         confidence="low",
         activity_indices=[0, 2],
         sources=[ConflictSource(cpg_id="A", recommendation_id="r1", excerpt="diet")],
@@ -175,6 +176,28 @@ class TestConflictProvenance:
         assert f"{ait.ACP_EXT_BASE}/conflict-id" in urls
         assert ait.AICONFIDENCE_EXT in urls  # confidence="low"
         assert prov["note"][0]["authorReference"]["reference"] == "urn:uuid:dev"
+        # F16b: suggested_resolution rides its own extension (advisory string).
+        sug = next(
+            e for e in prov["extension"]
+            if e["url"] == f"{ait.ACP_EXT_BASE}/conflict-suggested-resolution"
+        )
+        assert sug["valueString"] == "Combine the two dietary-counseling activities into one"
+
+    def test_no_suggested_resolution_omits_extension(self):
+        c = _conflict()
+        c.suggested_resolution = None
+        prov = ait.build_conflict_provenance(
+            prov_uid="cp-1",
+            conflict=c,
+            careplan_urn="urn:uuid:cp",
+            goal_urns=[],
+            activity_urn_map={0: "urn:uuid:med0"},
+            device_urn="urn:uuid:dev",
+            recorded="t",
+            occurred="t",
+        )
+        urls = {e["url"] for e in prov["extension"]}
+        assert f"{ait.ACP_EXT_BASE}/conflict-suggested-resolution" not in urls
 
     def test_falls_back_to_careplan_when_no_targets(self):
         c = _conflict()
@@ -250,6 +273,7 @@ class TestConflictProvenanceReadBack:
         assert pc["category"] == "overlap"
         assert pc["status"] == "detected"
         assert pc["confidence"] == "low"
+        assert pc["suggestedResolution"] == "Combine the two dietary-counseling activities into one"
 
     def test_round_trip_sources(self):
         pc = ait.plan_conflict_from_provenance(self._prov())

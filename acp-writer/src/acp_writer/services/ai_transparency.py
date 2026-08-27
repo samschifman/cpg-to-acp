@@ -17,7 +17,10 @@ The project's own (non-IG) extensions hang off ``ACP_EXT_BASE``.
 import base64
 import os
 from importlib import metadata
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import ordering risk
+    from acp_writer.services.reviewer import ReviewerContext
 
 # ── Canonical URLs (verbatim from the IG local copy) ────────────────────────
 IG_BASE = "http://hl7.org/fhir/uv/aitransparency"
@@ -48,6 +51,15 @@ TARGET_PATH_EXT = "http://hl7.org/fhir/StructureDefinition/targetPath"
 AIAST_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-ObservationValue"
 AIAST_CODE = "AIAST"
 AIAST_DISPLAY = "Artificial Intelligence asserted"
+
+# CLINAST_AIRPT security label — replaces AIAST once a clinician approves the
+# plan (clinician asserted, from an AI report). Same v3-ObservationValue system.
+CLINAST_AIRPT_CODE = "CLINAST_AIRPT"
+CLINAST_AIRPT_SECURITY = {
+    "system": AIAST_SYSTEM,
+    "code": CLINAST_AIRPT_CODE,
+    "display": "clinician asserted from AI reported",
+}
 
 # AIconfidence categorical slice is bound (required) to certainty-rating.
 CERTAINTY_RATING_CS = "http://terminology.hl7.org/CodeSystem/certainty-rating"
@@ -271,6 +283,12 @@ def _conflict_extensions(conflict: Any) -> list[dict]:
         {"url": f"{ACP_EXT_BASE}/conflict-category", "valueCode": conflict.category.value},
         {"url": f"{ACP_EXT_BASE}/conflict-status", "valueCode": conflict.status.value},
     ]
+    suggested = getattr(conflict, "suggested_resolution", None)
+    if suggested:
+        exts.append({
+            "url": f"{ACP_EXT_BASE}/conflict-suggested-resolution",
+            "valueString": suggested,
+        })
     confidence_ext = ai_confidence_ext(conflict.confidence)
     if confidence_ext:
         exts.append(confidence_ext)
@@ -312,6 +330,70 @@ def parse_source_display(display: str, rec_from_identifier: str | None = None) -
     return src
 
 
+def apply_approval_transition(bundle: dict, reviewer: "ReviewerContext") -> list[str]:
+    """Apply the full clinician-approval transition to a care-plan bundle.
+
+    This is the single source of truth for what "approved" means to the FHIR
+    bundle. Both the monolith approve endpoint (``approve_care_plan``) and the
+    deployed SonataFlow ``WriteFHIR`` path (``fhir_server_writer`` with
+    ``approved=True``) call it, so the two paths can never drift — the split
+    path previously only swapped security tags, silently dropping the human
+    verifier and conflict acknowledgment (issue #169 F1).
+
+    It performs all four transitions in one pass:
+
+    1. Swap every ``AIAST`` ``meta.security`` label → ``CLINAST_AIRPT``.
+    2. Set the CarePlan ``status`` → ``active``.
+    3. Append ``reviewer`` as a ``verifier`` Humanagent on every AI-Provenance.
+    4. Flip every conflict Provenance's ``conflict-status`` → ``acknowledged``.
+
+    Returns the ``fullUrl`` of every entry it modified, so a future server-side
+    persistence step (the phase-runner fast-follow, issue #174 F5) can PUT back
+    exactly the resources that changed rather than the whole bundle.
+    """
+    conflict_status_url = f"{ACP_EXT_BASE}/conflict-status"
+    verifier_who = reviewer.as_agent_who()
+    modified: list[str] = []
+
+    for entry in bundle.get("entry", []):
+        resource = entry.get("resource", {})
+        touched = False
+
+        security = resource.get("meta", {}).get("security", [])
+        for i, sec in enumerate(security):
+            if sec.get("code") == AIAST_CODE:
+                security[i] = dict(CLINAST_AIRPT_SECURITY)
+                touched = True
+
+        if resource.get("resourceType") == "CarePlan":
+            resource["status"] = "active"
+            touched = True
+
+        if resource.get("resourceType") == "Provenance":
+            profiles = resource.get("meta", {}).get("profile", [])
+            if any("AI-Provenance" in p for p in profiles):
+                resource.setdefault("agent", []).append({
+                    "type": {
+                        "coding": [{
+                            "system": PROVENANCE_PARTICIPANT_TYPE,
+                            "code": "verifier",
+                            "display": "Verifier",
+                        }],
+                    },
+                    "who": dict(verifier_who),
+                })
+                touched = True
+            for ext in resource.get("extension", []):
+                if ext.get("url") == conflict_status_url:
+                    ext["valueCode"] = "acknowledged"
+                    touched = True
+
+        if touched and entry.get("fullUrl"):
+            modified.append(entry["fullUrl"])
+
+    return modified
+
+
 def is_conflict_provenance(prov: dict) -> bool:
     """True if a Provenance carries the conflict-id extension (WS4 record)."""
     return any(
@@ -344,6 +426,9 @@ def plan_conflict_from_provenance(prov: dict) -> dict | None:
     status = exts.get(f"{ACP_EXT_BASE}/conflict-status", {}).get("valueCode")
     if status:
         pc["status"] = status
+    suggested = exts.get(f"{ACP_EXT_BASE}/conflict-suggested-resolution", {}).get("valueString")
+    if suggested:
+        pc["suggestedResolution"] = suggested
     conf = exts.get(AICONFIDENCE_EXT)
     if conf:
         coding = (conf.get("valueCodeableConcept", {}).get("coding") or [{}])[0]

@@ -37,6 +37,12 @@ review UI; missed conflicts are dangerous.
 - Quote source excerpts VERBATIM from the recommendation text.
 - Name both items and both guidelines in the "description" so a clinician \
 understands the conflict without opening anything else.
+- Provide a "suggested_resolution": ONE short, clinically conservative sentence \
+proposing how the clinician MIGHT resolve the conflict (e.g. "Combine the two \
+dietary-counseling activities into a single lifestyle activity" or "Prefer the \
+diabetes guideline's <130/80 target for this diabetic patient and note the \
+divergence"). It is a suggestion for the human reviewer ONLY — never an \
+instruction the system acts on by itself, and never auto-applied.
 
 ## Output
 Return ONLY a JSON object of this exact shape (no prose, no markdown):
@@ -47,6 +53,7 @@ Return ONLY a JSON object of this exact shape (no prose, no markdown):
       "severity": "info|warning|critical",
       "description": "clinician-legible; names both items and both guidelines",
       "rationale": "your reasoning (may be verbose)",
+      "suggested_resolution": "one conservative sentence proposing how the clinician might resolve it",
       "confidence": "low|medium|high",
       "goal_indices": [0, 2],
       "activity_indices": [1],

@@ -382,6 +382,12 @@ components:
         description:
           type: string
           description: Clinician-legible summary of the conflict.
+        suggestedResolution:
+          type: string
+          description: >
+            One conservative sentence from the analyst proposing how the clinician
+            might resolve the conflict. Advisory only — never auto-applied.
+            Persisted in the conflict-suggested-resolution extension on the Provenance.
         sources:
           type: array
           description: The guideline recommendations that give rise to the conflict.

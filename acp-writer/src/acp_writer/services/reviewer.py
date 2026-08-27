@@ -49,14 +49,21 @@ def default_reviewer() -> ReviewerContext:
     )
 
 
-def reviewer_from_payload(payload: dict | None) -> ReviewerContext:
+def reviewer_from_payload(
+    payload: dict | None, clinician: str | None = None
+) -> ReviewerContext:
     """Build a reviewer from a request override, falling back to the default.
 
     ``payload`` is the optional ``reviewer`` object on a review submission:
-    ``{reference?, display, identifierSystem?, identifierValue?}``. A bare
-    ``clinician`` display string (legacy) is also accepted by callers that pass
-    ``{"display": clinician}``. Missing/empty payloads yield ``default_reviewer()``.
+    ``{reference?, display, identifierSystem?, identifierValue?}``. ``clinician``
+    is the legacy bare display-string field some callers still send; it is used
+    only when no ``payload`` is present. Centralizing that fallback here keeps the
+    ``reviewer`` / ``clinician`` reconciliation in one place instead of copy-
+    pasting the shim into every endpoint. Missing/empty inputs yield
+    ``default_reviewer()``.
     """
+    if not payload and clinician:
+        payload = {"display": clinician}
     if not payload:
         return default_reviewer()
 

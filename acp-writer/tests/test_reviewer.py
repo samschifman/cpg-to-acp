@@ -110,3 +110,19 @@ class TestReviewerFromPayload:
         # Callers translate a bare clinician string into {"display": ...}.
         r = reviewer_from_payload({"display": "Dr. Legacy"})
         assert r.display == "Dr. Legacy"
+
+    def test_clinician_kwarg_used_when_no_payload(self):
+        # F12: the legacy bare-clinician reconciliation lives here now (one shim),
+        # not copy-pasted into each endpoint.
+        r = reviewer_from_payload(None, clinician="Dr. Legacy")
+        assert r.display == "Dr. Legacy"
+        assert r.source == "request"
+
+    def test_payload_wins_over_clinician_kwarg(self):
+        # A structured reviewer payload takes precedence over the legacy string.
+        r = reviewer_from_payload({"display": "Dr. Structured"}, clinician="Dr. Legacy")
+        assert r.display == "Dr. Structured"
+
+    def test_no_payload_no_clinician_yields_default(self):
+        assert reviewer_from_payload(None, clinician=None).display == "Demo Clinician"
+        assert reviewer_from_payload(None, clinician="").display == "Demo Clinician"
