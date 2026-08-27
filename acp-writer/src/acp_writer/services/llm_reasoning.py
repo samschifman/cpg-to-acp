@@ -30,6 +30,7 @@ from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
 from acp_writer.nodes.plan_composer import plan_composer
 from acp_writer.nodes.brief_reviewer import brief_reviewer
+from acp_writer.nodes.conflict_analyst import conflict_analyst
 from acp_writer.nodes.fhir_semantic_reviewer import fhir_semantic_reviewer
 from acp_writer.pipeline import MAX_BRIEF_REVIEWS
 
@@ -329,6 +330,13 @@ async def compose(request: Request):
         if state.get("brief_review_count", 0) >= MAX_BRIEF_REVIEWS:
             break
 
+    # Detect plan-level conflicts on the converged brief (annotates the brief in
+    # place — never edits goals/activities). Mirrors the monolith pipeline order
+    # (brief-review loop → conflict_analyst → FHIR generation) so the split /
+    # SonataFlow path surfaces conflicts too; the brief carries them downstream
+    # to fhir_bundle_generator, which emits the conflict Provenances.
+    state.update(conflict_analyst(state))
+
     brief = state.get("planning_brief", {})
     _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
     if ref:
@@ -374,6 +382,11 @@ def _run_compose_background(data: dict, callback_url: str, process_instance_id: 
                 break
             if state.get("brief_review_count", 0) >= MAX_BRIEF_REVIEWS:
                 break
+
+        # Detect plan-level conflicts on the converged brief (see the sync
+        # /compose handler). The brief carries the conflicts downstream to
+        # fhir_bundle_generator, which emits the conflict Provenances.
+        state.update(conflict_analyst(state))
 
         brief = state.get("planning_brief", {})
         _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)

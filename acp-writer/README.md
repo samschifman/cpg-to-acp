@@ -212,6 +212,8 @@ The Kogito decision service (`cpg-decision-svc-decision-service`) runs as a sepa
 
 The `acpwriter` SonataFlow workflow orchestrates the pipeline: ScanPatient → ResolveGuidelines → ExecuteDMN → RetrieveRecommendations → ComposePlan → GenerateBundle → ReviewFHIR → WritePlan. The workflow and its props CM (`acpwriter-props.yaml`) are applied automatically by `deploy.sh`.
 
+The **Conflict Analyst** is not a separate SonataFlow state — it runs inside the `ComposePlan` step (the llm-reasoning pod's `/api/v1/compose` / `/api/v1/compose-async`), right after the brief-review loop converges, mirroring the monolith ordering. The conflicts it detects are annotated onto the planning brief, which flows unchanged into `GenerateBundle` where the conflict Provenances are emitted. This keeps conflict detection on the split/cluster path without a workflow change.
+
 ## Decision Service (Internal)
 
 Kogito auto-generates REST endpoints from DMN. Internal — use the acp-writer API, not Kogito directly.
