@@ -22,7 +22,7 @@ The builders live in [`acp-writer/src/acp_writer/services/ai_transparency.py`](.
 | **AI-InputPrompt** | When `ACP_CAPTURE_PROMPTS=true`, each rendered LLM prompt (composer, conflict analyst, …) is emitted as a `DocumentReference` so the exact input is auditable. |
 | **AI-ModelCard** | When `LLM_MODEL_CARD_URL` is set, a `DocumentReference` pointing at the model card is included. |
 | **AIAST security label** | `meta.security` tag (`AIAST`, "Artificial Intelligence asserted") on every AI-produced resource. On clinician approval it is swapped to `CLINAST_AIRPT` (clinician-attested AI report). |
-| **AIconfidence** | Categorical extension on each conflict Provenance and per-activity Provenance, bound to the `certainty-rating` value set (`high` / `moderate` / `low` / `very-low`; the LLM's "medium" maps to `moderate`). |
+| **AIconfidence** | Categorical extension on each conflict Provenance, bound to the `certainty-rating` value set (`high` / `moderate` / `low` / `very-low`; the LLM's "medium" maps to `moderate`). Per-activity source Provenances do not carry a confidence rating. |
 | **Human verifier** | On approval, a `verifier` human agent (the reviewer — reference + identifier) is appended to every AI-Provenance. |
 
 ### Approval transition

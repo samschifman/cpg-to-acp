@@ -7,6 +7,7 @@ the vector store and guidelines registry live in this pod's process.
 Security profile: LLM inference + vector store, no FHIR server access.
 """
 
+import asyncio
 import logging
 import os
 from uuid import uuid4
@@ -347,10 +348,11 @@ def _prompt_artifact(state: dict) -> dict:
     return {"prompts_ref": ref} if ref else {"prompts": prompts}
 
 
-@app.post("/api/v1/compose")
-async def compose(request: Request):
-    """Run Plan Composer with Brief Reviewer loop."""
-    data = await request.json()
+def _compose_pipeline(data: dict) -> dict:
+    """Synchronous compose pipeline: build state, run the brief-review loop, then
+    the conflict analyst. Each stage makes a blocking LLM call, so the async
+    ``/compose`` handler runs this in a worker thread (C9) to avoid stalling the
+    event loop for the duration of the whole reasoning pipeline."""
     recommendations = resolve_ref(data, "recommendations", _store)
     state = {
         "patient_reference": data.get("patient_reference", ""),
@@ -397,6 +399,13 @@ async def compose(request: Request):
     else:
         result["planning_brief"] = brief
     return result
+
+
+@app.post("/api/v1/compose")
+async def compose(request: Request):
+    """Run Plan Composer with Brief Reviewer loop."""
+    data = await request.json()
+    return await asyncio.to_thread(_compose_pipeline, data)
 
 
 @app.post("/api/v1/compose-async")

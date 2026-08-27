@@ -21,10 +21,7 @@ from fastapi.responses import JSONResponse, Response
 
 from cpg_contracts.artifact_store import ArtifactStore
 
-from acp_writer.services.ai_transparency import (
-    is_conflict_provenance,
-    plan_conflict_from_provenance,
-)
+from acp_writer.services.ai_transparency import plan_conflict_from_provenance
 from acp_writer.services.artifact_resolver import enrich_run_detail
 from acp_writer.services.sonataflow_client import (
     SonataFlowClient,
@@ -714,10 +711,13 @@ def _extract_view_from_bundle(bundle: dict) -> tuple[list, list, list]:
 
     conflicts = []
     for r in resources.values():
-        if r.get("resourceType") == "Provenance" and is_conflict_provenance(r):
-            pc = plan_conflict_from_provenance(r)
-            if pc:
-                conflicts.append(pc)
+        if r.get("resourceType") != "Provenance":
+            continue
+        # plan_conflict_from_provenance returns None for any Provenance without
+        # the conflict-id extension, so it doubles as the conflict filter (C6).
+        pc = plan_conflict_from_provenance(r)
+        if pc:
+            conflicts.append(pc)
 
     return goals, activities, conflicts
 

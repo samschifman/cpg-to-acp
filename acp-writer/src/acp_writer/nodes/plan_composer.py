@@ -13,6 +13,7 @@ from typing import Any
 import mlflow
 from cpg_contracts import content_to_text, get_llm
 
+from acp_writer.llm_json import loads_json
 from acp_writer.output import write_artifact
 from acp_writer.planning_brief import PlanningBrief, coerce_conflicts
 from acp_writer.prompts.plan_composer import PLAN_COMPOSER_SYSTEM, PLAN_COMPOSER_USER
@@ -90,15 +91,7 @@ def _sanitize_provenance(brief_data: dict, default_cpg: str) -> None:
 
 def _parse_brief_from_response(content: str) -> dict[str, Any]:
     """Extract JSON from LLM response, handling markdown code blocks."""
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        start = 1
-        end = len(lines) - 1
-        if lines[-1].strip() == "```":
-            end = len(lines) - 1
-        text = "\n".join(lines[start:end])
-    return json.loads(text)
+    return loads_json(content)
 
 
 @mlflow.trace(name="plan_composer")

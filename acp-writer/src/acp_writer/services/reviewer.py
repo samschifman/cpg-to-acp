@@ -21,6 +21,9 @@ class ReviewerContext(BaseModel):
     reference: str | None = None          # e.g. "Practitioner/demo-clinician"
     identifier_system: str | None = None
     identifier_value: str | None = None
+    # Provenance of the identity itself. Write-only today (no branch reads it);
+    # reserved for the SMART-on-FHIR launch handler + review audit, which will
+    # distinguish a token-derived "smart" reviewer from a config/request one.
     source: str = "config"                # "config" | "request" | "smart"
 
     def as_agent_who(self) -> dict:

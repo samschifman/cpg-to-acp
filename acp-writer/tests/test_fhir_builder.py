@@ -477,6 +477,17 @@ class TestConflictProvenance:
         conf = ext["http://hl7.org/fhir/uv/aitransparency/StructureDefinition/AIconfidence"]
         assert conf["valueCodeableConcept"]["coding"][0]["code"] == "high"
 
+    def test_activity_source_provenances_carry_no_aiconfidence(self):
+        # C7: AIconfidence is a conflict-Provenance feature only. Per-activity
+        # source Provenances link to the source recommendation but carry no
+        # confidence rating — the docs must not claim otherwise.
+        aiconf_url = "http://hl7.org/fhir/uv/aitransparency/StructureDefinition/AIconfidence"
+        bundle = build_fhir_bundle(_brief_with_conflict())
+        source_provs = _activity_source_provs(bundle)
+        assert source_provs  # the med activity has a source_recommendation_id
+        for p in source_provs:
+            assert all(e.get("url") != aiconf_url for e in p.get("extension", []))
+
     def test_conflict_targets_resolve(self):
         bundle = build_fhir_bundle(_brief_with_conflict())
         prov = [p for p in _provenances(bundle) if _is_conflict_prov(p)][0]

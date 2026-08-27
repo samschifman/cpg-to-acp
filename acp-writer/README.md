@@ -110,7 +110,8 @@ Every care plan bundle includes:
 - **AI-Provenance** with CPG derivation lineage
 - **AI-InputPrompt** DocumentReferences for the captured LLM prompts (when `ACP_CAPTURE_PROMPTS=true`)
 - **AI-ModelCard** DocumentReference (when `LLM_MODEL_CARD_URL` is set)
-- **Per-activity Provenance** linking to source recommendations, with an `AIconfidence` extension
+- **Per-activity Provenance** linking each activity to its source recommendation
+- **Conflict Provenance** for each detected conflict, carrying an `AIconfidence` extension (see [Conflict surfacing](#conflict-surfacing))
 - On approval: AIAST → CLINAST_AIRPT, clinician added as a `verifier` human agent
 
 acp-writer targets the HL7 [AI Transparency on FHIR IG](https://build.fhir.org/ig/HL7/aitransparency-ig). See [`docs/ai-transparency.md`](../docs/ai-transparency.md) for the full conformance inventory, the conflict-Provenance pattern, and the custom extension table.

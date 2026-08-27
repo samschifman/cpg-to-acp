@@ -9,12 +9,14 @@ These tests exercise the compose endpoints with a mocked LLM and assert that the
 returned planning brief carries analyst-detected conflicts.
 """
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from acp_writer.services import fhir_generation, llm_reasoning
+
+from ._conflict_fixtures import OVERLAP_JSON as _OVERLAP_JSON
+from ._conflict_fixtures import mock_llm as _mock_llm
 
 
 client = TestClient(llm_reasoning.app)
@@ -50,31 +52,6 @@ def _composed_brief() -> dict:
     }
 
 
-_OVERLAP_JSON = json.dumps({
-    "conflicts": [{
-        "category": "overlap",
-        "severity": "info",
-        "description": "Both guidelines recommend a healthy diet",
-        "rationale": "Two lifestyle diet activities are substantially the same",
-        "confidence": "high",
-        "goal_indices": [],
-        "activity_indices": [0, 1],
-        "sources": [
-            {"cpg_id": "SYN-HTN-2026-001", "recommendation_id": "htn-rec-004", "excerpt": "healthy diet"},
-            {"cpg_id": "SYN-DM2-2026-001", "recommendation_id": "dm2-rec-004", "excerpt": "heart-healthy diet"},
-        ],
-    }]
-})
-
-
-def _mock_llm(content: str) -> MagicMock:
-    mock = MagicMock()
-    resp = MagicMock()
-    resp.content = content
-    mock.invoke.return_value = resp
-    return mock
-
-
 _COMPOSE_PAYLOAD = {
     "patient_reference": "Patient/1",
     "recommendations": [
@@ -105,6 +82,33 @@ def test_compose_runs_conflict_analyst():
     assert len(conflicts) == 1
     assert conflicts[0]["category"] == "overlap"
     assert conflicts[0]["activity_indices"] == [0, 1]
+
+
+def test_compose_offloads_blocking_pipeline_to_thread():
+    """C9: /compose is async but the reasoning pipeline (composer → reviewer
+    loop → conflict analyst) makes blocking LLM calls. It must run in a worker
+    thread via asyncio.to_thread so it never stalls the event loop."""
+    import asyncio
+
+    real_to_thread = asyncio.to_thread
+    offloaded = []
+
+    async def _recording_to_thread(fn, *args, **kwargs):
+        offloaded.append(fn)
+        return await real_to_thread(fn, *args, **kwargs)
+
+    with patch.object(llm_reasoning, "_phi_store", None), \
+         patch.object(llm_reasoning, "plan_composer",
+                      return_value={"planning_brief": _composed_brief()}), \
+         patch.object(llm_reasoning, "brief_reviewer",
+                      return_value={"brief_review_feedback": "", "brief_review_count": 1}), \
+         patch("acp_writer.nodes.conflict_analyst.get_llm",
+               return_value=_mock_llm(_OVERLAP_JSON)), \
+         patch.object(llm_reasoning.asyncio, "to_thread", _recording_to_thread):
+        resp = client.post("/api/v1/compose", json=_COMPOSE_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert llm_reasoning._compose_pipeline in offloaded
 
 
 def test_compose_async_runs_conflict_analyst():

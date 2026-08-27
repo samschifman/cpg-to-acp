@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 from acp_writer.nodes.conflict_analyst import conflict_analyst
 from acp_writer.planning_brief import ConflictEntry
 
+from ._conflict_fixtures import OVERLAP_JSON as _OVERLAP_JSON
+from ._conflict_fixtures import mock_llm as _mock_llm
+
 
 def _brief() -> dict:
     return {
@@ -50,36 +53,6 @@ def _state(brief: dict | None = None) -> dict:
     }
 
 
-def _mock_llm(*contents):
-    """Return a mock get_llm whose invoke yields the given contents in order."""
-    mock = MagicMock()
-    responses = []
-    for c in contents:
-        r = MagicMock()
-        r.content = c
-        responses.append(r)
-    mock.invoke.side_effect = responses
-    return mock
-
-
-_OVERLAP_JSON = json.dumps({
-    "conflicts": [{
-        "category": "overlap",
-        "severity": "info",
-        "description": "Both guidelines recommend a healthy diet",
-        "rationale": "Two lifestyle diet activities are substantially the same",
-        "suggested_resolution": "Combine the two diet activities into a single lifestyle activity",
-        "confidence": "high",
-        "goal_indices": [],
-        "activity_indices": [0, 1],
-        "sources": [
-            {"cpg_id": "SYN-HTN-2026-001", "recommendation_id": "htn-rec-004", "excerpt": "healthy diet"},
-            {"cpg_id": "SYN-DM2-2026-001", "recommendation_id": "dm2-rec-004", "excerpt": "heart-healthy diet"},
-        ],
-    }]
-})
-
-
 class TestConflictAnalyst:
     @patch("acp_writer.nodes.conflict_analyst.get_llm")
     def test_happy_path(self, mock_get_llm):
@@ -97,6 +70,18 @@ class TestConflictAnalyst:
         )
         assert c.id.startswith("conf-")
         assert "conflict_prompt" in result
+
+    @patch("acp_writer.nodes.conflict_analyst.get_llm")
+    def test_captured_prompt_is_user_only(self, mock_get_llm):
+        # C8: conflict_prompt captures only the rendered user prompt, matching
+        # the composer path — the ~3.5KB system prompt must not be baked in.
+        from acp_writer.prompts.conflict_analyst import CONFLICT_ANALYST_SYSTEM
+
+        mock_get_llm.return_value = _mock_llm(_OVERLAP_JSON)
+        result = conflict_analyst(_state())
+        captured = result["conflict_prompt"]
+        assert captured
+        assert CONFLICT_ANALYST_SYSTEM not in captured
 
     @patch("acp_writer.nodes.conflict_analyst.get_llm")
     def test_index_clamping(self, mock_get_llm):
@@ -227,6 +212,22 @@ class TestConflictAnalyst:
         ids = [c["id"] for c in result["planning_brief"]["conflicts"]]
         assert len(ids) == 2
         assert len(set(ids)) == 2
+
+    # --- C5: _content_key discriminates on referenced content, no category arg ---
+
+    def test_content_key_discriminates_and_takes_no_category(self):
+        # After C5 the redundant bounds-checks and unused `category` param are
+        # gone; callers pass pre-clamped indices. Distinct activities must still
+        # produce distinct keys, and identical references identical keys.
+        from acp_writer.nodes.conflict_analyst import _content_key
+
+        goals = _brief()["goals"]
+        activities = _brief()["activities"]
+        key_diet = _content_key([], [0], goals, activities)
+        key_med = _content_key([], [2], goals, activities)
+        assert key_diet and key_med
+        assert key_diet != key_med
+        assert _content_key([], [0], goals, activities) == key_diet
 
     @patch("acp_writer.nodes.conflict_analyst.get_llm")
     def test_colliding_ids_are_suffixed(self, mock_get_llm):

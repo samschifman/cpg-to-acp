@@ -10,13 +10,13 @@ Detection is a generic LLM judgment task — no DMN, no clinical knowledge base.
 See working/issue-169-conflict-surfacing/dev-plan.md §WS2.
 """
 
-import json
 import logging
 import time
 
 import mlflow
 from cpg_contracts import content_to_text, get_llm
 
+from acp_writer.llm_json import loads_json
 from acp_writer.output import write_artifact
 from acp_writer.planning_brief import (
     ConflictCategory,
@@ -98,7 +98,6 @@ def _format_medications(medication_codes: list[dict]) -> str:
 
 
 def _content_key(
-    category: str,
     goal_indices: list[int],
     activity_indices: list[int],
     goals: list[dict],
@@ -106,26 +105,25 @@ def _content_key(
 ) -> str:
     """Derive the semantic content-key that stabilizes a conflict id across
     regenerations AND keeps distinct same-category conflicts from colliding
-    (see planning_brief.conflict_id). Built for EVERY category from the
-    referenced goals' measures and activities' codes/descriptions — two
-    overlap conflicts on different diet activities get different keys, so their
-    ids differ. Fully bounds-checked and str-coerced (never raises)."""
+    (see planning_brief.conflict_id). Built from the referenced goals' measures
+    and activities' codes/descriptions — two overlap conflicts on different diet
+    activities get different keys, so their ids differ. Indices are pre-clamped
+    to valid ranges by the sole caller (:func:`_build_entry`); values are
+    str-coerced so a malformed field can't raise."""
     tokens: list[str] = []
     for i in goal_indices:
-        if 0 <= i < len(goals):
-            g = goals[i]
-            measure = g.get("target_measure_code") or {}
-            tokens.append(
-                str(measure.get("code") or measure.get("display") or g.get("description") or "")
-            )
+        g = goals[i]
+        measure = g.get("target_measure_code") or {}
+        tokens.append(
+            str(measure.get("code") or measure.get("display") or g.get("description") or "")
+        )
     for i in activity_indices:
-        if 0 <= i < len(activities):
-            a = activities[i]
-            code = a.get("code") or {}
-            display = code.get("display")
-            if not display:
-                display = " ".join(str(a.get("description") or "").split()[:4])
-            tokens.append(str(display))
+        a = activities[i]
+        code = a.get("code") or {}
+        display = code.get("display")
+        if not display:
+            display = " ".join(str(a.get("description") or "").split()[:4])
+        tokens.append(str(display))
     return "|".join(sorted({t.lower() for t in tokens if t}))
 
 
@@ -183,7 +181,7 @@ def _build_entry(
 
     category = _coerce_enum(raw.get("category"), ConflictCategory, ConflictCategory.OTHER)
     severity = _coerce_enum(raw.get("severity"), ConflictSeverity, ConflictSeverity.WARNING)
-    content_key = _content_key(category.value, goal_indices, activity_indices, goals, activities)
+    content_key = _content_key(goal_indices, activity_indices, goals, activities)
 
     return ConflictEntry(
         id=conflict_id(category, sources, content_key),
@@ -203,11 +201,7 @@ def _build_entry(
 def _parse_conflicts(content: str) -> list[dict]:
     """Extract the conflicts list from an LLM response, tolerating markdown
     fences. Raises on malformed JSON / wrong shape (drives the one retry)."""
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1 : len(lines) - 1] if lines[-1].strip() == "```" else lines[1:])
-    data = json.loads(text)
+    data = loads_json(content)
     if not isinstance(data, dict) or "conflicts" not in data:
         raise ValueError("response missing 'conflicts' key")
     conflicts = data["conflicts"]
@@ -242,7 +236,6 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
         or "None recorded.",
         medications=_format_medications(state.get("medication_codes") or []),
     )
-    rendered_prompt = f"{CONFLICT_ANALYST_SYSTEM}\n\n{user_prompt}"
 
     logger.info("── Conflict Analyst ──")
     llm = get_llm(state)
@@ -281,7 +274,7 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
                 continue
             # Graceful degradation: keep the brief's existing conflicts, continue.
             logger.error("Conflict analysis failed after retry — keeping existing conflicts: %s", e)
-            return {"planning_brief": brief, "conflict_prompt": rendered_prompt}
+            return {"planning_brief": brief, "conflict_prompt": user_prompt}
 
     fresh: list[ConflictEntry] = []
     malformed = 0
@@ -327,4 +320,4 @@ def conflict_analyst(state: CarePlanComposerState) -> dict:
         counts["other"],
     )
 
-    return {"planning_brief": brief, "conflict_prompt": rendered_prompt}
+    return {"planning_brief": brief, "conflict_prompt": user_prompt}

@@ -107,6 +107,23 @@ class TestBundleReadBack:
         _g, _a, conflicts = _extract_view_from_bundle(bundle)
         assert conflicts == []
 
+    def test_non_conflict_provenance_is_ignored(self):
+        # C6: after dropping the redundant is_conflict_provenance() pre-check,
+        # a plain AI-Provenance (no conflict-id extension) must still be filtered
+        # out — plan_conflict_from_provenance returns None for it.
+        brief = _brief_with_conflict()
+        brief.conflicts = []
+        bundle = build_fhir_bundle(brief)
+        bundle["entry"].append({
+            "resource": {
+                "resourceType": "Provenance",
+                "target": [{"reference": "CarePlan/x"}],
+                "extension": [{"url": "https://example.org/some-other-ext", "valueString": "y"}],
+            }
+        })
+        _g, _a, conflicts = _extract_view_from_bundle(bundle)
+        assert conflicts == []
+
     def test_medium_confidence_round_trips_back_to_medium(self):
         # F8: the analyst's "medium" is stored on the AIconfidence extension as
         # the certainty-rating code "moderate" (no "medium" code exists there).

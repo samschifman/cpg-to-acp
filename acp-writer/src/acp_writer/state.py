@@ -48,7 +48,7 @@ class CarePlanComposerState(TypedDict, total=False):
     brief_review_feedback: str
 
     # Phase 1: Conflict Analyst outputs
-    conflict_prompt: str  # rendered system+user prompt, captured for AI-InputPrompt (WS3)
+    conflict_prompt: str  # rendered user prompt, captured for AI-InputPrompt (WS3)
 
     # Phase 2: FHIR Bundle Generator outputs
     fhir_bundle: dict[str, Any]
