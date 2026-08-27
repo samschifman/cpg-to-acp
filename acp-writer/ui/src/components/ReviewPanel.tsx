@@ -14,7 +14,7 @@ import {
 import type { CarePlanView, ReviewAction } from "@app/api/models";
 import { GoalCard } from "./GoalCard";
 import { ActivityCard } from "./ActivityCard";
-import { ConflictAlert } from "./ConflictAlert";
+import { ConflictAlert, orderConflicts } from "./ConflictAlert";
 
 interface ReviewPanelProps {
   carePlan: CarePlanView;
@@ -59,7 +59,7 @@ export function ReviewPanel({
               <em>Previously requested:</em> {previousFeedback.comment}
             </StackItem>
           )}
-          {conflicts.map((c) => (
+          {orderConflicts(conflicts).map((c) => (
             <StackItem key={c.id}><ConflictAlert conflict={c} /></StackItem>
           ))}
           <StackItem>

@@ -259,6 +259,8 @@ export interface components {
             description: string;
             /** @description One conservative sentence from the analyst proposing how the clinician might resolve the conflict. Advisory only — never auto-applied. Persisted in the conflict-suggested-resolution extension on the Provenance. */
             suggestedResolution?: string;
+            /** @description The clinician's applied resolution on a resolved conflict — the note of what was actually done, recorded on a request-changes revision (F17c). Persisted in the conflict-resolution extension on the Provenance. */
+            resolution?: string;
             /** @description The guideline recommendations that give rise to the conflict. */
             sources?: components["schemas"]["ConflictSource"][];
         };

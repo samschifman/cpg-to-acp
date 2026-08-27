@@ -251,8 +251,11 @@ spec:
 
       - name: InitCarePlanReview
         type: inject
-        data:
-          careplanReviewCount: 0
+        # NOTE: inject `data` merges into state BEFORE stateDataFilter runs, so
+        # putting careplanReviewCount into `data` would clobber the incremented
+        # value back to 0 on every request_changes loop (the UI then shows
+        # "round 1" forever). Initialize only via the null-guarded filter.
+        data: {}
         stateDataFilter:
           output: "${ if .careplanReviewCount == null then . + {careplanReviewCount: 0} else . end }"
         transition: ReviewCarePlan
