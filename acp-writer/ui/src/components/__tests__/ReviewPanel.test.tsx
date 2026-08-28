@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReviewPanel } from "../ReviewPanel";
 import { carePlanView } from "@app/mocks/fixtures";
@@ -52,5 +52,61 @@ describe("ReviewPanel", () => {
     resolve();
     expect(await screen.findByText(/review submitted/i)).toBeInTheDocument();
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds the submission to the review round on screen", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<ReviewPanel carePlan={carePlanView} reviewIteration={2} onSubmit={onSubmit} />);
+    await userEvent.click(screen.getByRole("button", { name: /approve/i }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: "approve", reviewRound: 2 }),
+    );
+  });
+
+  it("offers a retry after ~30s and re-submits the same round-bound action", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      render(<ReviewPanel carePlan={carePlanView} reviewIteration={1} onSubmit={onSubmit} />);
+      // fireEvent (sync) + act flush avoids userEvent's own timer waits clashing
+      // with fake timers — this is the fiddly interaction the plan flagged.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+      });
+      expect(screen.getByText(/waiting for the pipeline/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(screen.getByText(/you can retry/i)).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+      });
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ decision: "approve", reviewRound: 1 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("remounts fresh when the round advances (no state bleed across gates)", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <ReviewPanel key={0} carePlan={carePlanView} reviewIteration={0} onSubmit={onSubmit} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /approve/i }));
+    expect(await screen.findByText(/review submitted/i)).toBeInTheDocument();
+
+    // Round N+1 gate arms: RunDetailPage keys the panel by reviewIteration, so a
+    // new key remounts a fresh idle panel — round N's submitted state is gone.
+    rerender(
+      <ReviewPanel key={1} carePlan={carePlanView} reviewIteration={1} onSubmit={onSubmit} />,
+    );
+    expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+    expect(screen.queryByText(/review submitted/i)).not.toBeInTheDocument();
   });
 });

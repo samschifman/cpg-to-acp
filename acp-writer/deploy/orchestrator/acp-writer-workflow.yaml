@@ -277,7 +277,35 @@ spec:
         eventRef: careplanReviewed
         eventDataFilter:
           toStateData: "${ .careplanReview }"
-        transition: IncrementCarePlanReview
+        transition: ValidateReviewRound
+
+      # Round-binding guard (issue #169): the UI stamps each submission with the
+      # reviewRound it was showing (== careplanReviewCount at the armed gate). If
+      # a submission carries a round that no longer matches the gate's current
+      # round, the user reviewed a superseded plan version -- discard it and
+      # re-arm the gate so they review the real plan, rather than (e.g.) approving
+      # content they never saw. reviewRound == null is treated as valid for
+      # backward compatibility (old clients, manual curl events); that fail-open
+      # path is watched by verify-review-gate.sh.
+      - name: ValidateReviewRound
+        type: switch
+        dataConditions:
+          - name: staleRound
+            condition: "${ .careplanReview.reviewRound != null and .careplanReview.reviewRound != .careplanReviewCount }"
+            transition: DiscardStaleReview
+        defaultCondition:
+          transition: IncrementCarePlanReview
+
+      - name: DiscardStaleReview
+        type: inject
+        # data:{} + filter only -- never put loop-surviving data in an inject
+        # `data:` block (it merges BEFORE stateDataFilter and clobbers state;
+        # see the InitCarePlanReview note). Drop the stale review and re-arm the
+        # gate without touching careplanReviewCount or careplanReviewHistory.
+        data: {}
+        stateDataFilter:
+          output: "${ del(.careplanReview) }"
+        transition: ReviewCarePlan
 
       - name: IncrementCarePlanReview
         type: inject

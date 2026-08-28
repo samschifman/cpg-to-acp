@@ -307,6 +307,8 @@ export interface components {
             reviewer?: components["schemas"]["ReviewerRef"];
             /** @description Overall free-text note. */
             comment?: string;
+            /** @description The review round this submission refers to (== RunDetail.reviewIteration of the plan the clinician had on screen). The engine discards a submission whose round no longer matches the armed gate, preventing approval of a superseded plan version. Optional for backward compatibility; omitted/null is treated as valid. */
+            reviewRound?: number;
             /** @description Per-item feedback (CarePlanReviewPanel/FeedbackInput). Required-ish when decision=request_changes. */
             feedback?: components["schemas"]["FeedbackItem"][];
         };

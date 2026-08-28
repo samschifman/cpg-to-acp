@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Button,
@@ -34,13 +34,22 @@ export function ReviewPanel({
   const [mode, setMode] = useState<"idle" | "changes">("idle");
   const [clinician, setClinician] = useState("");
   const [comment, setComment] = useState("");
-  // Submission lifecycle: editing -> submitting -> submitted (terminal). On a
-  // failed submit we return to editing and surface `error` so the clinician can
-  // retry deliberately. Once submitted, the buttons are gone so a duplicate (or
+  // Submission lifecycle: editing -> submitting -> submitted. On a failed submit
+  // we return to editing and surface `error` so the clinician can retry
+  // deliberately. Once submitted, the buttons are gone so a duplicate (or
   // changed-decision) submit is impossible; the panel unmounts on its own when a
-  // later poll sees the run leave the review gate.
+  // later poll sees the run leave the gate, and remounts fresh when the round
+  // advances (RunDetailPage keys it by reviewIteration).
   const [phase, setPhase] = useState<"editing" | "submitting" | "submitted">("editing");
   const [error, setError] = useState<string | null>(null);
+  // Set 30s after entering `submitted` if the run is still at this same gate: the
+  // engine may just be slow (healthy consumption is 6-24+s) OR the event was
+  // dropped (submitted before the gate armed). We can't tell which, so we offer
+  // a neutral retry rather than an alarm. Retry is safe by construction: round-
+  // binding makes a duplicate either the first-consumed event or an engine-
+  // discarded stale one — never a double-apply, never approval of unseen content.
+  const [stalled, setStalled] = useState(false);
+  const [lastAction, setLastAction] = useState<ReviewAction | null>(null);
 
   const goals = carePlan.goals ?? [];
   const activities = carePlan.activities ?? [];
@@ -49,7 +58,9 @@ export function ReviewPanel({
   const submitting = phase === "submitting";
 
   const submit = async (action: ReviewAction) => {
+    setLastAction(action);
     setError(null);
+    setStalled(false);
     setPhase("submitting");
     try {
       await onSubmit(action);
@@ -59,6 +70,12 @@ export function ReviewPanel({
       setPhase("editing");
     }
   };
+
+  useEffect(() => {
+    if (phase !== "submitted") return;
+    const timer = setTimeout(() => setStalled(true), 30_000);
+    return () => clearTimeout(timer);
+  }, [phase]);
 
   return (
     <Card>
@@ -90,12 +107,29 @@ export function ReviewPanel({
 
           {phase === "submitted" ? (
             <StackItem>
-              <Alert
-                variant="info"
-                isInline
-                title="Review submitted — waiting for the pipeline to pick it up…"
-                customIcon={<Spinner size="md" />}
-              />
+              {stalled ? (
+                <Alert
+                  variant="info"
+                  isInline
+                  title="Still waiting on the pipeline… you can retry if this persists."
+                  actionLinks={
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => lastAction && submit(lastAction)}
+                    >
+                      Retry
+                    </Button>
+                  }
+                />
+              ) : (
+                <Alert
+                  variant="info"
+                  isInline
+                  title="Review submitted — waiting for the pipeline to pick it up…"
+                  customIcon={<Spinner size="md" />}
+                />
+              )}
             </StackItem>
           ) : (
           <>
@@ -137,7 +171,11 @@ export function ReviewPanel({
                       isLoading={submitting}
                       isDisabled={submitting}
                       onClick={() =>
-                        submit({ decision: "approve", clinician: clinician || undefined })
+                        submit({
+                          decision: "approve",
+                          clinician: clinician || undefined,
+                          reviewRound: reviewIteration,
+                        })
                       }
                     >
                       Approve
@@ -165,6 +203,7 @@ export function ReviewPanel({
                           decision: "request_changes",
                           clinician: clinician || undefined,
                           comment: comment.trim(),
+                          reviewRound: reviewIteration,
                         })
                       }
                     >

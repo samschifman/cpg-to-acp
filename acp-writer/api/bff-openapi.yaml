@@ -465,6 +465,14 @@ components:
         reviewer:
           $ref: '#/components/schemas/ReviewerRef'
         comment: { type: string, description: Overall free-text note. }
+        reviewRound:
+          type: integer
+          description: >
+            The review round this submission refers to (== RunDetail.reviewIteration
+            of the plan the clinician had on screen). The engine discards a
+            submission whose round no longer matches the armed gate, preventing
+            approval of a superseded plan version. Optional for backward
+            compatibility; omitted/null is treated as valid.
         feedback:
           type: array
           description: Per-item feedback (CarePlanReviewPanel/FeedbackInput). Required-ish when decision=request_changes.

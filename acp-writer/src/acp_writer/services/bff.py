@@ -248,22 +248,6 @@ def notify_review(payload: dict | None = None):
 # to SonataFlow-backed once the background start_workflow call returns.
 _pending_runs: dict[str, dict] = {}
 
-# Reviews submitted to the engine but not yet consumed, keyed by (run_id, gate).
-# The devmode engine takes 6-24s to move a run off the review gate after
-# consuming the event, and drops duplicate events silently during that window.
-# We track the in-flight submission here so a duplicate submit returns a truthful
-# 409 instead of a silently-discarded event. Cleared once any request observes
-# the run no longer awaiting that gate (see _clear_stale_pending_reviews). This
-# is in-memory demo infrastructure, not a distributed lock.
-_pending_reviews: dict[tuple[str, str], dict] = {}
-
-
-def _clear_stale_pending_reviews(run_id: str, detail: dict) -> None:
-    """Drop any pending-review record for run_id whose gate the run has left."""
-    awaiting = detail.get("awaitingReview")
-    for key in [k for k in _pending_reviews if k[0] == run_id and k[1] != awaiting]:
-        _pending_reviews.pop(key, None)
-
 
 async def _start_workflow_background(run_id: str, ips_ref: str, patient_name: str) -> None:
     """Start SonataFlow workflow in the background and update the pending-run mapping."""
@@ -355,6 +339,27 @@ def _resolve_sonataflow_id(run_id: str) -> str | None:
     return None
 
 
+async def _resolve_sf_id(run_id: str) -> str | None:
+    """Resolve a run_id (the workflow business key) to its SonataFlow instance ID.
+
+    Prefers the in-memory pending-run mapping; falls back to a business-key
+    lookup in the data-index. A raw run_id is never a valid instance ID, so the
+    fallback is what lets existing runs still be found after a BFF restart (when
+    the in-memory map is empty).
+    """
+    sf_id = _resolve_sonataflow_id(run_id)
+    if sf_id:
+        return sf_id
+    if _sonataflow:
+        try:
+            instance = await _sonataflow.get_instance_by_business_key(run_id)
+        except Exception:
+            instance = None
+        if instance:
+            return instance["id"]
+    return None
+
+
 @app.get("/api/v1/runs")
 async def list_runs(status: str | None = None, limit: int = 50):
     summaries: list[dict] = []
@@ -408,19 +413,27 @@ async def get_run(run_id: str):
                     pr["status"] = "running"
                 detail = map_to_run_detail(instance)
                 detail["runId"] = run_id
-                _clear_stale_pending_reviews(run_id, detail)
                 return enrich_run_detail(detail, _phi_store, _artifacts_store)
         return _pending_run_detail(pr)
 
-    # Fall through to direct SonataFlow lookup (for runs created before this change)
+    # Fall through: run not in the in-memory map (e.g. after a BFF restart).
+    # run_id is the workflow business key; try a direct id lookup first (legacy
+    # runs addressed by instance id), then resolve by business key.
     if not _sonataflow:
         return JSONResponse(status_code=503, content={"message": "SonataFlow not configured"})
+    instance = None
     try:
         instance = await _sonataflow.get_instance(run_id)
     except Exception:
+        instance = None
+    if not instance:
+        try:
+            instance = await _sonataflow.get_instance_by_business_key(run_id)
+        except Exception:
+            instance = None
+    if not instance:
         return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
     detail = map_to_run_detail(instance)
-    _clear_stale_pending_reviews(run_id, detail)
     return enrich_run_detail(detail, _phi_store, _artifacts_store)
 
 
@@ -432,27 +445,28 @@ async def submit_review(run_id: str, gate: str, request: Request):
     if not _sonataflow:
         return JSONResponse(status_code=503, content={"message": "SonataFlow not configured"})
 
-    sf_id = _resolve_sonataflow_id(run_id) or run_id
+    sf_id = await _resolve_sf_id(run_id)
+    if not sf_id:
+        return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
     try:
         instance = await _sonataflow.get_instance(sf_id)
     except Exception:
         return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
 
     pre_detail = map_to_run_detail(instance)
-    # A submission consumed by the engine keeps the run at the gate for 6-24s
-    # before it advances; clear our record only once the run has actually moved.
-    _clear_stale_pending_reviews(run_id, pre_detail)
+    # Fast-feedback courtesy only. The data-index this reads lags the engine, so
+    # this check can be wrong either way — but harmlessly: a wrongly-passed check
+    # ends in an engine-side round discard + UI retry, and a wrongly-failed one
+    # shows a clear 409. The authoritative guard is round-binding in the workflow
+    # (ValidateReviewRound), not this pre-check.
     if pre_detail.get("awaitingReview") != gate:
         return JSONResponse(status_code=409, content={"message": "Run is not awaiting careplan review"})
 
-    if (run_id, gate) in _pending_reviews:
-        return JSONResponse(
-            status_code=409,
-            content={"message": "A review for this run was already submitted and is being processed."},
-        )
-
     review = await request.json()
     try:
+        # Forwarded verbatim into the CloudEvent data, so the reviewRound the UI
+        # sent reaches the workflow's round guard unchanged (single spelling,
+        # camelCase, end to end — no translation point to disagree).
         await _sonataflow.send_review(sf_id, gate, review or {})
     except Exception:
         logger.exception("send_review failed for run %s gate %s", run_id, gate)
@@ -460,7 +474,6 @@ async def submit_review(run_id: str, gate: str, request: Request):
             status_code=503,
             content={"message": "Workflow engine temporarily unavailable — please try again."},
         )
-    _pending_reviews[(run_id, gate)] = {"decision": (review or {}).get("decision")}
 
     try:
         updated = await _sonataflow.get_instance(sf_id)
@@ -476,7 +489,9 @@ async def submit_review(run_id: str, gate: str, request: Request):
 async def cancel_run(run_id: str):
     if not _sonataflow:
         return JSONResponse(status_code=503, content={"message": "SonataFlow not configured"})
-    sf_id = _resolve_sonataflow_id(run_id) or run_id
+    sf_id = await _resolve_sf_id(run_id)
+    if not sf_id:
+        return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
     try:
         await _sonataflow.abort_instance(sf_id)
     except Exception:

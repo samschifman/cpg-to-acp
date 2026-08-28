@@ -131,6 +131,53 @@ No conflict is auto-resolved — every conflicting item stays in the plan and th
 
 The analyst also emits a one-sentence, clinically conservative **suggested resolution** per conflict (advisory only — never auto-applied). It is shown to the clinician under the conflict in the review UI. On a **request-changes** loop the composer runs in revision mode: the prior brief is the base, and the clinician's comment + the prior conflicts (with their suggestions) + the accumulated feedback history are rendered into a durable **"Clinician-directed changes"** section (`render_clinician_directives`) on every composer iteration — so *"resolve all identified conflicts as you suggested"* has a referent that survives the internal review loop. The analyst then re-runs with continuity (same conflict ids) and marks directed conflicts `resolved`; a directed resolution that was not applied triggers one enforcement retry and, failing that, flags the brief naming the unapplied directives. Per-conflict *structured* feedback (target one conflict, record an explicit resolution note) is deferred to [#172](https://github.com/samschifman/cpg-to-acp/issues/172). See [`docs/ai-transparency.md`](../docs/ai-transparency.md#conflict-resolution-feedback-loop) for the loop diagram. The whole revision flow is testable locally, no cluster needed: `pytest tests/test_revision_flow.py` (structural, scripted LLMs) or `LLM_BASE_URL=… python -m tests.test_revision_flow` (live two-round drive).
 
+### Care-plan review gate (round-bound submissions)
+
+The care-plan review is a human gate in the `acpwriter` SonataFlow workflow
+(`ReviewCarePlan` state). A `request_changes` decision loops the run back through
+recomposition and arms a **new** gate, so the same run can present several review
+rounds. The engine tracks the current round in `careplanReviewCount`; the UI
+shows it as `reviewIteration` (the two are the same number).
+
+Each submission is **bound to the round it was made against**: the UI stamps the
+`ReviewAction` with `reviewRound = reviewIteration`, and the workflow validates
+it in the `ValidateReviewRound` state — the workflow engine is the only
+authoritative component, so validation lives there, not in the BFF. A submission
+whose `reviewRound` no longer matches `careplanReviewCount` (the clinician
+reviewed a plan version that has since been superseded) is **discarded** and the
+gate re-arms on the current plan, rather than approving content the clinician
+never saw. `reviewRound == null` is treated as valid (fail-open) for older
+clients and manual `curl` events; that path is exercised by
+`working/issue-169-conflict-surfacing/verify-review-gate.sh`.
+
+This replaces all timing/dedupe machinery that previously lived in the BFF: the
+BFF now passes the review through verbatim (wrapping engine-unavailable errors as
+`503`) and resolves the run's business key to its SonataFlow instance id. The UI
+keys the review panel by round so it remounts fresh each gate, and — because
+CloudEvent delivery is at-most-once — offers a neutral retry if a submission
+isn't picked up within ~30s (retry is safe by construction: a duplicate is
+either the first-consumed event or an engine-discarded stale one).
+
+```mermaid
+sequenceDiagram
+    participant UI as Review UI
+    participant BFF
+    participant WF as SonataFlow (acpwriter)
+    Note over WF: gate armed, careplanReviewCount = 0
+    UI->>BFF: submit review (reviewRound = 0, request_changes)
+    BFF->>WF: careplan-reviewed event (reviewRound = 0)
+    Note over WF: ValidateReviewRound: 0 == 0 → accept
+    WF->>WF: careplanReviewCount → 1, recompose, re-arm gate
+    Note over WF: gate armed, careplanReviewCount = 1
+    Note over UI: a stale tab still shows round 0
+    UI->>BFF: submit review (reviewRound = 0, approve)
+    BFF->>WF: careplan-reviewed event (reviewRound = 0)
+    Note over WF: ValidateReviewRound: 0 ≠ 1 → discard, re-arm
+    UI->>BFF: submit review (reviewRound = 1, approve)
+    BFF->>WF: careplan-reviewed event (reviewRound = 1)
+    Note over WF: ValidateReviewRound: 1 == 1 → accept → WriteFHIR
+```
+
 ### Configuration (AI Transparency + reviewer identity)
 
 | Env var | Purpose |
