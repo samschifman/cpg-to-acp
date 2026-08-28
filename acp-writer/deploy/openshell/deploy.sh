@@ -152,6 +152,7 @@ deploy_sandboxes() {
         "LITELLM_URL=${LLM_BASE_URL}" \
         "LLM_MODEL=${LLM_MODEL}" \
         "LLM_API_KEY=${LLM_API_KEY}" \
+        "LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-600}" \
         "DECISION_ENGINE_URL=http://acp-decision-engine:8080"
 
     # Decision Engine (thin Kogito wrapper — deliberately NO LLM credentials)
@@ -171,6 +172,7 @@ deploy_sandboxes() {
         "LITELLM_URL=${LLM_BASE_URL}" \
         "LLM_MODEL=${LLM_MODEL}" \
         "LLM_API_KEY=${LLM_API_KEY}" \
+        "LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-600}" \
         "ACP_CAPTURE_PROMPTS=${ACP_CAPTURE_PROMPTS}" \
         "LLM_MODEL_CARD_URL=${LLM_MODEL_CARD_URL}"
 
