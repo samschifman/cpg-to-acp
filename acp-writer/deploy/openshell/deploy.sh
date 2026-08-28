@@ -90,6 +90,22 @@ teardown_sandboxes() {
         log "Deleting $sb..."
         openshell sandbox delete "$sb" 2>/dev/null || true
     done
+
+    # Wait for the old pods to actually disappear before recreating. Without
+    # this, wait_for_pod_ready matches a Terminating old pod ("ready after 1s")
+    # and the follow-up oc calls race the deletion — set -e then aborts the
+    # deploy mid-way (observed twice on 2026-08-27, leaving sandboxes missing).
+    log "Waiting for old sandbox pods to terminate..."
+    for _ in $(seq 1 60); do
+        local remaining
+        # `|| true`: grep exits 1 on zero matches, which pipefail+set -e would
+        # otherwise turn into a deploy abort at exactly the success condition.
+        remaining=$( (oc get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+            | awk '{print $1}' | grep -Fx -f <(printf '%s\n' "${SANDBOXES[@]}") || true) | wc -l | tr -d ' ')
+        [ "$remaining" = "0" ] && break
+        sleep 5
+    done
+    log "Old sandbox pods gone"
 }
 
 deploy_sandboxes() {

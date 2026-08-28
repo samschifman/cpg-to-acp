@@ -234,15 +234,28 @@ wait_for_pod_ready() {
 
 label_pod() {
     # Apply K8s labels to a pod. Call after wait_for_pod_ready.
+    # Retries transient failures (the sandbox controller updates pod metadata
+    # concurrently right after readiness, so oc label can hit a conflict); a
+    # persistent failure warns and continues — under set -e an unguarded
+    # failure here silently aborted the whole deploy mid-sandbox-creation
+    # (observed repeatedly 2026-08-27), which is far worse than a missing
+    # cosmetic label.
     # Usage: label_pod <pod-name> <app-name> <instance>
     local pod_name="$1"
     local app_name="$2"
     local instance="$3"
 
-    oc label pod "$pod_name" -n "$NAMESPACE" \
-        "app.kubernetes.io/name=$app_name" \
-        "app.kubernetes.io/instance=$instance" \
-        --overwrite 2>/dev/null
+    for _ in 1 2 3; do
+        if oc label pod "$pod_name" -n "$NAMESPACE" \
+            "app.kubernetes.io/name=$app_name" \
+            "app.kubernetes.io/instance=$instance" \
+            --overwrite 2>/dev/null; then
+            return 0
+        fi
+        sleep 2
+    done
+    log "WARNING: could not label pod $pod_name after 3 attempts — continuing"
+    return 0
 }
 
 expose_service() {
