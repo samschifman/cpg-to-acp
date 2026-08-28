@@ -248,6 +248,22 @@ def notify_review(payload: dict | None = None):
 # to SonataFlow-backed once the background start_workflow call returns.
 _pending_runs: dict[str, dict] = {}
 
+# Reviews submitted to the engine but not yet consumed, keyed by (run_id, gate).
+# The devmode engine takes 6-24s to move a run off the review gate after
+# consuming the event, and drops duplicate events silently during that window.
+# We track the in-flight submission here so a duplicate submit returns a truthful
+# 409 instead of a silently-discarded event. Cleared once any request observes
+# the run no longer awaiting that gate (see _clear_stale_pending_reviews). This
+# is in-memory demo infrastructure, not a distributed lock.
+_pending_reviews: dict[tuple[str, str], dict] = {}
+
+
+def _clear_stale_pending_reviews(run_id: str, detail: dict) -> None:
+    """Drop any pending-review record for run_id whose gate the run has left."""
+    awaiting = detail.get("awaitingReview")
+    for key in [k for k in _pending_reviews if k[0] == run_id and k[1] != awaiting]:
+        _pending_reviews.pop(key, None)
+
 
 async def _start_workflow_background(run_id: str, ips_ref: str, patient_name: str) -> None:
     """Start SonataFlow workflow in the background and update the pending-run mapping."""
@@ -392,6 +408,7 @@ async def get_run(run_id: str):
                     pr["status"] = "running"
                 detail = map_to_run_detail(instance)
                 detail["runId"] = run_id
+                _clear_stale_pending_reviews(run_id, detail)
                 return enrich_run_detail(detail, _phi_store, _artifacts_store)
         return _pending_run_detail(pr)
 
@@ -403,6 +420,7 @@ async def get_run(run_id: str):
     except Exception:
         return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
     detail = map_to_run_detail(instance)
+    _clear_stale_pending_reviews(run_id, detail)
     return enrich_run_detail(detail, _phi_store, _artifacts_store)
 
 
@@ -421,11 +439,28 @@ async def submit_review(run_id: str, gate: str, request: Request):
         return JSONResponse(status_code=404, content={"message": f"Run {run_id} not found"})
 
     pre_detail = map_to_run_detail(instance)
+    # A submission consumed by the engine keeps the run at the gate for 6-24s
+    # before it advances; clear our record only once the run has actually moved.
+    _clear_stale_pending_reviews(run_id, pre_detail)
     if pre_detail.get("awaitingReview") != gate:
         return JSONResponse(status_code=409, content={"message": "Run is not awaiting careplan review"})
 
+    if (run_id, gate) in _pending_reviews:
+        return JSONResponse(
+            status_code=409,
+            content={"message": "A review for this run was already submitted and is being processed."},
+        )
+
     review = await request.json()
-    await _sonataflow.send_review(sf_id, gate, review or {})
+    try:
+        await _sonataflow.send_review(sf_id, gate, review or {})
+    except Exception:
+        logger.exception("send_review failed for run %s gate %s", run_id, gate)
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Workflow engine temporarily unavailable — please try again."},
+        )
+    _pending_reviews[(run_id, gate)] = {"decision": (review or {}).get("decision")}
 
     try:
         updated = await _sonataflow.get_instance(sf_id)

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   CardBody,
   CardTitle,
   Flex,
   FlexItem,
+  Spinner,
   Stack,
   StackItem,
   TextArea,
@@ -32,18 +34,29 @@ export function ReviewPanel({
   const [mode, setMode] = useState<"idle" | "changes">("idle");
   const [clinician, setClinician] = useState("");
   const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  // Submission lifecycle: editing -> submitting -> submitted (terminal). On a
+  // failed submit we return to editing and surface `error` so the clinician can
+  // retry deliberately. Once submitted, the buttons are gone so a duplicate (or
+  // changed-decision) submit is impossible; the panel unmounts on its own when a
+  // later poll sees the run leave the review gate.
+  const [phase, setPhase] = useState<"editing" | "submitting" | "submitted">("editing");
+  const [error, setError] = useState<string | null>(null);
 
   const goals = carePlan.goals ?? [];
   const activities = carePlan.activities ?? [];
   const conflicts = carePlan.conflicts ?? [];
 
+  const submitting = phase === "submitting";
+
   const submit = async (action: ReviewAction) => {
-    setSubmitting(true);
+    setError(null);
+    setPhase("submitting");
     try {
       await onSubmit(action);
-    } finally {
-      setSubmitting(false);
+      setPhase("submitted");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to submit review. Please try again.");
+      setPhase("editing");
     }
   };
 
@@ -75,11 +88,29 @@ export function ReviewPanel({
             </Stack>
           </StackItem>
 
+          {phase === "submitted" ? (
+            <StackItem>
+              <Alert
+                variant="info"
+                isInline
+                title="Review submitted — waiting for the pipeline to pick it up…"
+                customIcon={<Spinner size="md" />}
+              />
+            </StackItem>
+          ) : (
+          <>
+          {error && (
+            <StackItem>
+              <Alert variant="danger" isInline title={error} />
+            </StackItem>
+          )}
+
           <StackItem>
             <TextInput
               aria-label="Clinician name"
               placeholder="Clinician name"
               value={clinician}
+              isDisabled={submitting}
               onChange={(_e, v) => setClinician(v)}
             />
           </StackItem>
@@ -90,6 +121,7 @@ export function ReviewPanel({
                 aria-label="Overall comment"
                 placeholder="What should change?"
                 value={comment}
+                isDisabled={submitting}
                 onChange={(_e, v) => setComment(v)}
               />
             </StackItem>
@@ -112,7 +144,11 @@ export function ReviewPanel({
                     </Button>
                   </FlexItem>
                   <FlexItem>
-                    <Button variant="secondary" onClick={() => setMode("changes")}>
+                    <Button
+                      variant="secondary"
+                      isDisabled={submitting}
+                      onClick={() => setMode("changes")}
+                    >
                       Request changes
                     </Button>
                   </FlexItem>
@@ -136,7 +172,7 @@ export function ReviewPanel({
                     </Button>
                   </FlexItem>
                   <FlexItem>
-                    <Button variant="link" onClick={() => setMode("idle")}>
+                    <Button variant="link" isDisabled={submitting} onClick={() => setMode("idle")}>
                       Cancel
                     </Button>
                   </FlexItem>
@@ -144,6 +180,8 @@ export function ReviewPanel({
               )}
             </Flex>
           </StackItem>
+          </>
+          )}
         </Stack>
       </CardBody>
     </Card>
