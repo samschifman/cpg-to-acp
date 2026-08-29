@@ -9,6 +9,7 @@ cpg-phi bucket; non-PHI data (recommendations) in cpg-artifacts.
 import logging
 from typing import Any
 
+import mlflow
 from cpg_contracts.artifact_store import ArtifactStore
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,42 @@ def _fetch_ref(store: ArtifactStore, ref: str) -> dict | None:
     except Exception as exc:
         logger.warning("Could not resolve artifact ref %s: %s", ref, exc)
         return None
+
+
+@mlflow.trace(name="plan_conflict_from_entry")
+def plan_conflict_from_entry(entry: dict) -> dict:
+    """Map a planning-brief ``ConflictEntry`` dict → the BFF ``PlanConflict`` shape.
+
+    The brief uses snake_case (``cpg_id``/``recommendation_id``); the API uses
+    camelCase (``cpgId``/``recommendationId``). Only the UI-facing fields are
+    carried through — the full provenance record is the read-back source of
+    truth (see ``ai_transparency.plan_conflict_from_provenance``).
+    """
+    pc: dict = {
+        "id": entry.get("id", ""),
+        "description": entry.get("description", ""),
+    }
+    for src_key, dst_key in (("severity", "severity"), ("category", "category"),
+                             ("status", "status"), ("confidence", "confidence"),
+                             ("suggested_resolution", "suggestedResolution"),
+                             ("resolution", "resolution")):
+        val = entry.get(src_key)
+        if val:
+            pc[dst_key] = val
+
+    sources: list[dict] = []
+    for s in entry.get("sources", []) or []:
+        if not isinstance(s, dict):
+            continue
+        src: dict = {"cpgId": s.get("cpg_id", "")}
+        if s.get("recommendation_id"):
+            src["recommendationId"] = s["recommendation_id"]
+        if s.get("excerpt"):
+            src["excerpt"] = s["excerpt"]
+        sources.append(src)
+    if sources:
+        pc["sources"] = sources
+    return pc
 
 
 def _to_coded_items(codes: list | None) -> list[dict]:
@@ -117,7 +154,11 @@ def enrich_run_detail(
         if planning_brief and isinstance(planning_brief, dict):
             care_plan_view["goals"] = planning_brief.get("goals", [])
             care_plan_view["activities"] = planning_brief.get("activities", [])
-            care_plan_view["conflicts"] = planning_brief.get("conflicts", [])
+            care_plan_view["conflicts"] = [
+                plan_conflict_from_entry(c)
+                for c in planning_brief.get("conflicts", [])
+                if isinstance(c, dict)
+            ]
         detail["carePlan"] = care_plan_view
 
     # --- Write result ---

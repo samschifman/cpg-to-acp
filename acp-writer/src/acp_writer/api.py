@@ -289,10 +289,12 @@ def get_careplan(careplan_id: str):
 @app.put("/api/v1/careplans/{careplan_id}/status")
 async def update_careplan_status(careplan_id: str, request: Request):
     from acp_writer.nodes.fhir_server_writer import approve_care_plan, reject_care_plan
+    from acp_writer.services.reviewer import reviewer_from_payload
     data = await request.json()
     new_status = data.get("status")
     if new_status == "active":
-        result = approve_care_plan(careplan_id, clinician=data.get("clinician"))
+        reviewer = reviewer_from_payload(data.get("reviewer"), clinician=data.get("clinician"))
+        result = approve_care_plan(careplan_id, reviewer=reviewer)
         if not result:
             raise HTTPException(status_code=404, detail=f"Care plan '{careplan_id}' not found")
         return result

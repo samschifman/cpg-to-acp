@@ -7,6 +7,7 @@ the vector store and guidelines registry live in this pod's process.
 Security profile: LLM inference + vector store, no FHIR server access.
 """
 
+import asyncio
 import logging
 import os
 from uuid import uuid4
@@ -30,6 +31,7 @@ from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
 from acp_writer.nodes.plan_composer import plan_composer
 from acp_writer.nodes.brief_reviewer import brief_reviewer
+from acp_writer.nodes.conflict_analyst import conflict_analyst
 from acp_writer.nodes.fhir_semantic_reviewer import fhir_semantic_reviewer
 from acp_writer.pipeline import MAX_BRIEF_REVIEWS
 
@@ -295,30 +297,75 @@ def _run_retrieve_background(data: dict, callback_url: str, process_instance_id:
     post_callback(callback_url, process_instance_id, "retrieve-done", result)
 
 
-def _seed_feedback(careplan_feedback: str) -> str:
-    """Turn clinician care-plan review feedback into initial composer feedback.
+def _prior_brief(data: dict) -> dict:
+    """Resolve the prior planning brief for a request-changes loop (F16a/F17a).
 
-    When a clinician requests changes, the workflow re-enters ComposePlan with
-    their comment in ``careplan_feedback``. Seeding it as the composer's initial
-    ``brief_review_feedback`` makes ``plan_composer`` address it on the first
-    pass (it renders under "Reviewer Feedback (address these issues)"), so the
-    regenerated planning brief actually reflects the requested changes. Empty
-    on the initial run — normal composition, no seeded feedback.
+    ``prior_brief_ref`` is empty ("") on the first pass — guard for that before
+    touching the store. An inline ``prior_brief`` dict is also accepted (used by
+    the local revision-flow harness, which drives this pipeline without an
+    artifact store). The brief's goals/activities are the composer's revision
+    base (F17a/F18b) and its conflicts feed the clinician-directives section +
+    analyst continuity (F18a/F17c). Returns ``{}`` when there is no prior brief
+    (first pass) so callers stay in authoring mode.
     """
-    careplan_feedback = (careplan_feedback or "").strip()
-    if not careplan_feedback:
-        return ""
-    return (
-        "A clinician reviewed the previous care plan and requested the "
-        f"following changes. Revise the plan to address them:\n{careplan_feedback}"
-    )
+    if not data.get("prior_brief_ref") and not isinstance(data.get("prior_brief"), dict):
+        return {}
+    prior_brief = resolve_ref(data, "prior_brief", _phi_store)
+    return prior_brief if isinstance(prior_brief, dict) else {}
 
 
-@app.post("/api/v1/compose")
-async def compose(request: Request):
-    """Run Plan Composer with Brief Reviewer loop."""
-    data = await request.json()
+def _render_enforcement_note(unapplied_ids: list[str], conflicts: list[dict]) -> str:
+    """Render the F18c enforcement message for directed resolutions the composer
+    failed to apply, quoting each conflict's description and suggestion so the
+    retry has the full referent inline."""
+    by_id = {c.get("id"): c for c in conflicts if isinstance(c, dict)}
+    lines = [
+        "Your previous revision did NOT apply these clinician-directed "
+        "conflict resolutions. Apply each one now (or, ONLY if clinically "
+        "unsafe, leave it and it will be flagged to the clinician):",
+    ]
+    for cid in unapplied_ids:
+        c = by_id.get(cid) or {}
+        lines.append(f"- [{cid}] {c.get('description', '')}")
+        if c.get("suggested_resolution"):
+            lines.append(f"  Suggested: {c['suggested_resolution']}")
+    return "\n".join(lines)
+
+
+def _prompt_artifact(state: dict) -> dict:
+    """Capture rendered prompts from composer state for AI-InputPrompt DocRefs.
+
+    The monolith keeps ``plan_composer_prompt``/``conflict_prompt`` in state so
+    ``fhir_bundle_generator`` can emit AI-InputPrompt DocumentReferences. The
+    split path must ferry them across the compose→generate-bundle service
+    boundary or the deployed bundle silently loses that prompt traceability
+    (issue #169 F2). Rendered prompts embed patient data, so they go to the PHI
+    store. Returns ``{}`` when no prompts were captured (e.g. capture disabled).
+    """
+    prompts = {
+        k: state[k]
+        for k in ("plan_composer_prompt", "conflict_prompt")
+        if state.get(k)
+    }
+    if not prompts:
+        return {}
+    _, ref = store_artifact(_phi_store, f"{uuid4()}/prompts.json", prompts)
+    return {"prompts_ref": ref} if ref else {"prompts": prompts}
+
+
+def _compose_pipeline(data: dict, strict_store: bool = False) -> dict:
+    """The compose pipeline: build state, run the brief-review loop, run the
+    conflict analyst, then enforce clinician-directed resolutions (F18c). Used
+    by BOTH the sync ``/compose`` handler (in a worker thread, C9) and the
+    async background task — one implementation so the two entry points cannot
+    drift (the drift caused the original conflict_analyst split-path miss).
+
+    ``strict_store``: when True and an artifact store is configured, failing to
+    store the brief raises instead of falling back to an inline brief (the
+    async/callback path can't ship a large inline brief through SonataFlow).
+    """
     recommendations = resolve_ref(data, "recommendations", _store)
+    prior_brief = _prior_brief(data)
     state = {
         "patient_reference": data.get("patient_reference", ""),
         "patient_demographics": data.get("patient_demographics", {}),
@@ -332,26 +379,80 @@ async def compose(request: Request):
         "llm_model": LLM_MODEL,
         "llm_api_key": LLM_API_KEY,
         "brief_review_count": 0,
-        "brief_review_feedback": _seed_feedback(data.get("careplan_feedback", "")),
+        # Prior brief drives plan_composer revision mode (F17a) — its
+        # goals/activities are the revision base and its conflicts feed the
+        # durable clinician-directives section — plus analyst continuity (F17c).
+        "prior_planning_brief": prior_brief,
+        "careplan_review_history": data.get("careplan_review_history", []),
+        # Latest clinician instruction. plan_composer renders it in the
+        # Clinician-directed changes section on EVERY iteration (F18a), and the
+        # analyst reads it to judge which conflicts the clinician directed.
+        # NEVER seed it into brief_review_feedback: the internal reviewer
+        # overwrites that channel each iteration, which silently discarded the
+        # clinician's directives after iteration 1 (the F18 bug).
+        "careplan_feedback": data.get("careplan_feedback", ""),
+        "brief_review_feedback": "",
     }
 
     for _ in range(MAX_BRIEF_REVIEWS + 1):
-        updates = plan_composer(state)
-        state.update(updates)
-
-        updates = brief_reviewer(state)
-        state.update(updates)
-
+        state.update(plan_composer(state))
+        state.update(brief_reviewer(state))
         if not state.get("brief_review_feedback"):
             break
         if state.get("brief_review_count", 0) >= MAX_BRIEF_REVIEWS:
             break
 
+    # Detect plan-level conflicts on the converged brief (annotates the brief in
+    # place — never edits goals/activities). Mirrors the monolith pipeline order
+    # (brief-review loop → conflict_analyst → FHIR generation); the brief carries
+    # the conflicts downstream to fhir_bundle_generator → conflict Provenances.
+    state.update(conflict_analyst(state))
+
+    # Enforcement (F18c): if the analyst reports clinician-directed resolutions
+    # that the revision did not apply, retry the composer ONCE with an explicit
+    # enforcement note (the clinician-directives section re-renders with it),
+    # re-run the analyst, and if directives are STILL unapplied, flag the brief
+    # naming them — an honest "could not apply" in the review UI instead of
+    # silently re-presenting the same conflicts.
+    unapplied = state.get("unapplied_directed_conflicts") or []
+    if unapplied:
+        brief_conflicts = (state.get("planning_brief") or {}).get("conflicts") or []
+        state["directive_enforcement_note"] = _render_enforcement_note(unapplied, brief_conflicts)
+        state["brief_review_feedback"] = ""
+        logger.warning("Enforcing %d unapplied clinician directive(s) — composer retry", len(unapplied))
+        state.update(plan_composer(state))
+        state.update(conflict_analyst(state))
+        unapplied = state.get("unapplied_directed_conflicts") or []
+        if unapplied:
+            brief = dict(state.get("planning_brief") or {})
+            names = ", ".join(unapplied)
+            note = (
+                f"Clinician-directed resolutions could not be applied: {names}. "
+                "The affected conflicts remain in the plan for clinician review."
+            )
+            existing = brief.get("review_feedback")
+            brief["review_status"] = "flagged"
+            brief["review_feedback"] = f"{existing}\n{note}" if existing else note
+            state["planning_brief"] = brief
+            logger.error("Unapplied clinician directives after enforcement retry: %s", names)
+
     brief = state.get("planning_brief", {})
+    result = _prompt_artifact(state)
     _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
     if ref:
-        return {"planning_brief_ref": ref}
-    return {"planning_brief": brief}
+        result["planning_brief_ref"] = ref
+    elif strict_store and _phi_store:
+        raise RuntimeError("Artifact store available but failed to store planning brief")
+    else:
+        result["planning_brief"] = brief
+    return result
+
+
+@app.post("/api/v1/compose")
+async def compose(request: Request):
+    """Run Plan Composer with Brief Reviewer loop."""
+    data = await request.json()
+    return await asyncio.to_thread(_compose_pipeline, data)
 
 
 @app.post("/api/v1/compose-async")
@@ -366,41 +467,7 @@ async def compose_async(request: Request, background_tasks: BackgroundTasks):
 
 def _run_compose_background(data: dict, callback_url: str, process_instance_id: str):
     try:
-        recommendations = resolve_ref(data, "recommendations", _store)
-        state = {
-            "patient_reference": data.get("patient_reference", ""),
-            "patient_demographics": data.get("patient_demographics", {}),
-            "condition_codes": data.get("condition_codes", []),
-            "medication_codes": data.get("medication_codes", []),
-            "allergy_codes": data.get("allergy_codes", []),
-            "dmn_results": data.get("dmn_results", []),
-            "recommendations": recommendations if isinstance(recommendations, list) else [],
-            "applicable_cpgs": data.get("applicable_cpgs", []),
-            "litellm_url": LITELLM_URL,
-            "llm_model": LLM_MODEL,
-            "llm_api_key": LLM_API_KEY,
-            "brief_review_count": 0,
-            "brief_review_feedback": _seed_feedback(data.get("careplan_feedback", "")),
-        }
-
-        for _ in range(MAX_BRIEF_REVIEWS + 1):
-            updates = plan_composer(state)
-            state.update(updates)
-            updates = brief_reviewer(state)
-            state.update(updates)
-            if not state.get("brief_review_feedback"):
-                break
-            if state.get("brief_review_count", 0) >= MAX_BRIEF_REVIEWS:
-                break
-
-        brief = state.get("planning_brief", {})
-        _, ref = store_artifact(_phi_store, f"{uuid4()}/planning_brief.json", brief)
-        if ref:
-            result = {"planning_brief_ref": ref}
-        elif _phi_store:
-            raise RuntimeError("Artifact store available but failed to store planning brief")
-        else:
-            result = {"planning_brief": brief}
+        result = _compose_pipeline(data, strict_store=True)
     except Exception as e:
         logger.error("Compose background task failed: %s", e)
         result = {"error": str(e)}

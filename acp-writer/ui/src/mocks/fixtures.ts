@@ -27,7 +27,26 @@ export const carePlanView: CarePlanView = {
     { id: "a2", description: "HbA1c recheck in 3 months", goalId: "g1" },
   ],
   conflicts: [
-    { id: "c1", severity: "warning", description: "Overlapping recommendation with hypertension CPG on renal dosing." },
+    {
+      id: "c1",
+      category: "divergent_target",
+      severity: "warning",
+      status: "detected",
+      confidence: "high",
+      description: "Two guidelines set different blood-pressure targets.",
+      sources: [
+        { cpgId: "ada-2024", recommendationId: "rec-123", excerpt: "target < 140/90" },
+        { cpgId: "aha-2023", recommendationId: "rec-456", excerpt: "target < 130/80" },
+      ],
+    },
+    {
+      id: "c2",
+      category: "overlap",
+      severity: "info",
+      status: "detected",
+      description: "Overlapping recommendation with hypertension CPG on renal dosing.",
+      sources: [{ cpgId: "ada-2024", recommendationId: "rec-789" }],
+    },
   ],
   fhirBundle: { resourceType: "Bundle", type: "transaction", entry: [] },
 };
