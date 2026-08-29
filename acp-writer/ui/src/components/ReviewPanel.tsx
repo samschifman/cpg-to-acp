@@ -18,6 +18,14 @@ import { GoalCard } from "./GoalCard";
 import { ActivityCard } from "./ActivityCard";
 import { ConflictAlert, orderConflicts } from "./ConflictAlert";
 
+// Silent auto-retry cadence for a submitted review while it waits for the engine
+// to consume the event (see the loop in ReviewPanel). Tweak freely: round-
+// binding (P1) makes every retry either the first-consumed event or an engine-
+// discarded duplicate — never a double-apply. After MAX_REVIEW_RETRIES the panel
+// stops auto-retrying and hands off to the manual retry affordance.
+const REVIEW_RETRY_INTERVAL_MS = 10_000;
+const MAX_REVIEW_RETRIES = 3;
+
 interface ReviewPanelProps {
   carePlan: CarePlanView;
   reviewIteration?: number;
@@ -42,10 +50,10 @@ export function ReviewPanel({
   // advances (RunDetailPage keys it by reviewIteration).
   const [phase, setPhase] = useState<"editing" | "submitting" | "submitted">("editing");
   const [error, setError] = useState<string | null>(null);
-  // Set 30s after entering `submitted` if the run is still at this same gate: the
-  // engine may just be slow (healthy consumption is 6-24+s) OR the event was
-  // dropped (submitted before the gate armed). We can't tell which, so we offer
-  // a neutral retry rather than an alarm. Retry is safe by construction: round-
+  // Set once the silent auto-retry loop (P6, below) exhausts MAX_REVIEW_RETRIES
+  // with the run still at this same gate: by then the engine either consumed the
+  // event or the run genuinely moved on, so we stop retrying and offer a neutral
+  // MANUAL retry rather than an alarm. Retry is safe by construction: round-
   // binding makes a duplicate either the first-consumed event or an engine-
   // discarded stale one — never a double-apply, never approval of unseen content.
   const [stalled, setStalled] = useState(false);
@@ -71,10 +79,54 @@ export function ReviewPanel({
     }
   };
 
+  // P6: silent auto-retry. The UI can render a new round a few seconds before
+  // the engine arms its gate (the data-index leads on content, lags on state);
+  // a submission in that window is dropped by at-most-once delivery. While still
+  // at this same gate/round, a self-rescheduling loop waits
+  // REVIEW_RETRY_INTERVAL_MS, silently re-submits the same action, and schedules
+  // the next wait — up to MAX_REVIEW_RETRIES. Exactly ONE timer is ever pending.
+  // The loop ends when any one of these happens:
+  //   - the run leaves the gate: this panel unmounts (or remounts by
+  //     reviewIteration), so cleanup cancels the loop — nothing else to do;
+  //   - a retry errors: fall back to the manual path (setError + `editing`),
+  //     the "only auto-retry while the last attempt returned 202" guard;
+  //   - the retries are exhausted: `stalled` hands off to the manual affordance.
+  // Each retry is safe by construction (round-binding, P1): consumed-first or
+  // engine-discarded, never a double-apply. Deps are [phase] on purpose:
+  // onSubmit is a fresh closure on every poll re-render, so depending on it
+  // would restart the loop each poll and the retries would never fire.
   useEffect(() => {
-    if (phase !== "submitted") return;
-    const timer = setTimeout(() => setStalled(true), 30_000);
-    return () => clearTimeout(timer);
+    if (phase !== "submitted" || !lastAction) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        attempts += 1;
+        try {
+          await onSubmit(lastAction);
+        } catch (e) {
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : "Failed to submit review. Please try again.");
+            setPhase("editing");
+          }
+          return;
+        }
+        if (cancelled) return;
+        if (attempts >= MAX_REVIEW_RETRIES) {
+          setStalled(true);
+          return;
+        }
+        schedule();
+      }, REVIEW_RETRY_INTERVAL_MS);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   return (
