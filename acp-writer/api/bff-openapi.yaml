@@ -342,7 +342,9 @@ components:
         id: { type: string, description: Stable within the run; referenced by ReviewAction feedback. }
         description: { type: string }
         rationale: { type: string }
+        target: { type: string, description: "Formatted measurable target, e.g. HbA1c < 7 %" }
         sourceCpgId: { type: string }
+        sourceRecommendationId: { type: string }
 
     PlanActivity:
       type: object
@@ -352,6 +354,13 @@ components:
         description: { type: string }
         goalId: { type: string, description: Links to the goal it serves. }
         detail: { type: string }
+        dose: { type: string }
+        route: { type: string }
+        frequency: { type: string }
+        specialty: { type: string }
+        sourceRecommendationId: { type: string }
+        sourceCpg: { type: string, description: Source guideline the activity derives from. }
+        clinicalRationale: { type: string, description: Why the activity was selected. }
 
     PlanConflict:
       type: object
