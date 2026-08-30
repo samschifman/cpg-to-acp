@@ -23,6 +23,29 @@ def _fetch_ref(store: ArtifactStore, ref: str) -> dict | None:
         return None
 
 
+def _format_brief_goal_target(
+    measure_code: dict | None, value: dict | None
+) -> str:
+    """Format a planning-brief goal target (FHIRCode + TargetValue) into a string.
+
+    e.g. ``{"display": "HbA1c"}`` + ``{"high": 7, "unit": "%"}`` → ``"HbA1c < 7 %"``.
+    Returns ``""`` when no measure is present.
+    """
+    mc = measure_code or {}
+    measure = mc.get("display") or mc.get("code") or ""
+    if not measure:
+        return ""
+    val = value or {}
+    low, high, unit = val.get("low"), val.get("high"), val.get("unit", "")
+    if low is not None and high is not None:
+        return f"{measure}: {low}–{high} {unit}".rstrip()
+    if high is not None:
+        return f"{measure} < {high} {unit}".rstrip()
+    if low is not None:
+        return f"{measure} > {low} {unit}".rstrip()
+    return measure
+
+
 @mlflow.trace(name="plan_conflict_from_entry")
 def plan_conflict_from_entry(entry: dict) -> dict:
     """Map a planning-brief ``ConflictEntry`` dict → the BFF ``PlanConflict`` shape.
