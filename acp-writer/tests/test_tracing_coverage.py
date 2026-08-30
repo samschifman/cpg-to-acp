@@ -11,7 +11,11 @@ from acp_writer.services.ai_transparency import (
     build_conflict_provenance,
     plan_conflict_from_provenance,
 )
-from acp_writer.services.artifact_resolver import plan_conflict_from_entry
+from acp_writer.services.artifact_resolver import (
+    plan_activity_from_entry,
+    plan_conflict_from_entry,
+    plan_goal_from_entry,
+)
 
 
 def test_conflict_functions_are_traced():
@@ -20,5 +24,7 @@ def test_conflict_functions_are_traced():
         build_conflict_provenance,
         plan_conflict_from_provenance,
         plan_conflict_from_entry,
+        plan_goal_from_entry,
+        plan_activity_from_entry,
     ):
         assert getattr(fn, "__mlflow_traced__", False), f"{fn.__name__} is not @mlflow.trace-decorated"
