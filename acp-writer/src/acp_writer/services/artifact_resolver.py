@@ -70,6 +70,34 @@ def plan_goal_from_entry(entry: dict, idx: int) -> dict:
     return pg
 
 
+@mlflow.trace(name="plan_activity_from_entry")
+def plan_activity_from_entry(entry: dict, idx: int) -> dict:
+    """Map a planning-brief activity dict → the BFF ``PlanActivity`` shape.
+
+    The brief has no id; assign an index-based id (``a{idx}``). snake_case →
+    camelCase, mirroring ``plan_conflict_from_entry``. ``source_dmn_call``,
+    ``code``, ``type``, and ``workflow`` are intentionally not surfaced yet
+    (see spec — deferred to the raw-FHIR viewer / surface 2).
+    """
+    pa: dict = {
+        "id": entry.get("id") or f"a{idx}",
+        "description": entry.get("description", ""),
+    }
+    for key in ("dose", "route", "frequency", "specialty"):
+        val = entry.get(key)
+        if val:
+            pa[key] = val
+    for src_key, dst_key in (
+        ("source_cpg", "sourceCpg"),
+        ("source_recommendation_id", "sourceRecommendationId"),
+        ("clinical_rationale", "clinicalRationale"),
+    ):
+        val = entry.get(src_key)
+        if val:
+            pa[dst_key] = val
+    return pa
+
+
 @mlflow.trace(name="plan_conflict_from_entry")
 def plan_conflict_from_entry(entry: dict) -> dict:
     """Map a planning-brief ``ConflictEntry`` dict → the BFF ``PlanConflict`` shape.

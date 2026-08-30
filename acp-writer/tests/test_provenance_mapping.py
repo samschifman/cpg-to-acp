@@ -67,3 +67,42 @@ class TestPlanGoalFromEntry:
         assert "target" not in pg
         assert "sourceRecommendationId" not in pg
         assert pg["sourceCpgId"] == "c"
+
+
+from acp_writer.services.artifact_resolver import plan_activity_from_entry
+
+
+class TestPlanActivityFromEntry:
+    def test_maps_snake_to_camel(self):
+        pa = plan_activity_from_entry(
+            {
+                "type": "medication",
+                "description": "Metformin 500mg",
+                "dose": "500mg",
+                "route": "oral",
+                "frequency": "twice daily",
+                "specialty": "endocrinology",
+                "source_recommendation_id": "rec-9",
+                "source_cpg": "ada-2024",
+                "clinical_rationale": "First-line for T2DM.",
+            },
+            0,
+        )
+        assert pa["id"] == "a0"
+        assert pa["description"] == "Metformin 500mg"
+        assert pa["dose"] == "500mg"
+        assert pa["route"] == "oral"
+        assert pa["frequency"] == "twice daily"
+        assert pa["specialty"] == "endocrinology"
+        assert pa["sourceRecommendationId"] == "rec-9"
+        assert pa["sourceCpg"] == "ada-2024"
+        assert pa["clinicalRationale"] == "First-line for T2DM."
+
+    def test_uses_index_id_when_absent(self):
+        assert plan_activity_from_entry({"description": "d"}, 2)["id"] == "a2"
+
+    def test_omits_absent_optional_fields(self):
+        pa = plan_activity_from_entry({"description": "d"}, 0)
+        for k in ("dose", "route", "frequency", "specialty",
+                  "sourceRecommendationId", "sourceCpg", "clinicalRationale"):
+            assert k not in pa
