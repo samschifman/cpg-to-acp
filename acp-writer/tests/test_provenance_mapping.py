@@ -36,3 +36,34 @@ class TestFormatBriefGoalTarget:
     def test_empty(self):
         assert _format_brief_goal_target(None, None) == ""
         assert _format_brief_goal_target({}, {}) == ""
+
+
+from acp_writer.services.artifact_resolver import plan_goal_from_entry
+
+
+class TestPlanGoalFromEntry:
+    def test_maps_snake_to_camel(self):
+        pg = plan_goal_from_entry(
+            {
+                "description": "Achieve HbA1c < 7%",
+                "target_measure_code": {"display": "HbA1c"},
+                "target_value": {"high": 7, "unit": "%"},
+                "source_cpg": "ada-2024",
+                "source_recommendation_id": "rec-1",
+            },
+            0,
+        )
+        assert pg["id"] == "g0"
+        assert pg["description"] == "Achieve HbA1c < 7%"
+        assert pg["target"] == "HbA1c < 7 %"
+        assert pg["sourceCpgId"] == "ada-2024"
+        assert pg["sourceRecommendationId"] == "rec-1"
+
+    def test_uses_index_id_when_absent(self):
+        assert plan_goal_from_entry({"description": "d"}, 3)["id"] == "g3"
+
+    def test_omits_absent_optional_fields(self):
+        pg = plan_goal_from_entry({"description": "d", "source_cpg": "c"}, 0)
+        assert "target" not in pg
+        assert "sourceRecommendationId" not in pg
+        assert pg["sourceCpgId"] == "c"

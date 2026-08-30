@@ -46,6 +46,30 @@ def _format_brief_goal_target(
     return measure
 
 
+@mlflow.trace(name="plan_goal_from_entry")
+def plan_goal_from_entry(entry: dict, idx: int) -> dict:
+    """Map a planning-brief goal dict → the BFF ``PlanGoal`` shape.
+
+    The brief has no id; assign an index-based id (``g{idx}``) — the UI uses it
+    only as a React key. snake_case → camelCase, mirroring
+    ``plan_conflict_from_entry``.
+    """
+    pg: dict = {
+        "id": entry.get("id") or f"g{idx}",
+        "description": entry.get("description", ""),
+    }
+    target = _format_brief_goal_target(
+        entry.get("target_measure_code"), entry.get("target_value")
+    )
+    if target:
+        pg["target"] = target
+    if entry.get("source_cpg"):
+        pg["sourceCpgId"] = entry["source_cpg"]
+    if entry.get("source_recommendation_id"):
+        pg["sourceRecommendationId"] = entry["source_recommendation_id"]
+    return pg
+
+
 @mlflow.trace(name="plan_conflict_from_entry")
 def plan_conflict_from_entry(entry: dict) -> dict:
     """Map a planning-brief ``ConflictEntry`` dict → the BFF ``PlanConflict`` shape.
