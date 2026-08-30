@@ -729,7 +729,7 @@ def _extract_view_from_bundle(bundle: dict) -> tuple[list, list, list]:
             goals.append({
                 "id": r.get("id", ""),
                 "description": r.get("description", {}).get("text", ""),
-                "rationale": target_text or None,
+                "target": target_text or None,
                 "sourceCpgId": source_cpgs.get(url),
             })
 
@@ -776,22 +776,23 @@ def _extract_view_from_bundle(bundle: dict) -> tuple[list, list, list]:
 
 
 def _format_goal_target(targets: list) -> str:
-    """Format Goal.target[] into a human-readable string."""
+    """Format Goal.target[] into a human-readable string, e.g. "HbA1c < 7 %"."""
     parts = []
     for t in targets:
         measure = t.get("measure", {}).get("text", "")
         detail_range = t.get("detailRange", {})
         low = detail_range.get("low", {})
         high = detail_range.get("high", {})
-        if measure:
-            if high and low:
-                parts.append(f"Target {measure}: {low.get('value')}–{high.get('value')} {high.get('unit', '')}")
-            elif high:
-                parts.append(f"Target {measure}: < {high.get('value')} {high.get('unit', '')}")
-            elif low:
-                parts.append(f"Target {measure}: > {low.get('value')} {low.get('unit', '')}")
-            else:
-                parts.append(f"Target: {measure}")
+        if not measure:
+            continue
+        if high and low:
+            parts.append(f"{measure}: {low.get('value')}–{high.get('value')} {high.get('unit', '')}".rstrip())
+        elif high:
+            parts.append(f"{measure} < {high.get('value')} {high.get('unit', '')}".rstrip())
+        elif low:
+            parts.append(f"{measure} > {low.get('value')} {low.get('unit', '')}".rstrip())
+        else:
+            parts.append(measure)
     return "; ".join(parts)
 
 

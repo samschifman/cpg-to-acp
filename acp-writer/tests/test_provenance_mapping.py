@@ -152,3 +152,31 @@ class TestEnrichRunDetailProvenance:
         assert cp["activities"][0]["id"] == "a0"
         assert cp["activities"][0]["dose"] == "500mg"
         assert cp["activities"][0]["clinicalRationale"] == "First-line."
+
+
+from acp_writer.services.bff import _extract_view_from_bundle
+
+
+class TestPersistedGoalTarget:
+    def test_goal_target_populated_from_bundle(self):
+        bundle = {
+            "entry": [
+                {
+                    "fullUrl": "urn:uuid:g",
+                    "resource": {
+                        "resourceType": "Goal",
+                        "id": "g-1",
+                        "description": {"text": "Achieve HbA1c < 7%"},
+                        "target": [
+                            {
+                                "measure": {"text": "HbA1c"},
+                                "detailRange": {"high": {"value": 7, "unit": "%"}},
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+        goals, _activities, _conflicts = _extract_view_from_bundle(bundle)
+        assert goals[0]["target"] == "HbA1c < 7 %"
+        assert "rationale" not in goals[0]
