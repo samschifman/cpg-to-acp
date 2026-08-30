@@ -227,8 +227,16 @@ def enrich_run_detail(
 
         care_plan_view: dict[str, Any] = {"fhirBundle": fhir_bundle}
         if planning_brief and isinstance(planning_brief, dict):
-            care_plan_view["goals"] = planning_brief.get("goals", [])
-            care_plan_view["activities"] = planning_brief.get("activities", [])
+            care_plan_view["goals"] = [
+                plan_goal_from_entry(g, i)
+                for i, g in enumerate(planning_brief.get("goals", []))
+                if isinstance(g, dict)
+            ]
+            care_plan_view["activities"] = [
+                plan_activity_from_entry(a, i)
+                for i, a in enumerate(planning_brief.get("activities", []))
+                if isinstance(a, dict)
+            ]
             care_plan_view["conflicts"] = [
                 plan_conflict_from_entry(c)
                 for c in planning_brief.get("conflicts", [])

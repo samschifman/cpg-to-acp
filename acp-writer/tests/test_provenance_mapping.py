@@ -106,3 +106,49 @@ class TestPlanActivityFromEntry:
         for k in ("dose", "route", "frequency", "specialty",
                   "sourceRecommendationId", "sourceCpg", "clinicalRationale"):
             assert k not in pa
+
+
+from acp_writer.services.artifact_resolver import enrich_run_detail
+
+
+class TestEnrichRunDetailProvenance:
+    def _detail_with_brief(self, brief: dict) -> dict:
+        # composerData carries the brief inline; fhirGenData triggers carePlan build.
+        return {
+            "workflowData": {
+                "composerData": {"planning_brief": brief},
+                "fhirGenData": {"fhir_bundle": {"resourceType": "Bundle", "entry": []}},
+            }
+        }
+
+    def test_goals_and_activities_are_mapped(self):
+        detail = self._detail_with_brief(
+            {
+                "goals": [
+                    {
+                        "description": "Achieve HbA1c < 7%",
+                        "target_measure_code": {"display": "HbA1c"},
+                        "target_value": {"high": 7, "unit": "%"},
+                        "source_cpg": "ada-2024",
+                    }
+                ],
+                "activities": [
+                    {
+                        "description": "Metformin 500mg",
+                        "dose": "500mg",
+                        "route": "oral",
+                        "source_cpg": "ada-2024",
+                        "clinical_rationale": "First-line.",
+                    }
+                ],
+                "conflicts": [],
+            }
+        )
+        out = enrich_run_detail(detail, phi_store=None, artifacts_store=None)
+        cp = out["carePlan"]
+        assert cp["goals"][0]["id"] == "g0"
+        assert cp["goals"][0]["target"] == "HbA1c < 7 %"
+        assert cp["goals"][0]["sourceCpgId"] == "ada-2024"
+        assert cp["activities"][0]["id"] == "a0"
+        assert cp["activities"][0]["dose"] == "500mg"
+        assert cp["activities"][0]["clinicalRationale"] == "First-line."
