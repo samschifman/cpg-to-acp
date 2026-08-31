@@ -20,10 +20,28 @@ const patient = {
 
 export const carePlanView: CarePlanView = {
   goals: [
-    { id: "g1", description: "Achieve HbA1c < 7%", rationale: "Glycemic control per ADA 2024", sourceCpgId: "ada-2024" },
+    {
+      id: "g1",
+      description: "Achieve HbA1c < 7%",
+      rationale: "Glycemic control per ADA 2024",
+      target: "HbA1c < 7 %",
+      sourceCpgId: "ada-2024",
+      sourceRecommendationId: "ada-2024-rec-3",
+    },
   ],
   activities: [
-    { id: "a1", description: "Metformin 500mg twice daily", goalId: "g1", detail: "Titrate over 4 weeks" },
+    {
+      id: "a1",
+      description: "Metformin 500mg twice daily",
+      goalId: "g1",
+      dose: "500mg",
+      route: "oral",
+      frequency: "twice daily",
+      specialty: "endocrinology",
+      sourceCpg: "ada-2024",
+      sourceRecommendationId: "ada-2024-rec-7",
+      clinicalRationale: "First-line pharmacotherapy for type 2 diabetes.",
+    },
     { id: "a2", description: "HbA1c recheck in 3 months", goalId: "g1" },
   ],
   conflicts: [
