@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from cpg_contracts.artifact_store import ArtifactStore
 
 from acp_writer.services.ai_transparency import plan_conflict_from_provenance
-from acp_writer.services.artifact_resolver import enrich_run_detail
+from acp_writer.services.artifact_resolver import _format_number, enrich_run_detail
 from acp_writer.services.sonataflow_client import (
     SonataFlowClient,
     map_to_run_detail,
@@ -786,11 +786,11 @@ def _format_goal_target(targets: list) -> str:
         if not measure:
             continue
         if high and low:
-            parts.append(f"{measure}: {low.get('value')}–{high.get('value')} {high.get('unit', '')}".rstrip())
+            parts.append(f"{measure}: {_format_number(low.get('value'))}–{_format_number(high.get('value'))} {high.get('unit', '')}".rstrip())
         elif high:
-            parts.append(f"{measure} < {high.get('value')} {high.get('unit', '')}".rstrip())
+            parts.append(f"{measure} < {_format_number(high.get('value'))} {high.get('unit', '')}".rstrip())
         elif low:
-            parts.append(f"{measure} > {low.get('value')} {low.get('unit', '')}".rstrip())
+            parts.append(f"{measure} > {_format_number(low.get('value'))} {low.get('unit', '')}".rstrip())
         else:
             parts.append(measure)
     return "; ".join(parts)

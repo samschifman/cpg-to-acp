@@ -23,6 +23,17 @@ def _fetch_ref(store: ArtifactStore, ref: str) -> dict | None:
         return None
 
 
+def _format_number(x) -> str:
+    """Render a numeric bound without a trailing ``.0`` (7.0 → "7", 7.5 → "7.5").
+
+    Target bounds are typed ``float`` on the brief, so an LLM-emitted ``7``
+    round-trips through JSON as ``7.0``; strip the noise for display.
+    """
+    if isinstance(x, float) and x.is_integer():
+        return str(int(x))
+    return str(x)
+
+
 def _format_brief_goal_target(
     measure_code: dict | None, value: dict | None
 ) -> str:
@@ -38,11 +49,11 @@ def _format_brief_goal_target(
     val = value or {}
     low, high, unit = val.get("low"), val.get("high"), val.get("unit", "")
     if low is not None and high is not None:
-        return f"{measure}: {low}–{high} {unit}".rstrip()
+        return f"{measure}: {_format_number(low)}–{_format_number(high)} {unit}".rstrip()
     if high is not None:
-        return f"{measure} < {high} {unit}".rstrip()
+        return f"{measure} < {_format_number(high)} {unit}".rstrip()
     if low is not None:
-        return f"{measure} > {low} {unit}".rstrip()
+        return f"{measure} > {_format_number(low)} {unit}".rstrip()
     return measure
 
 

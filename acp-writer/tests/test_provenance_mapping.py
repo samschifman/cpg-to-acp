@@ -37,6 +37,25 @@ class TestFormatBriefGoalTarget:
         assert _format_brief_goal_target(None, None) == ""
         assert _format_brief_goal_target({}, {}) == ""
 
+    def test_strips_trailing_zero_on_float_bounds(self):
+        # TargetValue bounds are floats, so 7 round-trips through JSON as 7.0.
+        assert (
+            _format_brief_goal_target({"display": "HbA1c"}, {"high": 7.0, "unit": "%"})
+            == "HbA1c < 7 %"
+        )
+        assert (
+            _format_brief_goal_target(
+                {"display": "SBP"}, {"low": 110.0, "high": 130.0, "unit": "mmHg"}
+            )
+            == "SBP: 110–130 mmHg"
+        )
+
+    def test_keeps_fractional_float_bounds(self):
+        assert (
+            _format_brief_goal_target({"display": "HbA1c"}, {"high": 7.5, "unit": "%"})
+            == "HbA1c < 7.5 %"
+        )
+
 
 from acp_writer.services.artifact_resolver import plan_goal_from_entry
 
@@ -170,7 +189,7 @@ class TestPersistedGoalTarget:
                         "target": [
                             {
                                 "measure": {"text": "HbA1c"},
-                                "detailRange": {"high": {"value": 7, "unit": "%"}},
+                                "detailRange": {"high": {"value": 7.0, "unit": "%"}},
                             }
                         ],
                     },
