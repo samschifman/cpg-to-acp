@@ -225,7 +225,10 @@ export interface components {
             id: string;
             description: string;
             rationale?: string;
+            /** @description Formatted measurable target, e.g. HbA1c < 7 % */
+            target?: string;
             sourceCpgId?: string;
+            sourceRecommendationId?: string;
         };
         PlanActivity: {
             id: string;
@@ -233,6 +236,15 @@ export interface components {
             /** @description Links to the goal it serves. */
             goalId?: string;
             detail?: string;
+            dose?: string;
+            route?: string;
+            frequency?: string;
+            specialty?: string;
+            sourceRecommendationId?: string;
+            /** @description Source guideline the activity derives from. */
+            sourceCpg?: string;
+            /** @description Why the activity was selected. */
+            clinicalRationale?: string;
         };
         /** @description A plan-level conflict flagged by the conflict_analyst node. Persisted plans reconstruct these from the conflict Provenance resources' extensions (never from note text); the live review view carries them on the brief. */
         PlanConflict: {
