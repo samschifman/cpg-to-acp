@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ActivityCard } from "../ActivityCard";
 
 describe("ActivityCard", () => {
-  it("renders description and provenance fields", () => {
+  it("reveals provenance fields when the section is expanded", () => {
     render(
       <ActivityCard
         activity={{
@@ -20,6 +20,7 @@ describe("ActivityCard", () => {
       />,
     );
     expect(screen.getByText("Metformin 500mg twice daily")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /provenance/i }));
     expect(screen.getByText("500mg · oral · twice daily")).toBeInTheDocument();
     expect(screen.getByText("endocrinology")).toBeInTheDocument();
     expect(screen.getByText("ada-2024")).toBeInTheDocument();
@@ -35,6 +36,7 @@ describe("ActivityCard", () => {
     );
     expect(screen.getByText("HbA1c recheck")).toBeInTheDocument();
     expect(screen.getByText("in 3 months")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /provenance/i })).not.toBeInTheDocument();
   });
 
   it("renders without any optional fields", () => {

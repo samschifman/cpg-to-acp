@@ -6,9 +6,11 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  ExpandableSection,
 } from "@patternfly/react-core";
 import { RunningIcon } from "@patternfly/react-icons";
 import type { PlanActivity } from "@app/api/models";
+import { provenanceListStyle } from "./provenanceStyle";
 
 export function ActivityCard({ activity }: { activity: PlanActivity }) {
   const dosing = [activity.dose, activity.route, activity.frequency]
@@ -31,38 +33,40 @@ export function ActivityCard({ activity }: { activity: PlanActivity }) {
       </CardTitle>
       {hasProvenance ? (
         <CardBody>
-          <DescriptionList isHorizontal isCompact>
-            {dosing && (
-              <DescriptionListGroup>
-                <DescriptionListTerm>Dosing</DescriptionListTerm>
-                <DescriptionListDescription>{dosing}</DescriptionListDescription>
-              </DescriptionListGroup>
-            )}
-            {activity.specialty && (
-              <DescriptionListGroup>
-                <DescriptionListTerm>Specialty</DescriptionListTerm>
-                <DescriptionListDescription>{activity.specialty}</DescriptionListDescription>
-              </DescriptionListGroup>
-            )}
-            {activity.sourceCpg && (
-              <DescriptionListGroup>
-                <DescriptionListTerm>Source guideline</DescriptionListTerm>
-                <DescriptionListDescription>{activity.sourceCpg}</DescriptionListDescription>
-              </DescriptionListGroup>
-            )}
-            {activity.sourceRecommendationId && (
-              <DescriptionListGroup>
-                <DescriptionListTerm>Source recommendation</DescriptionListTerm>
-                <DescriptionListDescription>{activity.sourceRecommendationId}</DescriptionListDescription>
-              </DescriptionListGroup>
-            )}
-            {activity.clinicalRationale && (
-              <DescriptionListGroup>
-                <DescriptionListTerm>Clinical rationale</DescriptionListTerm>
-                <DescriptionListDescription>{activity.clinicalRationale}</DescriptionListDescription>
-              </DescriptionListGroup>
-            )}
-          </DescriptionList>
+          <ExpandableSection toggleText="Provenance" isIndented>
+            <DescriptionList isHorizontal isCompact style={provenanceListStyle}>
+              {dosing && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Dosing</DescriptionListTerm>
+                  <DescriptionListDescription>{dosing}</DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+              {activity.specialty && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Specialty</DescriptionListTerm>
+                  <DescriptionListDescription>{activity.specialty}</DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+              {activity.sourceCpg && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Source guideline</DescriptionListTerm>
+                  <DescriptionListDescription>{activity.sourceCpg}</DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+              {activity.sourceRecommendationId && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Source recommendation</DescriptionListTerm>
+                  <DescriptionListDescription>{activity.sourceRecommendationId}</DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+              {activity.clinicalRationale && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Clinical rationale</DescriptionListTerm>
+                  <DescriptionListDescription>{activity.clinicalRationale}</DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+            </DescriptionList>
+          </ExpandableSection>
         </CardBody>
       ) : (
         activity.detail && <CardBody>{activity.detail}</CardBody>
