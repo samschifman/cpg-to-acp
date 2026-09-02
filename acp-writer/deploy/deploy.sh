@@ -124,6 +124,8 @@ helm upgrade --install acp "$SCRIPT_DIR/chart-pods" \
     --set pods.llm-reasoning.env.litellmUrl="$LLM_BASE_URL" \
     --set pods.llm-reasoning.env.llmModel="$LLM_MODEL" \
     --set pods.llm-reasoning.env.llmRequestTimeout="${LLM_REQUEST_TIMEOUT:-600}" \
+    --set pods.llm-reasoning.env.embeddingProvider="${EMBEDDING_PROVIDER:-openai}" \
+    --set pods.llm-reasoning.env.embeddingModel="${EMBEDDING_MODEL:-text-embedding-3-small}" \
     --set pods.decision-engine.tag="$IMAGE_TAG" \
     --set pods.fhir-generation.tag="$IMAGE_TAG" \
     --set pods.fhir-generation.env.litellmUrl="$LLM_BASE_URL" \
