@@ -46,6 +46,14 @@ spec:
             - name: LLM_MODEL
               value: {{ $pod.env.llmModel | quote }}
             {{- end }}
+            {{- if $pod.env.embeddingProvider }}
+            - name: EMBEDDING_PROVIDER
+              value: {{ $pod.env.embeddingProvider | quote }}
+            {{- end }}
+            {{- if $pod.env.embeddingModel }}
+            - name: EMBEDDING_MODEL
+              value: {{ $pod.env.embeddingModel | quote }}
+            {{- end }}
             {{- if $pod.env.llmRequestTimeout }}
             - name: LLM_REQUEST_TIMEOUT
               value: {{ $pod.env.llmRequestTimeout | quote }}

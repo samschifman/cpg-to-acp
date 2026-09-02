@@ -34,6 +34,11 @@ pods:
       llmModel: default
       llmRequestTimeout: "600"
       decisionEngineUrl: http://acp-decision-engine:8080
+      # Real embedding provider for recommendation RAG. "openai" reuses the
+      # LITELLM_URL + LLM_API_KEY already on this pod (no heavy model download).
+      # Set to "fake" to fall back to the deterministic 8-dim test provider.
+      embeddingProvider: openai
+      embeddingModel: text-embedding-3-small
     secrets:
       llm: true
       minio: true

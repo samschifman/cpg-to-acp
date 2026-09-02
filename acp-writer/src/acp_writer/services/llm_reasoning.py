@@ -26,7 +26,13 @@ from cpg_contracts import (
     resolve_ref,
     store_artifact,
 )
-from acp_writer.api import _guidelines_store, _vector_store
+# Reference the stores via the `api` module (NOT `from acp_writer.api import
+# _vector_store`): a from-import binds the name to whatever object exists at
+# import time, so a later init_stores() swap (e.g. to a real embedding provider)
+# would leave this service pointing at the stale store while the RAG nodes —
+# which read api._vector_store at call time — use the new one. Module-attribute
+# access keeps ingestion and retrieval on the same store.
+from acp_writer import api
 from acp_writer.nodes.guideline_resolver import guideline_resolver
 from acp_writer.nodes.recommendation_retriever import recommendation_retriever
 from acp_writer.nodes.plan_composer import plan_composer
@@ -71,9 +77,9 @@ def status():
             "models_deployed": models_deployed,
         },
         "knowledge_base": {
-            "status": "healthy" if _guidelines_store.count() > 0 else "empty",
-            "guidelines_registered": _guidelines_store.count(),
-            "recommendations_ingested": _vector_store.count(),
+            "status": "healthy" if api._guidelines_store.count() > 0 else "empty",
+            "guidelines_registered": api._guidelines_store.count(),
+            "recommendations_ingested": api._vector_store.count(),
         },
     }
 
@@ -93,7 +99,7 @@ def list_decision_models():
 
 @app.get("/api/v1/guidelines")
 def list_guidelines():
-    return [g.model_dump(mode="json") for g in _guidelines_store.list_all()]
+    return [g.model_dump(mode="json") for g in api._guidelines_store.list_all()]
 
 
 # --- CPG artifact management (used by cpg-ingester Delivery) ---
@@ -103,7 +109,7 @@ def list_guidelines():
 async def register_guideline(request: Request):
     data = await request.json()
     metadata = CPGMetadata.model_validate(data)
-    result = _guidelines_store.register(metadata)
+    result = api._guidelines_store.register(metadata)
     return result.model_dump(mode="json")
 
 
@@ -111,7 +117,7 @@ async def register_guideline(request: Request):
 async def ingest_recommendation_batch(request: Request):
     data = await request.json()
     bundle = RecommendationBundle.model_validate(data)
-    _vector_store.add_batch(bundle.recommendations)
+    api._vector_store.add_batch(bundle.recommendations)
     return {
         "source_cpg": bundle.source_cpg,
         "count": len(bundle.recommendations),
@@ -123,7 +129,7 @@ async def ingest_recommendation_batch(request: Request):
 async def search_knowledge(request: Request):
     data = await request.json()
     search_req = RecommendationSearchRequest.model_validate(data)
-    result = _vector_store.search(search_req)
+    result = api._vector_store.search(search_req)
     return result.model_dump(mode="json")
 
 

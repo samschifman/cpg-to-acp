@@ -20,7 +20,10 @@ from cpg_contracts import (
     RecommendationSearchRequest,
 )
 
-from acp_writer.store.embedding import EmbeddingProvider, FakeEmbeddingProvider
+from acp_writer.store.embedding import (
+    EmbeddingProvider,
+    make_embedding_provider,
+)
 from acp_writer.store.guidelines_store import GuidelinesStore
 from acp_writer.store.vector_store import InMemoryVectorStore, VectorStore
 
@@ -37,10 +40,12 @@ DMN_NS = "https://www.omg.org/spec/DMN/20191111/MODEL/"
 _dynamic_models: dict[str, dict] = {}
 
 # --- Store initialization ---
-# Use FakeEmbeddingProvider by default to avoid downloading a model on import.
-# Set EMBEDDING_MODEL env var or call init_stores() with a real provider.
+# The provider is chosen by the EMBEDDING_PROVIDER env switch
+# (make_embedding_provider): "openai" for a real OpenAI-compatible endpoint,
+# otherwise a FakeEmbeddingProvider (the default — no network/downloads on
+# import, so tests stay hermetic). Call init_stores() to swap providers.
 
-_embedding_provider: EmbeddingProvider = FakeEmbeddingProvider(dimensions=8)
+_embedding_provider: EmbeddingProvider = make_embedding_provider()
 _vector_store: VectorStore = InMemoryVectorStore(_embedding_provider)
 _guidelines_store: GuidelinesStore = GuidelinesStore(_vector_store)
 
