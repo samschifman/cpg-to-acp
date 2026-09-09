@@ -100,7 +100,7 @@ deploy_sandboxes() {
 
         wait_for_pod_ready "$name" 90 || true
         label_pod "$name" "$k8s_name" "cpg-ingester"
-        openshell service expose "$name" 8080 http 2>/dev/null || true
+        expose_service "$name"
         log "Done: $name"
     }
 
@@ -125,6 +125,7 @@ deploy_sandboxes() {
         "LITELLM_URL=${LLM_BASE_URL}" \
         "LLM_MODEL=${LLM_MODEL}" \
         "LLM_API_KEY=${LLM_API_KEY}" \
+        "LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-600}" \
         "FIGURE_INTERPRETATION_ENABLED=${FIGURE_INTERPRETATION_ENABLED}" \
         "FIGURE_INTERPRETATION_MAX_FIGURES=${FIGURE_INTERPRETATION_MAX_FIGURES}"
 
