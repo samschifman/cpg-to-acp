@@ -25,7 +25,10 @@ For each decision, provide:
 - The source page range
 - Category: one of "treatment", "screening", "monitoring", "risk-assessment", "diagnostic"
 - Computability tier: 1 (directly computable), 2 (semi-computable, needs interpretation), 3 (narrative only)
-- Input variables: name, type (string/number/boolean), brief description
+- Input variables: name, type (string/number/boolean), brief description, and
+  optional `codes` only when the CPG explicitly and unambiguously names a code.
+  Each code must be a `system|code` token (for example,
+  `http://loinc.org|8480-6`). Never guess or look up a code.
 - Output values: what the decision produces
 - Hit policy hint: UNIQUE (mutually exclusive rules), FIRST (priority-ordered), COLLECT (multiple matches)
 - Cross-references to other items (by the other item's name — IDs will be assigned later)
@@ -88,7 +91,7 @@ Respond with a JSON object containing:
       "category": "treatment",
       "tier": 1,
       "inputs": [
-        {{"name": "Systolic BP", "type": "number", "description": "Office systolic blood pressure in mmHg"}},
+        {{"name": "Systolic BP", "type": "number", "description": "Office systolic blood pressure in mmHg", "codes": ["http://loinc.org|8480-6"]}},
         {{"name": "Has Diabetes", "type": "boolean", "description": "Patient has type 2 diabetes"}}
       ],
       "outputs": ["Start Medication", "Lifestyle Modification Only"],

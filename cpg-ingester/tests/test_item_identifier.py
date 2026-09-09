@@ -127,6 +127,24 @@ class TestValidation:
         issues = _validate_decision(item)
         assert any("inputs" in i for i in issues)
 
+    def test_accepts_explicit_code_tokens(self):
+        item = {
+            "name": "Test Decision",
+            "inputs": [{
+                "name": "Systolic BP",
+                "type": "number",
+                "codes": ["http://loinc.org|8480-6"],
+            }],
+        }
+        assert _validate_decision(item) == []
+
+    def test_rejects_malformed_code_tokens(self):
+        item = {
+            "name": "Test Decision",
+            "inputs": [{"name": "Systolic BP", "codes": ["not-a-code"]}],
+        }
+        assert any("invalid codes" in issue for issue in _validate_decision(item))
+
     def test_valid_recommendation(self):
         item = {
             "title": "Test Rec",

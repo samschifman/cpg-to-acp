@@ -50,6 +50,7 @@ class DMNPipelineState(TypedDict, total=False):
     previous_dmn_xml: str
     decision_model_summary: dict
     syntax_errors: list[str]
+    syntax_warnings: list[str]
     semantic_discrepancies: list[str]
     syntax_retry_count: int
     semantic_retry_count: int

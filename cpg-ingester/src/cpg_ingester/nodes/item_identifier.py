@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 import uuid
 
@@ -27,6 +28,7 @@ VALID_STRENGTHS = {
 }
 VALID_EVIDENCE = {"high", "moderate", "low", "very-low", "ungraded"}
 VALID_HIT_POLICIES = {"UNIQUE", "FIRST", "COLLECT", "ANY", "PRIORITY", "RULE ORDER"}
+CODE_TOKEN_RE = re.compile(r"^https?://[^|\s]+\|[^|\s]+$")
 
 
 def _assign_guids(manifest: list[dict]) -> list[dict]:
@@ -66,6 +68,16 @@ def _validate_decision(item: dict) -> list[str]:
         issues.append(f"Invalid hit_policy: {item['hit_policy']}")
     if not item.get("inputs"):
         issues.append("Decision has no inputs")
+    for input_variable in item.get("inputs", []):
+        codes = input_variable.get("codes")
+        if codes is not None:
+            if not isinstance(codes, list) or any(
+                not isinstance(code, str) or not CODE_TOKEN_RE.fullmatch(code)
+                for code in codes
+            ):
+                issues.append(
+                    f"Decision input '{input_variable.get('name', '?')}' has invalid codes"
+                )
     return issues
 
 

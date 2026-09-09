@@ -1,0 +1,164 @@
+"""Focused tests for deterministic DMN structural and FEEL lints."""
+
+from pathlib import Path
+
+from lxml import etree
+
+from cpg_ingester.nodes.dmn_syntax_validator import dmn_syntax_validator
+from cpg_ingester.validators.dmn_syntax import (
+    check_feel_entries,
+    check_feel_names,
+    check_hit_policies,
+    check_ids_and_references,
+    check_input_expressions,
+    check_raw_xml,
+    check_type_refs,
+    check_variable_names,
+    validate_dmn,
+)
+
+GOLDEN_DIR = Path(__file__).parent.parent / "data" / "golden"
+
+VALID_DMN = """<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+             id="definitions_example" name="Example"
+             namespace="https://redhat.com/cpg-to-acp/dmn/example">
+  <inputData id="input_age" name="Age">
+    <variable id="variable_age" name="Age" typeRef="number"/>
+  </inputData>
+  <decision id="decision_recommendation" name="Recommendation">
+    <variable id="variable_recommendation" name="Recommendation" typeRef="string"/>
+    <informationRequirement id="requirement_age">
+      <requiredInput href="#input_age"/>
+    </informationRequirement>
+    <decisionTable id="table_recommendation" hitPolicy="UNIQUE">
+      <input id="input_column_age">
+        <inputExpression id="expression_age" typeRef="number">
+          <text><![CDATA[Age]]></text>
+        </inputExpression>
+      </input>
+      <output id="output_recommendation" name="Recommendation" typeRef="string"/>
+      <rule id="rule_adult">
+        <inputEntry id="entry_age"><text><![CDATA[>= 18]]></text></inputEntry>
+        <outputEntry id="entry_recommendation"><text><![CDATA["Adult"]]></text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+"""
+
+
+def _root(xml: str = VALID_DMN) -> etree._Element:
+    return etree.fromstring(xml.encode())
+
+
+def test_ids_and_references_accept_valid_and_reject_broken_links_and_duplicates():
+    assert check_ids_and_references(_root()) == ([], [])
+    broken = VALID_DMN.replace('href="#input_age"', 'href="#missing"').replace(
+        'id="output_recommendation"', 'id="input_age"'
+    )
+    errors, _ = check_ids_and_references(_root(broken))
+    assert any("Duplicate id 'input_age'" in error for error in errors)
+    assert any("does not resolve" in error for error in errors)
+
+
+def test_variable_names_accept_match_and_reject_mismatch():
+    assert check_variable_names(_root()) == ([], [])
+    mismatch = VALID_DMN.replace('id="variable_age" name="Age"',
+                                 'id="variable_age" name="Patient Age"')
+    errors, _ = check_variable_names(_root(mismatch))
+    assert any("does not match parent name" in error for error in errors)
+
+
+def test_input_expressions_accept_declared_name_and_reject_unknown_name():
+    assert check_input_expressions(_root()) == ([], [])
+    unknown = VALID_DMN.replace("<![CDATA[Age]]>", "<![CDATA[Age in Years]]>")
+    errors, _ = check_input_expressions(_root(unknown))
+    assert any("does not match" in error for error in errors)
+
+
+def test_feel_entries_cover_lists_negation_combinations_and_functions():
+    expressions = (
+        '">= 18, [65..120]"',
+        '"not(\"A\", \"B\")"',
+        '">= 18 and < 65"',
+        '"contains(?, \"statin\") and (contains(?, \"bile acid\") '
+        'or contains(?, \"nicotinic acid\"))"',
+    )
+    for expression in expressions:
+        xml = VALID_DMN.replace(">= 18", expression[1:-1])
+        assert check_feel_entries(_root(xml)) == ([], [])
+
+    invalid = VALID_DMN.replace(">= 18", "Age >= 18").replace('"Adult"', "Adult")
+    errors, _ = check_feel_entries(_root(invalid))
+    assert any("unsupported FEEL unary test" in error for error in errors)
+    assert any("string literal must be quoted" in error for error in errors)
+
+
+def test_type_refs_accept_builtins_and_declared_item_definitions():
+    assert check_type_refs(_root()) == ([], [])
+    declared = VALID_DMN.replace(
+        "  <inputData",
+        "  <itemDefinition id=\"type_recommendation\" name=\"tRecommendation\">"
+        "<typeRef>string</typeRef></itemDefinition>\n  <inputData",
+    ).replace('name="Recommendation" typeRef="string"/>',
+              'name="Recommendation" typeRef="tRecommendation"/>')
+    assert check_type_refs(_root(declared)) == ([], [])
+
+    invalid = VALID_DMN.replace('typeRef="number"', 'typeRef="bad type"', 1)
+    errors, _ = check_type_refs(_root(invalid))
+    assert any("contains spaces" in error for error in errors)
+
+
+def test_hit_policy_priority_requires_values_and_first_is_only_a_warning():
+    assert check_hit_policies(_root()) == ([], [])
+    first = VALID_DMN.replace('hitPolicy="UNIQUE"', 'hitPolicy="FIRST"')
+    errors, warnings = check_hit_policies(_root(first))
+    assert errors == []
+    assert any("order-dependent" in warning for warning in warnings)
+
+    priority = VALID_DMN.replace('hitPolicy="UNIQUE"', 'hitPolicy="PRIORITY"')
+    errors, _ = check_hit_policies(_root(priority))
+    assert any("requires outputValues" in error for error in errors)
+
+    priority_with_values = priority.replace(
+        '<output id="output_recommendation" name="Recommendation" typeRef="string"/>',
+        '<output id="output_recommendation" name="Recommendation" typeRef="string">'
+        '<outputValues><text><![CDATA["Adult"]]></text></outputValues></output>',
+    )
+    assert check_hit_policies(_root(priority_with_values)) == ([], [])
+
+
+def test_feel_names_accept_safe_names_and_reject_keywords():
+    assert check_feel_names(_root()) == ([], [])
+    invalid = VALID_DMN.replace('name="Age"', 'name="Age in Years"')
+    errors, _ = check_feel_names(_root(invalid))
+    assert any("contains FEEL token 'in'" in error for error in errors)
+
+    leading = VALID_DMN.replace('name="Age"', 'name="If Eligible"')
+    errors, _ = check_feel_names(_root(leading))
+    assert any("starts with FEEL keyword 'if'" in error for error in errors)
+
+
+def test_raw_xml_accepts_clean_cdata_and_rejects_entities_and_controls():
+    assert check_raw_xml(VALID_DMN) == ([], [])
+    entities = VALID_DMN.replace(">= 18", "&gt;= 18")
+    errors, _ = check_raw_xml(entities)
+    assert any("FEEL will read literally" in error for error in errors)
+
+    errors, _ = check_raw_xml(VALID_DMN.replace("Adult", "Adult\x01"))
+    assert any("U+0001" in error for error in errors)
+
+
+def test_goldens_have_no_errors_and_first_policy_warning_is_non_blocking():
+    for golden in GOLDEN_DIR.glob("*.dmn"):
+        errors, warnings = validate_dmn(golden.read_text())
+        assert errors == [], f"{golden.name}: {errors}"
+        assert all("FIRST is order-dependent" in warning for warning in warnings)
+
+
+def test_validator_node_returns_warnings_separately_from_retry_errors():
+    first = VALID_DMN.replace('hitPolicy="UNIQUE"', 'hitPolicy="FIRST"')
+    result = dmn_syntax_validator({"dmn_xml": first, "item": {"name": "Example"}})
+    assert result["syntax_errors"] == []
+    assert len(result["syntax_warnings"]) == 1

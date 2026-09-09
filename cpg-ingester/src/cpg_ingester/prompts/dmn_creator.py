@@ -22,8 +22,19 @@ model, e.g. https://redhat.com/cpg-to-acp/dmn/<model-slug> — do NOT reuse the 
 language (MODEL) namespace as the target namespace.
 - Use FEEL for all input/output expressions.
 - Every inputData must have a variable with typeRef (number, string, boolean).
+- When an input specification includes `system|code` values, add one
+  `<acp:clinicalCode system="..." code="..."/>` for each inside that inputData's
+  `<extensionElements>`, declaring `xmlns:acp="https://redhat.com/cpg-to-acp/dmn"`
+  on definitions. Emit no code annotation when no code was supplied.
+  Never invent, transform, or look up clinical codes.
 - Every decision must have informationRequirement elements linking to its inputData.
 - Every decisionTable must have a hitPolicy attribute.
+- Use UNIQUE for mutually exclusive rules. Prefer PRIORITY to FIRST when ordered
+  outputs are needed, and provide outputValues for every PRIORITY output. Use
+  COLLECT only when multiple matching rules must contribute results.
+- Define itemDefinitions with allowedValues for enumerated input or output types.
+  Use standard OMG `<allowedValues><text><![CDATA["A", "B"]]></text>`;
+  do not use proprietary extensions.
 - Input entries use FEEL unary tests (e.g., >= 140, "Yes", true). Do NOT \
 repeat the variable name in the unary test.
 - String output values must be quoted: "Start medication", not Start medication.
@@ -40,7 +51,15 @@ attributes. Without these, the table is invalid.
 - Every rule must have the same number of inputEntry and outputEntry elements \
 as there are input and output columns.
 - Use descriptive rule descriptions.
+- Add descriptions to decisions and rules only when the description is grounded
+  in the supplied CPG text; never invent clinical rationale.
 - Use "-" for "any value" input entries, not empty text.
+- Use FEEL names exactly as declared. Spaces are allowed, but names must not
+  start with a FEEL keyword or contain the token ` in `.
+- Before writing XML, list the rules mentally in plain English and ensure they
+  cover the intended input space. Do not leave an unintentional gap.
+- Preserve DMN element order: description and extensionElements precede a
+  variable; a decision's informationRequirement elements precede its expression.
 
 ## Required Output Structure
 Your output MUST contain BOTH of these sections in order:

@@ -1,4 +1,5 @@
 import {
+  Alert,
   Card,
   CardBody,
   CardTitle,
@@ -69,6 +70,19 @@ export function DecisionReviewPage({ run }: DecisionReviewPageProps) {
               )}
             </CardTitle>
             <CardBody>
+              {decision.validation_warnings?.map((warning, warningIndex) => (
+                <Alert
+                  key={warningIndex}
+                  variant="warning"
+                  title="DMN validation warning"
+                  isInline
+                  isPlain
+                  style={{ marginBottom: 8 }}
+                >
+                  {warning}
+                </Alert>
+              ))}
+
               {decision.dmn_xml && (
                 <DmnDecisionTable xml={decision.dmn_xml} />
               )}

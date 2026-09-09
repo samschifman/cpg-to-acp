@@ -50,6 +50,7 @@ export interface DecisionVariable {
 export interface DecisionResult {
   artifact_id?: string;
   dmn_xml: string;
+  validation_warnings?: string[];
   item: {
     name: string;
     type: string;

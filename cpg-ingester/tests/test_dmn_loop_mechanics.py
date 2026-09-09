@@ -137,3 +137,14 @@ class TestGenerateAllNoSilentDrop:
         assert entry["escalated"] is True
         assert entry["escalation_reason"] == "syntax-budget-exhausted"
         assert entry["escalation_errors"] == ["missing hitPolicy"]
+
+    def test_non_blocking_validation_warnings_reach_review_payload(self):
+        graph = MagicMock()
+        graph.invoke = MagicMock(return_value={
+            "dmn_xml": "<definitions/>",
+            "syntax_warnings": ["FIRST is order-dependent"],
+        })
+        result = self._run_with_graph(graph)
+        assert result["dmn_results"][0]["validation_warnings"] == [
+            "FIRST is order-dependent"
+        ]

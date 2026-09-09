@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cpg_ingester.nodes.dmn_creator import dmn_creator, _strip_markdown_fences
+from cpg_ingester.nodes.dmn_creator import _format_inputs, _strip_markdown_fences, dmn_creator
+from cpg_ingester.prompts.dmn_creator import DMN_CREATOR_SYSTEM
+from cpg_ingester.reference.dmn_examples import REFERENCE_EXAMPLES
 from cpg_ingester.nodes.dmn_syntax_validator import dmn_syntax_validator
 from cpg_ingester.validators.dmn_syntax import validate_dmn_xml
 
@@ -187,6 +189,26 @@ class TestStripMarkdownFences:
     def test_no_fence(self):
         text = "<root/>"
         assert _strip_markdown_fences(text) == "<root/>"
+
+
+class TestDMNCreatorReference:
+
+    def test_reference_template_has_no_unsubstituted_placeholders(self):
+        assert "{" not in REFERENCE_EXAMPLES
+        assert "}" not in REFERENCE_EXAMPLES
+
+    def test_creator_prompt_teaches_code_annotations_and_ordering(self):
+        prompt = DMN_CREATOR_SYSTEM.format(reference=REFERENCE_EXAMPLES)
+        assert "<acp:clinicalCode system=" in prompt
+        assert "element order" in prompt
+
+    def test_input_format_includes_explicit_codes(self):
+        rendered = _format_inputs([{
+            "name": "Systolic BP",
+            "type": "number",
+            "codes": ["http://loinc.org|8480-6"],
+        }])
+        assert "http://loinc.org|8480-6" in rendered
 
 
 class TestDMNCreatorNode:

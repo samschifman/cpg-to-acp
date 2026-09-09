@@ -48,7 +48,9 @@ def _format_inputs(inputs: list[dict]) -> str:
     lines = []
     for inp in inputs:
         desc = inp.get("description", "")
-        lines.append(f"- {inp['name']} ({inp.get('type', 'string')}): {desc}")
+        codes = inp.get("codes") or []
+        code_text = f" Codes: {', '.join(codes)}." if codes else ""
+        lines.append(f"- {inp['name']} ({inp.get('type', 'string')}): {desc}{code_text}")
     return "\n".join(lines) if lines else "(none specified)"
 
 
@@ -133,6 +135,7 @@ def dmn_creator(state: dict) -> dict:
         "dmn_xml": dmn_xml,
         "previous_dmn_xml": previous_dmn_xml,
         "syntax_errors": [],
+        "syntax_warnings": [],
         "semantic_discrepancies": [],
         "syntax_retry_count": syntax_retry_count,
         "semantic_retry_count": semantic_retry_count,

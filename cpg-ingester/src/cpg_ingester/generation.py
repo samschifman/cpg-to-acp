@@ -263,6 +263,8 @@ def generate_all(state: dict) -> dict:
             "item": item,
             "decision_model_summary": result.get("decision_model_summary", {}),
         }
+        if result.get("syntax_warnings"):
+            entry["validation_warnings"] = list(result["syntax_warnings"])
         if result.get("escalated"):
             entry["escalated"] = True
             entry["escalation_reason"] = result.get("escalation_reason", "")
