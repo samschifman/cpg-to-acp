@@ -37,7 +37,9 @@ experiment.
 `corpus.yaml` ties each golden DMN in `cpg-ingester/data/golden/` to the exact
 CPG source section (`data/synthetic-hypertension-cpg.md`) that justifies it,
 plus the expected structure (inputs / outputs / hit policy) and representative
-inputs. Golden and source paths in the manifest are **cpg-ingester-relative**;
+inputs. When a heading contains multiple neighboring decisions, `source_section`
+may also provide `markdown_lines: "start-end"` to constrain creator/reviewer
+context to the exact source span. Golden and source paths in the manifest are **cpg-ingester-relative**;
 `real_corpora` paths in `config.yaml` are **repo-relative**.
 
 ## Prerequisites

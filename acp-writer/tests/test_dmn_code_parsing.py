@@ -126,6 +126,22 @@ def test_temporal_extraction_is_parsed_into_contract():
     assert summary.inputs[0].extraction.params["duration"] == "P3M"
 
 
+def test_temporal_golden_carries_observation_count_metadata():
+    from pathlib import Path
+
+    golden = (Path(__file__).parent.parent.parent / "cpg-ingester" / "data" / "golden"
+              / "glycemic-escalation-monitoring.dmn").read_text()
+    summary = _parse_dmn_metadata(golden)
+    extraction = summary.inputs[0].extraction
+    assert extraction.function == "observation_count"
+    assert extraction.params == {
+        "code": "http://loinc.org|4548-4",
+        "duration": "P6M",
+        "threshold": 9,
+        "comparator": "ge",
+    }
+
+
 class TestNamespaceTolerance:
     def test_legacy_1_3_namespace_still_parses(self):
         """Metadata parsing is namespace-tolerant: a 1.3-namespace document still

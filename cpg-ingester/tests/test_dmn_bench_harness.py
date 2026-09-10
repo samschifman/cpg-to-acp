@@ -12,7 +12,7 @@ _BENCH = Path(__file__).parent / "benchmarks" / "dmn"
 sys.path.insert(0, str(_BENCH))
 
 import compile_check as cc
-from creator_eval import CreatorResult, _aggregate
+from creator_eval import CreatorResult, _aggregate, _source_text
 from reviewer_eval import ReviewerCase, _score
 from cpg_ingester.validators.dmn_schema import validate_dmn_schema
 from cpg_ingester.validators.dmn_syntax import validate_dmn
@@ -99,6 +99,10 @@ class TestCorpusManifest:
             for dec in corpus["decisions"]:
                 assert (INGESTER_ROOT / dec["golden"]).exists()
                 assert dec["representative_inputs"]
+
+    def test_source_line_ranges_narrow_broad_sections(self):
+        markdown = "one\ntwo\nthree\nfour"
+        assert _source_text(markdown, {"markdown_lines": "2-3"}) == "two\nthree"
 
     def test_all_manifest_goldens_pass_local_gates(self):
         manifest = yaml.safe_load((_BENCH / "corpus.yaml").read_text())

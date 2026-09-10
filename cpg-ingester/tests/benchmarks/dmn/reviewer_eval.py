@@ -23,6 +23,20 @@ from defects import INJECTORS, DefectNotApplicable
 logger = logging.getLogger(__name__)
 
 
+def _source_text(markdown: str, source_section: dict) -> str:
+    """Use an explicit source line range when a heading is broader than one decision."""
+    line_range = source_section.get("markdown_lines")
+    if isinstance(line_range, str) and "-" in line_range:
+        try:
+            start, end = (int(part) for part in line_range.split("-", 1))
+            lines = markdown.splitlines()
+            return "\n".join(lines[start - 1:end]).strip()
+        except (TypeError, ValueError):
+            logger.warning("Invalid source markdown_lines %r", line_range)
+    heading = source_section.get("heading", "")
+    return _extract_section_text(markdown, [{"heading": heading}], heading)
+
+
 @dataclass
 class ReviewerCase:
     """One reviewer invocation and its outcome."""
@@ -33,11 +47,6 @@ class ReviewerCase:
     flagged: bool
     discrepancies: list = field(default_factory=list)
     defect_detail: str = ""
-
-
-def _section_text(markdown: str, heading: str) -> str:
-    section_map = [{"heading": heading}]
-    return _extract_section_text(markdown, section_map, heading)
 
 
 def _run_reviewer(dmn_xml: str, name: str, source_text: str, llm_config: dict,
@@ -66,8 +75,9 @@ def run_reviewer_suite(corpus: dict, markdown: str, llm_config: dict,
 
     for dec in corpus.get("decisions", []):
         name = dec["name"]
-        heading = dec.get("source_section", {}).get("heading", "")
-        source_text = _section_text(markdown, heading)
+        source_section = dec.get("source_section", {})
+        heading = source_section.get("heading", "")
+        source_text = _source_text(markdown, source_section)
         if not source_text:
             logger.warning("No source text for '%s' (heading %r) — reviewer eval "
                            "will run with empty source", name, heading)

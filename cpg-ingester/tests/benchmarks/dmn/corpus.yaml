@@ -100,6 +100,33 @@ corpora:
             expect: {"Follow-up Months": 3}
           - inputs: {Treatment: "Metformin plus lifestyle"}
             expect: {"Follow-up Months": 6}
+      - id: glycemic-escalation-monitoring
+        name: Glycemic Escalation Monitoring
+        golden: data/golden/glycemic-escalation-monitoring.dmn
+        source_section:
+          heading: "2.3 Glycemic Escalation Monitoring"
+        hit_policy: UNIQUE
+        inputs:
+          - {name: Treatment, type: string}
+          - name: Elevated HbA1c Count
+            type: number
+            description: "Count of HbA1c measurements at or above 9 in the prior six months"
+            extraction:
+              function: observation_count
+              params:
+                code: "http://loinc.org|4548-4"
+                duration: P6M
+                threshold: 9
+                comparator: ge
+        outputs:
+          - {name: Action, type: string}
+        representative_inputs:
+          - inputs: {Treatment: "Metformin plus lifestyle", Elevated HbA1c Count: 2}
+            expect: {Action: "Escalate to combination therapy"}
+          - inputs: {Treatment: "Metformin plus lifestyle", Elevated HbA1c Count: 1}
+            expect: {Action: "Continue current plan and reassess at the next scheduled interval"}
+          - inputs: {Treatment: "Combination therapy", Elevated HbA1c Count: 2}
+            expect: {Action: "Not applicable"}
 
   atp_iii:
     source_cpg: data/atp-iii-cholesterol-cpg.md
@@ -109,6 +136,7 @@ corpora:
         golden: data/golden/adult-lipoprotein-screening.dmn
         source_section:
           heading: "Risk Assessment: First Step in Risk Management"
+          markdown_lines: "214-218"
         hit_policy: FIRST
         inputs:
           - {name: Age, type: number}
@@ -128,6 +156,7 @@ corpora:
         golden: data/golden/atp-iii-lipid-classification.dmn
         source_section:
           heading: "Risk Assessment: First Step in Risk Management"
+          markdown_lines: "218-235"
         hit_policy: UNIQUE
         inputs:
           - {name: LDL Cholesterol, type: number}
@@ -149,6 +178,7 @@ corpora:
         golden: data/golden/ldl-lowering-risk-category.dmn
         source_section:
           heading: "Risk Assessment: First Step in Risk Management"
+          markdown_lines: "237-268"
         hit_policy: FIRST
         inputs:
           - {name: Established CHD, type: boolean}

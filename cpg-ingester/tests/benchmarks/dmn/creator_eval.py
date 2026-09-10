@@ -34,6 +34,20 @@ logger = logging.getLogger(__name__)
 _MAX_LOOP_ITERATIONS = 12  # safety cap; the real routers stop well before this
 
 
+def _source_text(markdown: str, source_section: dict) -> str:
+    """Use an explicit source line range when a heading is broader than one decision."""
+    line_range = source_section.get("markdown_lines")
+    if isinstance(line_range, str) and "-" in line_range:
+        try:
+            start, end = (int(part) for part in line_range.split("-", 1))
+            lines = markdown.splitlines()
+            return "\n".join(lines[start - 1:end]).strip()
+        except (TypeError, ValueError):
+            logger.warning("Invalid source markdown_lines %r", line_range)
+    heading = source_section.get("heading", "")
+    return _extract_section_text(markdown, [{"heading": heading}], heading)
+
+
 @dataclass
 class CreatorResult:
     decision: str
@@ -107,8 +121,9 @@ def run_creator_suite(corpus: dict, markdown: str, llm_config: dict, output_dir:
     """Generate DMN for each decision, score vs golden, compile-check."""
     results: list[CreatorResult] = []
     for dec in corpus.get("decisions", []):
-        heading = dec.get("source_section", {}).get("heading", "")
-        source_text = _extract_section_text(markdown, [{"heading": heading}], heading)
+        source_section = dec.get("source_section", {})
+        heading = source_section.get("heading", "")
+        source_text = _source_text(markdown, source_section)
         item = {
             "name": dec["name"],
             "type": "decision",

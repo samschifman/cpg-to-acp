@@ -29,3 +29,18 @@ monitoring in 6 months.
 | --- | --- |
 | Combination therapy | 3 |
 | Metformin plus lifestyle | 6 |
+
+## 2.3 Glycemic Escalation Monitoring
+
+For patients receiving metformin plus lifestyle, review the HbA1c trend over
+the prior six months. If at least two HbA1c measurements in that period are
+9 or higher, escalate to combination therapy. Otherwise continue the current
+plan and reassess at the next scheduled interval.
+
+### Decision Table 3: Glycemic Escalation Monitoring
+
+| Treatment | Elevated HbA1c measurements in prior 6 months | Action |
+| --- | --- | --- |
+| Metformin plus lifestyle | >= 2 | Escalate to combination therapy |
+| Metformin plus lifestyle | < 2 | Continue current plan and reassess at the next scheduled interval |
+| Any other treatment | - | Not applicable |
