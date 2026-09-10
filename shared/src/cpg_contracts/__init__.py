@@ -9,6 +9,8 @@ from cpg_contracts.decisions import (
     DecisionEvaluationResponse,
     DecisionModelSummary,
     DecisionVariable,
+    Extraction,
+    decision_model_id,
 )
 from cpg_contracts.recommendations import (
     CertaintyGrade,
@@ -55,7 +57,9 @@ __all__ = [
     # Decisions
     "DecisionCategory",
     "DecisionVariable",
+    "Extraction",
     "DecisionModelSummary",
+    "decision_model_id",
     "DecisionEvaluationRequest",
     "DecisionEvaluationResponse",
     # Recommendations

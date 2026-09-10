@@ -81,6 +81,14 @@ Each run writes to an output directory (`output/<run-id>/`):
 | `classification-review-*.json` | Adversarial review reports |
 | `dmn/*.dmn` | Generated DMN 1.4 XML files |
 | `dmn-review-*.json` | DMN semantic review reports |
+
+Decision model IDs are stable slugs of the manifest decision name (for example,
+`Treatment Recommendation` becomes `treatment-recommendation`). The same ID is
+carried on the DMN `<definitions>` element and in `DecisionModelSummary`, so a
+redeploy updates the intended model rather than creating a second name-derived
+identity. Inputs with explicit temporal language may also carry an
+`acp:extraction` JSON annotation naming one of the supported temporal
+primitives and its parameters; ordinary inputs omit the annotation.
 | `recommendations-*.json` | Extracted recommendations per section |
 | `rec-review-*.json` | Recommendation semantic review reports |
 | `recommendation-bundle.json` | Assembled RecommendationBundle |

@@ -14,6 +14,8 @@ sys.path.insert(0, str(_BENCH))
 import compile_check as cc
 from creator_eval import CreatorResult, _aggregate
 from reviewer_eval import ReviewerCase, _score
+from cpg_ingester.validators.dmn_schema import validate_dmn_schema
+from cpg_ingester.validators.dmn_syntax import validate_dmn
 
 INGESTER_ROOT = Path(__file__).parent.parent
 
@@ -91,8 +93,18 @@ class TestReviewerScore:
 class TestCorpusManifest:
     def test_manifest_loads_and_paths_exist(self):
         manifest = yaml.safe_load((_BENCH / "corpus.yaml").read_text())
-        htn = manifest["corpora"]["hypertension"]
-        assert len(htn["decisions"]) == 2
-        for dec in htn["decisions"]:
-            assert (INGESTER_ROOT / dec["golden"]).exists()
-            assert dec["representative_inputs"]
+        for corpus in manifest["corpora"].values():
+            assert (INGESTER_ROOT / corpus["source_cpg"]).exists()
+            assert corpus["decisions"]
+            for dec in corpus["decisions"]:
+                assert (INGESTER_ROOT / dec["golden"]).exists()
+                assert dec["representative_inputs"]
+
+    def test_all_manifest_goldens_pass_local_gates(self):
+        manifest = yaml.safe_load((_BENCH / "corpus.yaml").read_text())
+        for corpus in manifest["corpora"].values():
+            for dec in corpus["decisions"]:
+                xml = (INGESTER_ROOT / dec["golden"]).read_text()
+                assert validate_dmn_schema(xml) == []
+                errors, _warnings = validate_dmn(xml)
+                assert errors == []

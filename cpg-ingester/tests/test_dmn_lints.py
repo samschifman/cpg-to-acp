@@ -8,6 +8,7 @@ from cpg_ingester.nodes.dmn_syntax_validator import dmn_syntax_validator
 from cpg_ingester.validators.dmn_syntax import (
     check_feel_entries,
     check_feel_names,
+    check_extraction_annotations,
     check_hit_policies,
     check_ids_and_references,
     check_input_expressions,
@@ -138,6 +139,20 @@ def test_feel_names_accept_safe_names_and_reject_keywords():
     leading = VALID_DMN.replace('name="Age"', 'name="If Eligible"')
     errors, _ = check_feel_names(_root(leading))
     assert any("starts with FEEL keyword 'if'" in error for error in errors)
+
+
+def test_extraction_annotations_validate_function_and_parameters():
+    valid = VALID_DMN.replace(
+        '<variable id="variable_age" name="Age" typeRef="number"/>',
+        '<extensionElements><acp:extraction xmlns:acp="https://redhat.com/cpg-to-acp/dmn">'
+        '<![CDATA[{"function":"observation_count","params":{"code":"http://loinc.org|8480-6","duration":"P3M","threshold":140}}]]>'
+        '</acp:extraction></extensionElements>\n'
+        '<variable id="variable_age" name="Age" typeRef="number"/>',
+    )
+    assert check_extraction_annotations(_root(valid)) == ([], [])
+    invalid = valid.replace('"observation_count"', '"not_a_function"')
+    errors, _ = check_extraction_annotations(_root(invalid))
+    assert any("Unknown temporal extraction function" in error for error in errors)
 
 
 def test_raw_xml_accepts_clean_cdata_and_rejects_entities_and_controls():

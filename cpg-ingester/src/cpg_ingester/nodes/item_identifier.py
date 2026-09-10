@@ -7,7 +7,7 @@ import time
 import uuid
 
 import mlflow
-from cpg_contracts import content_to_text, get_llm
+from cpg_contracts import content_to_text, decision_model_id, get_llm
 from cpg_ingester.nodes.structure_analyzer import _parse_llm_json
 from cpg_ingester.output import write_artifact
 from cpg_ingester.prompts.item_identifier import (
@@ -28,6 +28,10 @@ VALID_STRENGTHS = {
 }
 VALID_EVIDENCE = {"high", "moderate", "low", "very-low", "ungraded"}
 VALID_HIT_POLICIES = {"UNIQUE", "FIRST", "COLLECT", "ANY", "PRIORITY", "RULE ORDER"}
+VALID_EXTRACTION_FUNCTIONS = {
+    "observations_in_window", "observation_count", "consecutive_above",
+    "rate_of_change", "cross_resource_temporal",
+}
 CODE_TOKEN_RE = re.compile(r"^https?://[^|\s]+\|[^|\s]+$")
 
 
@@ -38,6 +42,8 @@ def _assign_guids(manifest: list[dict]) -> list[dict]:
         guid = str(uuid.uuid4())
         item["id"] = guid
         name = item.get("name") or item.get("title", "")
+        if item.get("type") == "decision":
+            item["model_id"] = decision_model_id(name)
         name_to_guid[name] = guid
 
     for item in manifest:
@@ -78,6 +84,15 @@ def _validate_decision(item: dict) -> list[str]:
                 issues.append(
                     f"Decision input '{input_variable.get('name', '?')}' has invalid codes"
                 )
+        extraction = input_variable.get("extraction")
+        if extraction is not None:
+            if not isinstance(extraction, dict):
+                issues.append(f"Decision input '{input_variable.get('name', '?')}' has invalid extraction")
+                continue
+            if extraction.get("function") not in VALID_EXTRACTION_FUNCTIONS:
+                issues.append(f"Decision input '{input_variable.get('name', '?')}' has unknown extraction function")
+            if not isinstance(extraction.get("params"), dict):
+                issues.append(f"Decision input '{input_variable.get('name', '?')}' extraction params must be an object")
     return issues
 
 

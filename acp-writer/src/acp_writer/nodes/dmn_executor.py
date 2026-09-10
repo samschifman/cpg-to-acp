@@ -7,7 +7,7 @@ in-process (monolith) vs HTTP (decision-engine pod) execution.
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import mlflow
@@ -27,6 +27,14 @@ from acp_writer.tools.ips_extractor import (
     extract_observation_concept,
     extract_patient_age,
 )
+from acp_writer.tools.temporal_index import TemporalIndex, build_temporal_index
+from acp_writer.tools.temporal_queries import (
+    consecutive_above,
+    cross_resource_temporal,
+    observation_count,
+    observations_in_window,
+    rate_of_change,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +48,10 @@ _MEDICATION_SYSTEMS = {RXNORM}
 _INACTIVE_CONDITION_STATUSES = {"resolved", "inactive", "remission"}
 _INACTIVE_MEDICATION_STATUSES = {"cancelled", "entered-in-error", "stopped"}
 _INACTIVE_ALLERGY_STATUSES = {"resolved", "inactive"}
+_TEMPORAL_FUNCTIONS = {
+    "observations_in_window", "observation_count", "consecutive_above",
+    "rate_of_change", "cross_resource_temporal",
+}
 
 
 def _filter_active_entries(entries: list, inactive_statuses: set) -> list:
@@ -162,6 +174,68 @@ def _extract_via_pipeline(
     return None, None, audit
 
 
+@mlflow.trace(name="dmn_extract_temporal")
+def _extract_temporal(
+    ips_bundle: dict,
+    extraction: dict,
+    temporal_index: TemporalIndex,
+    reference_date: str | date | None,
+) -> tuple[Any, str | None, dict]:
+    """Execute an explicitly annotated temporal extraction."""
+    function = extraction.get("function") if isinstance(extraction, dict) else None
+    params = extraction.get("params", {}) if isinstance(extraction, dict) else {}
+    audit = {
+        "match_basis": "decision_variable_extraction",
+        "extraction": extraction,
+    }
+    if function not in _TEMPORAL_FUNCTIONS or not isinstance(params, dict):
+        audit["degraded"] = True
+        audit["error"] = "Unknown or malformed temporal extraction annotation"
+        return None, None, audit
+    if isinstance(reference_date, str):
+        try:
+            resolved_date = date.fromisoformat(reference_date[:10])
+        except ValueError:
+            audit["degraded"] = True
+            audit["error"] = f"Invalid reference date: {reference_date}"
+            return None, None, audit
+    else:
+        resolved_date = reference_date or datetime.now(timezone.utc).date()
+
+    code = params.get("code", "")
+    try:
+        if function == "observations_in_window":
+            result = observations_in_window(
+                temporal_index, code, params.get("duration", "P12M"), resolved_date,
+            )
+        elif function == "observation_count":
+            result = observation_count(
+                temporal_index, code, params.get("duration", "P12M"), resolved_date,
+                threshold=params.get("threshold"), comparator=params.get("comparator"),
+            )
+        elif function == "consecutive_above":
+            result = consecutive_above(
+                temporal_index, code, params.get("threshold", 0), resolved_date,
+            )
+        elif function == "rate_of_change":
+            result = rate_of_change(
+                temporal_index, code, params.get("duration", "P1Y"), resolved_date,
+            )
+        else:
+            result = cross_resource_temporal(
+                temporal_index, ips_bundle, params.get("anchor_code", ""),
+                params.get("target_code", ""), params.get("window", "P14D"),
+            )
+    except (TypeError, ValueError, KeyError) as exc:
+        audit["degraded"] = True
+        audit["error"] = str(exc)
+        return None, None, audit
+
+    audit["data_quality"] = result.data_quality
+    audit["insufficient_data"] = result.insufficient_data
+    return result.value, (result.provenance[0] if result.provenance else None), audit
+
+
 @mlflow.trace(name="dmn_resolve_input")
 def _extract_input_value(
     ips_bundle: dict, var_name: str, var_type: str,
@@ -169,10 +243,20 @@ def _extract_input_value(
     codes: list[str] | None = None,
     reference_date: str | None = None,
     inventory: Any = None, llm_client: Any = None,
+    extraction: dict | None = None,
+    temporal_index: TemporalIndex | None = None,
 ) -> tuple[Any, str | None, dict]:
     """Extract a DMN input value — prior results, codes, then pipeline."""
     key = re.sub(r"([a-z])([A-Z])", r"\1 \2", var_name).lower().strip()
     audit: dict[str, Any] = {}
+
+    if extraction:
+        temporal_index = temporal_index or build_temporal_index(ips_bundle)
+        value, ref, temporal_audit = _extract_temporal(
+            ips_bundle, extraction, temporal_index, reference_date,
+        )
+        if value is not None:
+            return value, ref, temporal_audit
 
     for model_output in prior_results.values():
         for decision_name, decision_val in model_output.items():
@@ -215,6 +299,7 @@ def resolve_inputs(
     prior_results: dict[str, dict],
     llm_client: Any = None,
     reference_date: str | None = None,
+    temporal_index: TemporalIndex | None = None,
 ) -> tuple[dict[str, Any], list[str], dict[str, dict]]:
     """Resolve all inputs for one DMN model.
 
@@ -231,6 +316,8 @@ def resolve_inputs(
             reference_date=reference_date,
             inventory=inventory,
             llm_client=llm_client,
+            extraction=var.get("extraction"),
+            temporal_index=temporal_index,
         )
         if value is not None:
             inputs[var["name"]] = value
@@ -266,6 +353,7 @@ def dmn_executor(state: CarePlanComposerState) -> dict:
 
     from acp_writer.tools.bundle_inventory import build_bundle_inventory
     inventory = build_bundle_inventory(ips_bundle)
+    temporal_index = build_temporal_index(ips_bundle)
 
     llm_client = None
     try:
@@ -299,6 +387,7 @@ def dmn_executor(state: CarePlanComposerState) -> dict:
             ips_bundle, inventory, prior_results,
             llm_client=llm_client,
             reference_date=today,
+            temporal_index=temporal_index,
         )
 
         logger.info("Evaluating DMN model: %s with inputs: %s", model_info.get("name"), inputs)

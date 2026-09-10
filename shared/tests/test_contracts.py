@@ -9,6 +9,8 @@ from cpg_contracts import (
     Recommendation,
     RecommendationBundle,
     SourceLocation,
+    decision_model_id,
+    DecisionVariable,
 )
 
 
@@ -78,6 +80,20 @@ def test_decision_model_summary_with_source_location():
     data = dm.model_dump()
     assert data["source_location"]["page_start"] == 47
     assert data["source_location"]["source_text"].startswith("Table 3")
+
+
+def test_decision_model_id_is_stable():
+    assert decision_model_id("Treatment Recommendation") == "treatment-recommendation"
+    assert decision_model_id("BP / CKD: follow-up") == "bp-ckd-follow-up"
+
+
+def test_decision_variable_extraction_roundtrip():
+    variable = DecisionVariable(
+        name="Systolic BP",
+        type="number",
+        extraction={"function": "observation_count", "params": {"duration": "P3M"}},
+    )
+    assert DecisionVariable.model_validate(variable.model_dump()).extraction.params["duration"] == "P3M"
 
 
 def test_sample_fixture_roundtrip():

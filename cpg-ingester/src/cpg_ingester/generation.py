@@ -12,6 +12,7 @@ import re
 import mlflow
 import requests
 from langgraph.graph import END, START, StateGraph
+from cpg_contracts import DecisionCategory, DecisionModelSummary, DecisionVariable, SourceLocation, decision_model_id
 
 from cpg_ingester.nodes.dmn_creator import dmn_creator
 from cpg_ingester.nodes.dmn_semantic_reviewer import dmn_semantic_reviewer
@@ -118,6 +119,51 @@ def _dmn_escalate(state: DMNPipelineState) -> dict:
     )
     logger.warning("DMN escalated for human review: %s (%s)", name, reason)
     return {"escalated": True, "escalation_reason": reason, "escalation_errors": list(errors)}
+
+
+def _decision_summary(item: dict, state: dict, decision_items: list[dict]) -> dict:
+    """Build the stable decision contract from the approved manifest item."""
+    decision_by_guid = {entry.get("id"): entry for entry in decision_items}
+    modifies: list[str] = []
+    for ref in item.get("cross_references", []) or []:
+        target = decision_by_guid.get(ref)
+        if target and target.get("model_id"):
+            modifies.append(target["model_id"])
+    explicit = item.get("modifies")
+    target = decision_by_guid.get(explicit)
+    if target and target.get("model_id") and target["model_id"] not in modifies:
+        modifies.append(target["model_id"])
+
+    inputs = [DecisionVariable.model_validate({
+        "name": value.get("name", ""),
+        "type": value.get("type", "string"),
+        "description": value.get("description"),
+        "codes": value.get("codes"),
+        "extraction": value.get("extraction"),
+    }) for value in item.get("inputs", [])]
+    outputs = [DecisionVariable(name=value if isinstance(value, str) else value.get("name", ""),
+                                type=(value.get("type", "string") if isinstance(value, dict) else "string"))
+               for value in item.get("outputs", [])]
+    location = None
+    if item.get("page_start") is not None or item.get("page_end") is not None:
+        location = SourceLocation(page_start=item.get("page_start"), page_end=item.get("page_end"))
+    category = None
+    try:
+        category = DecisionCategory(item.get("category")) if item.get("category") else None
+    except ValueError:
+        logger.warning("Unknown decision category for %s: %s", item.get("name"), item.get("category"))
+
+    summary = DecisionModelSummary(
+        id=item.get("model_id") or decision_model_id(item.get("name", "")),
+        name=item.get("name", ""),
+        inputs=inputs,
+        outputs=outputs,
+        source_cpg=(state.get("cpg_metadata") or {}).get("cpg_id"),
+        category=category,
+        modifies=modifies or None,
+        source_location=location,
+    )
+    return summary.model_dump(mode="json", exclude_none=True)
 
 
 @mlflow.trace(name="dmn_engine_preflight")
@@ -306,8 +352,9 @@ def generate_all(state: dict) -> dict:
         source_text = _extract_section_text(markdown, section_map, item.get("section", ""))
         try:
             result = dmn_graph.invoke({
-                "item": item,
-                "source_pages": source_text or item.get("source_pages", ""),
+            "item": item,
+            "source_pages": source_text or item.get("source_pages", ""),
+            "cpg_metadata": state.get("cpg_metadata", {}),
                 **shared,
             })
         except Exception as e:
@@ -340,7 +387,7 @@ def generate_all(state: dict) -> dict:
         entry = {
             "dmn_xml": result["dmn_xml"],
             "item": item,
-            "decision_model_summary": result.get("decision_model_summary", {}),
+            "decision_model_summary": _decision_summary(item, state, decisions),
         }
         if result.get("syntax_warnings"):
             entry["validation_warnings"] = list(result["syntax_warnings"])

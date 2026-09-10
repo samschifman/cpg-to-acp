@@ -38,6 +38,7 @@ async def deploy_decision_model(
     request: Request,
     source_cpg: str | None = None,
     validate_only: bool = False,
+    replace: bool = False,
 ):
     body = await request.body()
     dmn_xml = body.decode("utf-8")
@@ -51,6 +52,17 @@ async def deploy_decision_model(
         return JSONResponse(status_code=200, content=validation)
     if source_cpg:
         summary.source_cpg = source_cpg
+    existing = _dynamic_models.get(summary.id)
+    if (existing and source_cpg and existing["summary"].source_cpg
+            and existing["summary"].source_cpg != source_cpg and not replace):
+        logger.warning("Rejecting model id collision: %s (%s vs %s)", summary.id,
+                       existing["summary"].source_cpg, source_cpg)
+        return JSONResponse(status_code=409, content={
+            "error": "Decision model id already belongs to another source CPG",
+            "model_id": summary.id,
+            "existing_source_cpg": existing["summary"].source_cpg,
+            "source_cpg": source_cpg,
+        })
     _dynamic_models[summary.id] = {"summary": summary, "dmn_xml": dmn_xml}
     return summary.model_dump(mode="json")
 

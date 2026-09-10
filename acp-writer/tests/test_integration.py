@@ -118,6 +118,19 @@ class TestDecisionModels:
         )
         assert r.status_code == 400
 
+    def test_different_source_collision_requires_replace(self):
+        dmn_xml = load_dmn("treatment-recommendation.dmn")
+        first = client.post("/api/v1/decisions/models?source_cpg=CPG-A", content=dmn_xml,
+                            headers={"Content-Type": "application/xml"})
+        assert first.status_code == 201
+        collision = client.post("/api/v1/decisions/models?source_cpg=CPG-B", content=dmn_xml,
+                                headers={"Content-Type": "application/xml"})
+        assert collision.status_code == 409
+        replaced = client.post("/api/v1/decisions/models?source_cpg=CPG-B&replace=true", content=dmn_xml,
+                               headers={"Content-Type": "application/xml"})
+        assert replaced.status_code == 201
+        assert replaced.json()["source_cpg"] == "CPG-B"
+
 
 class TestCarePlanEndpoint:
     def test_invalid_bundle(self):

@@ -29,6 +29,11 @@ For each decision, provide:
   optional `codes` only when the CPG explicitly and unambiguously names a code.
   Each code must be a `system|code` token (for example,
   `http://loinc.org|8480-6`). Never guess or look up a code.
+- For inputs whose CPG text explicitly requires temporal aggregation, add an
+  `extraction` object with one of `observations_in_window`,
+  `observation_count`, `consecutive_above`, `rate_of_change`, or
+  `cross_resource_temporal`, plus explicit parameters. Leave it absent for
+  ordinary most-recent extraction and never infer unstated temporal meaning.
 - Output values: what the decision produces
 - Hit policy hint: UNIQUE (mutually exclusive rules), FIRST (priority-ordered), COLLECT (multiple matches)
 - Cross-references to other items (by the other item's name — IDs will be assigned later)

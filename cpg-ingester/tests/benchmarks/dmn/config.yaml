@@ -23,6 +23,8 @@ reviewer_holdout_classes:
 # Which corpora the "all" corpus selector expands to.
 corpora:
   - hypertension
+  - diabetes
+  - atp_iii
 
 # Extra directories of already-generated DMN to score for L0 + compile validity
 # (no goldens — validity metrics only). Paths are repo-relative.

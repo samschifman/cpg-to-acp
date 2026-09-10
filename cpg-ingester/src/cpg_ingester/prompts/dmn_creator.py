@@ -20,8 +20,14 @@ xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" if present.
 - Set the target `namespace=` attribute on <definitions> to a unique URI per \
 model, e.g. https://redhat.com/cpg-to-acp/dmn/<model-slug> — do NOT reuse the \
 language (MODEL) namespace as the target namespace.
+- Set `<definitions id="<model-id>">` using the stable model ID supplied in
+  the user request. Do not invent a different ID.
+- Set `<definitions id="<model-id>">` using the stable model ID supplied in the
+ user request. Do not invent a different ID.
 - Use FEEL for all input/output expressions.
 - Every inputData must have a variable with typeRef (number, string, boolean).
+- Every decision's variable name must exactly match the decision name; output
+  column names are separate and may describe the returned fields.
 - When an input specification includes `system|code` values, add one
   `<acp:clinicalCode system="..." code="..."/>` for each inside that inputData's
   `<extensionElements>`, declaring `xmlns:acp="https://redhat.com/cpg-to-acp/dmn"`
@@ -78,6 +84,8 @@ Write a DMN 1.4 decision table for this clinical decision.
 
 Decision specification:
 - Name: {name}
+- Stable model ID: {model_id}
+- Stable model ID: {model_id}
 - Description: {description}
 - Category: {category}
 - Hit policy: {hit_policy}

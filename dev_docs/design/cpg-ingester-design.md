@@ -248,6 +248,30 @@ The Creator produces DMN 1.4 XML targeting Drools/Kogito (not Trisotech — no p
 - Every input column has a type reference
 - No empty cells in decision rules
 
+The validation ladder is deliberately ordered so cheap deterministic checks run
+before semantic review, while the optional engine check is the final truth
+source for models that will be deployed:
+
+```mermaid
+flowchart LR
+    C[DMN Creator] --> X[XML + DMN 1.4 XSD]
+    X --> L[FEEL and metadata lints]
+    L --> R[Claim-level semantic reviewer]
+    R --> A[Accepted DMN]
+    A --> E{Optional KIE preflight}
+    E -->|valid| O[Emit DMN + DecisionModelSummary]
+    E -->|invalid| C
+    E -->|unavailable| O
+    X -->|error| C
+    L -->|error| C
+    R -->|discrepancy| C
+```
+
+Temporal input semantics are carried from the manifest as a JSON
+`acp:extraction` extension on the matching `inputData`. The annotation names a
+supported temporal primitive and explicit parameters; an absent annotation
+retains the default most-recent resolution behavior in acp-writer.
+
 On failure: routes back to DMN Creator with the specific error message. The Creator retries with the error as context.
 
 **DMN Semantic Reviewer** — LLM, adversarial:

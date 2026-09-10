@@ -102,6 +102,13 @@ REST API defined in [`api/openapi.yaml`](api/openapi.yaml). MCP tools in [`api/m
 | `search_recommendations` | Search recommendations by similarity |
 | `generate_careplan` | Generate a care plan from an IPS Bundle |
 
+DMN deployment validates the model with the decision service before storing it
+when that service is available. Invalid engine validation returns HTTP 422 with
+structured messages; an unavailable engine keeps the normal deploy path
+fail-open. Use `?validate_only=true` to validate without storing. A model ID
+collision across different `source_cpg` values returns HTTP 409 unless
+`?replace=true` is supplied.
+
 ## AI Transparency
 
 Every care plan bundle includes:
@@ -196,11 +203,14 @@ The reviewer identity is a SMART-on-FHIR-ready seam: a request may override the 
 The DMN Executor extracts patient data from FHIR IPS bundles using a layered resolution strategy:
 
 1. **Prior DMN results** — chained decision outputs
-2. **DecisionVariable.codes** — terminology codes from DMN metadata (when cpg-ingester provides them)
-3. **Concept resolver** — deterministic mapping of 60+ observation terms, 20+ conditions, drug classes, and computed values (age, BMI) to FHIR codes
-4. **KNOWN_VARIABLE_MAP** — legacy 6-entry hardcoded fallback
+2. **DecisionVariable.extraction** — explicit temporal primitive plus parameters from the CPG manifest
+3. **DecisionVariable.codes** — terminology codes from DMN metadata (when cpg-ingester provides them)
+4. **Concept resolver** — deterministic mapping of 60+ observation terms, 20+ conditions, drug classes, and computed values (age, BMI) to FHIR codes
+5. **KNOWN_VARIABLE_MAP** — legacy 6-entry hardcoded fallback
 
-Temporal queries (time-windowed counts, consecutive readings, rate of change) are handled by named primitives in `tools/temporal_queries.py`.
+Temporal queries (time-windowed counts, consecutive readings, rate of change)
+are handled by named primitives in `tools/temporal_queries.py`; explicit
+annotations are retained in the input-resolution audit trail.
 
 See [Clinical Data QA](../docs/clinical-data-qa.md) for the full architecture.
 

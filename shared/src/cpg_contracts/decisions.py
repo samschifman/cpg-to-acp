@@ -6,10 +6,17 @@ neither depends on the other.
 
 from datetime import datetime
 from enum import Enum
+import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from cpg_contracts.recommendations import SourceLocation
+
+
+def decision_model_id(name: str) -> str:
+    """Return the stable wire identifier shared by ingester and writer."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "unknown").lower()).strip("-")
+    return slug or "unknown"
 
 
 class DecisionCategory(str, Enum):
@@ -20,11 +27,17 @@ class DecisionCategory(str, Enum):
     DIAGNOSTIC = "diagnostic"
 
 
+class Extraction(BaseModel):
+    function: str
+    params: dict = Field(default_factory=dict)
+
+
 class DecisionVariable(BaseModel):
     name: str
     type: str
     description: str | None = None
     codes: list[str] | None = None
+    extraction: Extraction | None = None
     """Clinical terminology codes for this variable.
 
     Format: ``["<system-url>|<code>", ...]`` using the FHIR token search

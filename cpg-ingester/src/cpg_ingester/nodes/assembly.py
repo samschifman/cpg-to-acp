@@ -69,11 +69,12 @@ def _check_integrity(recommendations: list[dict], dmn_results: list[dict], cpg_m
     errors = []
     cpg_id = cpg_metadata.get("cpg_id", "")
 
-    rec_ids = [r.get("id") for r in recommendations]
+    rec_ids = [r.get("id") for r in recommendations if r.get("id") is not None]
     if len(rec_ids) != len(set(rec_ids)):
         errors.append("Duplicate recommendation IDs found")
 
-    dmn_ids = [d.get("decision_model_summary", {}).get("id") for d in dmn_results]
+    dmn_ids = [d.get("decision_model_summary", {}).get("id") for d in dmn_results
+               if d.get("decision_model_summary", {}).get("id") is not None]
     if len(dmn_ids) != len(set(dmn_ids)):
         errors.append("Duplicate decision model IDs found")
 

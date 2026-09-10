@@ -16,6 +16,7 @@ from cpg_contracts import (
     CPGMetadata,
     DecisionModelSummary,
     DecisionVariable,
+    decision_model_id,
     Recommendation,
     RecommendationBundle,
     RecommendationSearchRequest,
@@ -107,12 +108,14 @@ def _extract_codes(input_data_el: ET.Element) -> list[str]:
     ext = input_data_el.find("{*}extensionElements")
     if ext is not None:
         for child in ext:
+            if child.tag.rsplit("}", 1)[-1] == "extraction":
+                continue
             system = child.get("system", "")
             code = child.get("code", "")
             if system and code:
                 codes.append(f"{system}|{code}")
             elif child.text:
-                codes.extend(_CODE_TOKEN_RE.findall(child.text))
+                codes.extend(f"{system}|{code}" for system, code in _CODE_TOKEN_RE.findall(child.text))
 
     if not codes:
         desc_el = input_data_el.find("{*}description")
@@ -131,12 +134,30 @@ def _extract_description(input_data_el: ET.Element) -> str | None:
     return None
 
 
+def _extract_extraction(input_data_el: ET.Element) -> dict | None:
+    ext = input_data_el.find("{*}extensionElements")
+    if ext is None:
+        return None
+    for child in ext:
+        if child.tag.rsplit("}", 1)[-1] != "extraction":
+            continue
+        try:
+            payload = json.loads("".join(child.itertext()).strip())
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed DMN extraction annotation")
+            return None
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
 def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
     """Extract model name, inputs, and outputs from DMN XML."""
     root = ET.fromstring(dmn_xml)
 
     model_name = root.get("name", "unknown")
-    model_id = model_name.lower().replace(" ", "-")
+    stable_id = decision_model_id(model_name)
+    root_id = root.get("id")
+    model_id = root_id if root_id == stable_id else stable_id
 
     inputs = []
     for input_data in root.findall("{*}inputData"):
@@ -144,11 +165,13 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
         if var is not None:
             codes = _extract_codes(input_data)
             desc = _extract_description(input_data)
+            extraction = _extract_extraction(input_data)
             inputs.append(DecisionVariable(
                 name=var.get("name", ""),
                 type=var.get("typeRef", "string"),
                 codes=codes or None,
                 description=desc,
+                extraction=extraction,
             ))
 
     if not inputs:
@@ -364,6 +387,7 @@ async def deploy_decision_model(
     request: Request,
     source_cpg: str | None = None,
     validate_only: bool = False,
+    replace: bool = False,
 ):
     content_type = request.headers.get("content-type", "")
     body = await request.body()
@@ -384,6 +408,18 @@ async def deploy_decision_model(
 
     if source_cpg:
         summary.source_cpg = source_cpg
+
+    existing = _dynamic_models.get(summary.id)
+    if (existing and source_cpg and existing["summary"].source_cpg
+            and existing["summary"].source_cpg != source_cpg and not replace):
+        logger.warning("Rejecting model id collision: %s (%s vs %s)", summary.id,
+                       existing["summary"].source_cpg, source_cpg)
+        return JSONResponse(status_code=409, content={
+            "error": "Decision model id already belongs to another source CPG",
+            "model_id": summary.id,
+            "existing_source_cpg": existing["summary"].source_cpg,
+            "source_cpg": source_cpg,
+        })
 
     _dynamic_models[summary.id] = {
         "summary": summary,

@@ -18,6 +18,7 @@ from cpg_ingester.generation import (
     generate_all,
 )
 from cpg_ingester.nodes.dmn_creator import _build_feedback
+from cpg_ingester.nodes.dmn_creator import _ensure_model_id, _ensure_extraction_annotations
 from cpg_ingester.reference.dmn_error_patterns import (
     format_error_pattern_hints,
     match_error_patterns,
@@ -70,6 +71,19 @@ class TestEscalateNode:
 
 
 class TestRepairFeedback:
+    def test_creator_embeds_stable_model_id(self):
+        xml = '<definitions name="Treatment Recommendation"></definitions>'
+        assert 'id="treatment-recommendation"' in _ensure_model_id(xml, "treatment-recommendation")
+
+    def test_creator_emits_extraction_annotation(self):
+        xml = '<definitions><inputData name="Systolic BP"><variable name="Systolic BP"/></inputData></definitions>'
+        result = _ensure_extraction_annotations(xml, [{
+            "name": "Systolic BP",
+            "extraction": {"function": "observation_count", "params": {"duration": "P3M"}},
+        }])
+        assert "acp:extraction" in result
+        assert "observation_count" in result
+
     def test_renders_both_sections_and_previous_xml(self):
         fb = _build_feedback(["missing hitPolicy"], ["threshold wrong"], "<definitions/>")
         assert "Syntax errors to fix" in fb
@@ -128,6 +142,28 @@ class TestGenerateAllNoSilentDrop:
         entry = result["dmn_results"][0]
         assert entry["escalated"] is True
         assert entry["escalation_reason"] == "generation-exception"
+
+    def test_accepted_decision_carries_model_summary(self):
+        graph = MagicMock()
+        graph.invoke = MagicMock(return_value={"dmn_xml": "<definitions/>"})
+        state = {
+            "item_manifest": [{
+                "type": "decision", "name": "Treatment Recommendation", "section": "S1",
+                "category": "treatment", "inputs": [{"name": "BP", "type": "number"}],
+                "outputs": ["Action"], "page_start": 3, "page_end": 4,
+                "model_id": "treatment-recommendation", "id": "guid-1",
+            }],
+            "cpg_metadata": {"cpg_id": "CPG-1"}, "markdown": "", "section_map": [],
+        }
+        with patch.object(generation, "_build_dmn_subgraph") as mock_builder, \
+             patch.object(generation, "_build_rec_subgraph") as mock_rec:
+            mock_builder.return_value.compile.return_value = graph
+            mock_rec.return_value.compile.return_value = MagicMock(invoke=MagicMock(return_value={}))
+            result = generate_all(state)
+        summary = result["dmn_results"][0]["decision_model_summary"]
+        assert summary["id"] == "treatment-recommendation"
+        assert summary["source_cpg"] == "CPG-1"
+        assert summary["source_location"]["page_start"] == 3
 
     def test_empty_result_becomes_flagged_entry(self):
         graph = MagicMock()

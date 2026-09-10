@@ -121,6 +121,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: replace
+          in: query
+          required: false
+          description: Replace an existing model when its source CPG differs.
+          schema:
+            type: boolean
+            default: false
       requestBody:
         required: true
         content:
@@ -147,6 +154,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DMNValidationError"
+        "409":
+          description: Model ID belongs to a different source CPG
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           description: Engine validation unavailable for validate-only requests
           content:
@@ -589,6 +602,15 @@ components:
           enum: [string, number, boolean]
         description:
           type: string
+        extraction:
+          type: object
+          nullable: true
+          properties:
+            function:
+              type: string
+            params:
+              type: object
+              additionalProperties: true
         codes:
           type: array
           items:

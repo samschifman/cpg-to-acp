@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+             xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/"
+             id="definitions_atp_iii_lipid_classification"
+             name="ATP III Lipid and Lipoprotein Classification"
+             namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
+
+  <inputData id="input_ldl_cholesterol" name="LDL Cholesterol">
+    <variable id="var_ldl_cholesterol" name="LDL Cholesterol" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_total_cholesterol" name="Total Cholesterol">
+    <variable id="var_total_cholesterol" name="Total Cholesterol" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_hdl_cholesterol" name="HDL Cholesterol">
+    <variable id="var_hdl_cholesterol" name="HDL Cholesterol" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_triglycerides" name="Triglycerides">
+    <variable id="var_triglycerides" name="Triglycerides" typeRef="number"/>
+  </inputData>
+
+  <decision id="decision_atp_iii_lipid_classification" name="ATP III Lipid and Lipoprotein Classification">
+    <variable id="var_decision_atp_iii_lipid_classification" name="ATP III Lipid and Lipoprotein Classification" typeRef="Any"/>
+
+    <informationRequirement id="ir_ldl_cholesterol">
+      <requiredInput href="#input_ldl_cholesterol"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_total_cholesterol">
+      <requiredInput href="#input_total_cholesterol"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_hdl_cholesterol">
+      <requiredInput href="#input_hdl_cholesterol"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_triglycerides">
+      <requiredInput href="#input_triglycerides"/>
+    </informationRequirement>
+
+    <decisionTable id="dt_atp_iii_lipid_classification" hitPolicy="UNIQUE" preferredOrientation="Rule-as-Row">
+      <input id="inp_ldl_cholesterol">
+        <inputExpression id="ie_ldl_cholesterol" typeRef="number">
+          <text><![CDATA[LDL Cholesterol]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_total_cholesterol">
+        <inputExpression id="ie_total_cholesterol" typeRef="number">
+          <text><![CDATA[Total Cholesterol]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_hdl_cholesterol">
+        <inputExpression id="ie_hdl_cholesterol" typeRef="number">
+          <text><![CDATA[HDL Cholesterol]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_triglycerides">
+        <inputExpression id="ie_triglycerides" typeRef="number">
+          <text><![CDATA[Triglycerides]]></text>
+        </inputExpression>
+      </input>
+
+      <output id="out_ldl_category" name="LDL category" typeRef="string"/>
+      <output id="out_total_cholesterol_category" name="Total cholesterol category" typeRef="string"/>
+      <output id="out_hdl_flag" name="HDL flag" typeRef="string"/>
+      <output id="out_triglyceride_category" name="Triglyceride category" typeRef="string"/>
+
+      <rule id="rule_classify_atp_iii_lipids">
+        <description>Classify LDL cholesterol, total cholesterol, HDL cholesterol, and triglycerides according to ATP III thresholds.</description>
+        <inputEntry id="ie_rule_ldl"><text><![CDATA[-]]></text></inputEntry>
+        <inputEntry id="ie_rule_total_cholesterol"><text><![CDATA[-]]></text></inputEntry>
+        <inputEntry id="ie_rule_hdl"><text><![CDATA[-]]></text></inputEntry>
+        <inputEntry id="ie_rule_triglycerides"><text><![CDATA[-]]></text></inputEntry>
+        <outputEntry id="oe_rule_ldl_category">
+          <text><![CDATA[if LDL Cholesterol < 100 then "optimal" else if LDL Cholesterol < 130 then "near/above optimal" else if LDL Cholesterol < 160 then "borderline high" else if LDL Cholesterol < 190 then "high" else "very high"]]></text>
+        </outputEntry>
+        <outputEntry id="oe_rule_total_cholesterol_category">
+          <text><![CDATA[if Total Cholesterol < 200 then "desirable" else if Total Cholesterol < 240 then "borderline high" else "high"]]></text>
+        </outputEntry>
+        <outputEntry id="oe_rule_hdl_flag">
+          <text><![CDATA[if HDL Cholesterol < 40 then "low" else if HDL Cholesterol >= 60 then "high" else "none"]]></text>
+        </outputEntry>
+        <outputEntry id="oe_rule_triglyceride_category">
+          <text><![CDATA[if Triglycerides < 150 then "normal" else if Triglycerides < 200 then "borderline high" else if Triglycerides < 500 then "high" else "very high"]]></text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+
+</definitions>

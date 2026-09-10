@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/"
+             xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/"
+             id="definitions_adult_lipoprotein_screening"
+             name="Adult Lipoprotein Screening and Nonfasting Follow-up"
+             namespace="https://www.omg.org/spec/DMN/20211108/MODEL/">
+
+  <inputData id="input_age" name="Age">
+    <variable id="var_age" name="Age" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_years_since_last_fasting_profile" name="Years Since Last Fasting Lipoprotein Profile">
+    <variable id="var_years_since_last_fasting_profile" name="Years Since Last Fasting Lipoprotein Profile" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_testing_is_nonfasting" name="Testing Is Nonfasting">
+    <variable id="var_testing_is_nonfasting" name="Testing Is Nonfasting" typeRef="boolean"/>
+  </inputData>
+
+  <inputData id="input_total_cholesterol" name="Total Cholesterol">
+    <variable id="var_total_cholesterol" name="Total Cholesterol" typeRef="number"/>
+  </inputData>
+
+  <inputData id="input_hdl_cholesterol" name="HDL Cholesterol">
+    <variable id="var_hdl_cholesterol" name="HDL Cholesterol" typeRef="number"/>
+  </inputData>
+
+  <decision id="decision_adult_lipoprotein_screening" name="Adult Lipoprotein Screening and Nonfasting Follow-up">
+    <variable id="var_decision_adult_lipoprotein_screening" name="Adult Lipoprotein Screening and Nonfasting Follow-up" typeRef="string"/>
+
+    <informationRequirement id="ir_age">
+      <requiredInput href="#input_age"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_years_since_last_fasting_profile">
+      <requiredInput href="#input_years_since_last_fasting_profile"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_testing_is_nonfasting">
+      <requiredInput href="#input_testing_is_nonfasting"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_total_cholesterol">
+      <requiredInput href="#input_total_cholesterol"/>
+    </informationRequirement>
+
+    <informationRequirement id="ir_hdl_cholesterol">
+      <requiredInput href="#input_hdl_cholesterol"/>
+    </informationRequirement>
+
+    <decisionTable id="dt_adult_lipoprotein_screening" hitPolicy="FIRST" preferredOrientation="Rule-as-Row">
+      <input id="inp_age">
+        <inputExpression id="ie_age" typeRef="number">
+          <text><![CDATA[Age]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_years_since_last_fasting_profile">
+        <inputExpression id="ie_years_since_last_fasting_profile" typeRef="number">
+          <text><![CDATA[Years Since Last Fasting Lipoprotein Profile]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_testing_is_nonfasting">
+        <inputExpression id="ie_testing_is_nonfasting" typeRef="boolean">
+          <text><![CDATA[Testing Is Nonfasting]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_total_cholesterol">
+        <inputExpression id="ie_total_cholesterol" typeRef="number">
+          <text><![CDATA[Total Cholesterol]]></text>
+        </inputExpression>
+      </input>
+
+      <input id="inp_hdl_cholesterol">
+        <inputExpression id="ie_hdl_cholesterol" typeRef="number">
+          <text><![CDATA[HDL Cholesterol]]></text>
+        </inputExpression>
+      </input>
+
+      <output id="out_recommendation" name="Recommendation" typeRef="string"/>
+
+      <rule id="rule_nonfasting_high_total_cholesterol">
+        <description>Adult with nonfasting total cholesterol of 200 mg/dL or greater requires fasting follow-up for LDL-based management.</description>
+        <inputEntry id="ie_rule1_age">
+          <text><![CDATA[>= 20]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule1_years">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule1_nonfasting">
+          <text><![CDATA[true]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule1_total_cholesterol">
+          <text><![CDATA[>= 200]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule1_hdl_cholesterol">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <outputEntry id="oe_rule1_recommendation">
+          <text><![CDATA["Obtain follow-up fasting lipoprotein profile"]]></text>
+        </outputEntry>
+      </rule>
+
+      <rule id="rule_nonfasting_low_hdl_cholesterol">
+        <description>Adult with nonfasting total cholesterol below 200 mg/dL and HDL cholesterol below 40 mg/dL requires fasting follow-up for LDL-based management.</description>
+        <inputEntry id="ie_rule2_age">
+          <text><![CDATA[>= 20]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule2_years">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule2_nonfasting">
+          <text><![CDATA[true]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule2_total_cholesterol">
+          <text><![CDATA[< 200]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule2_hdl_cholesterol">
+          <text><![CDATA[< 40]]></text>
+        </inputEntry>
+        <outputEntry id="oe_rule2_recommendation">
+          <text><![CDATA["Obtain follow-up fasting lipoprotein profile"]]></text>
+        </outputEntry>
+      </rule>
+
+      <rule id="rule_routine_fasting_profile_due">
+        <description>Adult with a fasting testing opportunity whose last fasting complete lipoprotein profile was at least five years ago is due for routine screening.</description>
+        <inputEntry id="ie_rule3_age">
+          <text><![CDATA[>= 20]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule3_years">
+          <text><![CDATA[>= 5]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule3_nonfasting">
+          <text><![CDATA[false]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule3_total_cholesterol">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule3_hdl_cholesterol">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <outputEntry id="oe_rule3_recommendation">
+          <text><![CDATA["Obtain fasting complete lipoprotein profile every 5 years"]]></text>
+        </outputEntry>
+      </rule>
+
+      <rule id="rule_fasting_profile_not_currently_due">
+        <description>Adult with a fasting testing opportunity whose last fasting complete lipoprotein profile was less than five years ago is not currently due for routine testing.</description>
+        <inputEntry id="ie_rule4_age">
+          <text><![CDATA[>= 20]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule4_years">
+          <text><![CDATA[< 5]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule4_nonfasting">
+          <text><![CDATA[false]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule4_total_cholesterol">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule4_hdl_cholesterol">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <outputEntry id="oe_rule4_recommendation">
+          <text><![CDATA["No routine test currently due"]]></text>
+        </outputEntry>
+      </rule>
+
+      <rule id="rule_nonfasting_screen_normal">
+        <description>Adult with a nonfasting screening sample showing total cholesterol below 200 mg/dL and HDL cholesterol of at least 40 mg/dL does not require follow-up fasting testing based on these results.</description>
+        <inputEntry id="ie_rule5_age">
+          <text><![CDATA[>= 20]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule5_years">
+          <text><![CDATA[-]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule5_nonfasting">
+          <text><![CDATA[true]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule5_total_cholesterol">
+          <text><![CDATA[< 200]]></text>
+        </inputEntry>
+        <inputEntry id="ie_rule5_hdl_cholesterol">
+          <text><![CDATA[>= 40]]></text>
+        </inputEntry>
+        <outputEntry id="oe_rule5_recommendation">
+          <text><![CDATA["No routine test currently due"]]></text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+
+</definitions>

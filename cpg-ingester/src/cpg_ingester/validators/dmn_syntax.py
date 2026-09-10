@@ -1,5 +1,6 @@
 """Deterministic DMN syntax validation — XML, structure, and FEEL lints."""
 
+import json
 import logging
 import re
 from collections import Counter
@@ -22,6 +23,10 @@ VALID_HIT_POLICIES = {
 }
 VALID_TYPE_REFS = {
     "string", "number", "boolean", "date", "time", "dateTime", "duration", "Any",
+}
+VALID_EXTRACTION_FUNCTIONS = {
+    "observations_in_window", "observation_count", "consecutive_above",
+    "rate_of_change", "cross_resource_temporal",
 }
 
 _NUMBER = r"-?(?:\d+(?:\.\d+)?|\.\d+)"
@@ -293,6 +298,42 @@ def check_feel_names(root: etree._Element) -> tuple[list[str], list[str]]:
     return _result(errors)
 
 
+def check_extraction_annotations(root: etree._Element) -> tuple[list[str], list[str]]:
+    """Validate the optional JSON temporal extraction carrier."""
+    errors = []
+    token_re = re.compile(r"^https?://[^|\s]+\|[^|\s]+$")
+    duration_re = re.compile(r"^P(?:\d+[YMWD])+$")
+    for element in _elements(root, "extraction"):
+        raw = "".join(element.itertext()).strip()
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            errors.append("Extraction annotation must contain a JSON object")
+            continue
+        if not isinstance(payload, dict) or payload.get("function") not in VALID_EXTRACTION_FUNCTIONS:
+            errors.append(
+                f"Unknown temporal extraction function: "
+                f"{payload.get('function') if isinstance(payload, dict) else '?'}"
+            )
+            continue
+        params = payload.get("params")
+        if not isinstance(params, dict):
+            errors.append("Temporal extraction params must be a JSON object")
+            continue
+        for key, value in params.items():
+            if key in {"code", "anchor_code", "target_code"} and (
+                not isinstance(value, str) or not token_re.fullmatch(value)
+            ):
+                errors.append(f"Temporal extraction parameter '{key}' must be a system|code token")
+            if key in {"duration", "window"} and (
+                not isinstance(value, str) or not duration_re.fullmatch(value)
+            ):
+                errors.append(f"Temporal extraction parameter '{key}' must be an ISO-8601 duration")
+        if "threshold" in params and not isinstance(params["threshold"], (int, float)):
+            errors.append("Temporal extraction threshold must be numeric")
+    return _result(errors)
+
+
 def _check_existing_structure(root: etree._Element) -> tuple[list[str], list[str]]:
     """Retain the original table-shape checks while the deeper lints are added."""
     errors = []
@@ -392,6 +433,7 @@ def validate_dmn(dmn_xml: str) -> tuple[list[str], list[str]]:
         check_type_refs,
         check_hit_policies,
         check_feel_names,
+        check_extraction_annotations,
     )
     for check in checks:
         check_errors, check_warnings = check(root)

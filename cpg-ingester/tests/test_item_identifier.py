@@ -187,6 +187,16 @@ class TestAssignGUIDs:
         assert result[0]["cross_references"][0] == result[1]["id"]
         assert result[1]["cross_references"][0] == result[0]["id"]
 
+    def test_decisions_get_stable_model_ids_without_replacing_item_guids(self):
+        items = [
+            {"type": "decision", "name": "Treatment Recommendation", "cross_references": []},
+            {"type": "recommendation", "title": "DASH Diet", "cross_references": []},
+        ]
+        result = _assign_guids(items)
+        assert result[0]["model_id"] == "treatment-recommendation"
+        assert len(result[0]["id"]) == 36
+        assert "model_id" not in result[1]
+
     def test_resolves_modifies(self):
         items = [
             {"type": "recommendation", "title": "Base Rec", "cross_references": []},

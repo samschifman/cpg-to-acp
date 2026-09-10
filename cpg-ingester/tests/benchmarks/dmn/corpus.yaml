@@ -66,4 +66,101 @@ corpora:
 # decision tables — §3.2 Treatment and §3.3 Monitoring — both covered above.
 # §3.1 (patient-assessment checklist) and §3.4 (lifestyle counseling) are not
 # conditional decision logic, so there are no further decisions to author
-# goldens for. Additional corpora (diabetes, a real CPG) are added later.
+# goldens for.
+  diabetes:
+    source_cpg: data/synthetic-diabetes-cpg.md
+    decisions:
+      - id: diabetes-treatment
+        name: Glycemic Treatment Decision
+        golden: data/golden/diabetes-treatment.dmn
+        source_section:
+          heading: "2.1 Glycemic Treatment Decision"
+        hit_policy: UNIQUE
+        inputs:
+          - {name: HbA1c, type: number, description: "HbA1c measurement"}
+        outputs:
+          - {name: Treatment, type: string}
+        representative_inputs:
+          - inputs: {HbA1c: 9.5}
+            expect: {Treatment: "Combination therapy"}
+          - inputs: {HbA1c: 8.0}
+            expect: {Treatment: "Metformin plus lifestyle"}
+      - id: diabetes-monitoring
+        name: Diabetes Monitoring Plan
+        golden: data/golden/diabetes-monitoring.dmn
+        source_section:
+          heading: "2.2 Diabetes Monitoring Plan"
+        hit_policy: UNIQUE
+        inputs:
+          - {name: Treatment, type: string}
+        outputs:
+          - {name: Follow-up Months, type: number}
+        representative_inputs:
+          - inputs: {Treatment: "Combination therapy"}
+            expect: {"Follow-up Months": 3}
+          - inputs: {Treatment: "Metformin plus lifestyle"}
+            expect: {"Follow-up Months": 6}
+
+  atp_iii:
+    source_cpg: data/atp-iii-cholesterol-cpg.md
+    decisions:
+      - id: adult-lipoprotein-screening
+        name: Adult Lipoprotein Screening and Nonfasting Follow-up
+        golden: data/golden/adult-lipoprotein-screening.dmn
+        source_section:
+          heading: "Risk Assessment: First Step in Risk Management"
+        hit_policy: FIRST
+        inputs:
+          - {name: Age, type: number}
+          - {name: Years Since Last Fasting Lipoprotein Profile, type: number}
+          - {name: Testing Is Nonfasting, type: boolean}
+          - {name: Total Cholesterol, type: number}
+          - {name: HDL Cholesterol, type: number}
+        outputs:
+          - {name: Recommendation, type: string}
+        representative_inputs:
+          - inputs: {Age: 45, Years Since Last Fasting Lipoprotein Profile: 6, Testing Is Nonfasting: false, Total Cholesterol: 180, HDL Cholesterol: 50}
+            expect: {Recommendation: "Obtain fasting lipoprotein profile"}
+          - inputs: {Age: 45, Years Since Last Fasting Lipoprotein Profile: 1, Testing Is Nonfasting: true, Total Cholesterol: 210, HDL Cholesterol: 50}
+            expect: {Recommendation: "Obtain follow-up fasting lipoprotein profile"}
+      - id: atp-iii-lipid-classification
+        name: ATP III Lipid and Lipoprotein Classification
+        golden: data/golden/atp-iii-lipid-classification.dmn
+        source_section:
+          heading: "Risk Assessment: First Step in Risk Management"
+        hit_policy: UNIQUE
+        inputs:
+          - {name: LDL Cholesterol, type: number}
+          - {name: Total Cholesterol, type: number}
+          - {name: HDL Cholesterol, type: number}
+          - {name: Triglycerides, type: number}
+        outputs:
+          - {name: LDL category, type: string}
+          - {name: Total cholesterol category, type: string}
+          - {name: HDL flag, type: string}
+          - {name: Triglyceride category, type: string}
+        representative_inputs:
+          - inputs: {LDL Cholesterol: 95, Total Cholesterol: 180, HDL Cholesterol: 65, Triglycerides: 120}
+            expect: {"LDL category": "optimal", "Total cholesterol category": "desirable", "HDL flag": "high", "Triglyceride category": "normal"}
+          - inputs: {LDL Cholesterol: 170, Total Cholesterol: 250, HDL Cholesterol: 35, Triglycerides: 250}
+            expect: {"LDL category": "high", "Total cholesterol category": "high", "HDL flag": "low", "Triglyceride category": "high"}
+      - id: ldl-lowering-risk-category
+        name: LDL-Lowering Risk Category Assignment
+        golden: data/golden/ldl-lowering-risk-category.dmn
+        source_section:
+          heading: "Risk Assessment: First Step in Risk Management"
+        hit_policy: FIRST
+        inputs:
+          - {name: Established CHD, type: boolean}
+          - {name: Other Clinical Atherosclerotic Disease, type: boolean}
+          - {name: Diabetes, type: boolean}
+          - {name: Adjusted Major Risk-Factor Count, type: number}
+          - {name: Ten-Year CHD Risk, type: number}
+        outputs:
+          - {name: Risk category, type: string}
+          - {name: LDL goal, type: string}
+        representative_inputs:
+          - inputs: {Established CHD: true, Other Clinical Atherosclerotic Disease: false, Diabetes: false, Adjusted Major Risk-Factor Count: 0, Ten-Year CHD Risk: 5}
+            expect: {Risk category: "CHD/CHD risk equivalent", "LDL goal": "<100 mg/dL"}
+          - inputs: {Established CHD: false, Other Clinical Atherosclerotic Disease: false, Diabetes: false, Adjusted Major Risk-Factor Count: 1, Ten-Year CHD Risk: 5}
+            expect: {Risk category: "0-1 risk factor", "LDL goal": "<160 mg/dL"}

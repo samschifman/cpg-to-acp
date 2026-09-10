@@ -68,6 +68,21 @@ class TestPipelineWiredInExecutor:
         assert value == 138
         assert ref is not None
 
+    def test_explicit_temporal_extraction_precedes_most_recent(self):
+        bundle = _load("htn-temporal-01.json")
+        inventory = build_bundle_inventory(bundle)
+        value, ref, audit = _extract_input_value(
+            bundle, "Systolic BP", "number", {},
+            inventory=inventory,
+            extraction={"function": "observation_count", "params": {
+                "code": "http://loinc.org|8480-6", "duration": "P3M",
+            }},
+            reference_date="2026-06-01",
+        )
+        assert value == 5
+        assert ref is not None
+        assert audit["match_basis"] == "decision_variable_extraction"
+
     def test_absent_concept_definitive_miss(self):
         """Concept genuinely absent from bundle → definitive miss → False."""
         bundle = _load("messy-data-01.json")
