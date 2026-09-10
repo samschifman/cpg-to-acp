@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import mlflow
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
 from cpg_contracts import (
     CPGMetadata,
@@ -189,14 +190,54 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
 @mlflow.trace(span_type="TOOL", name="evaluate_jit_dmn")
 def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     """Evaluate DMN via the JIT endpoint on the decision-service."""
+    from acp_writer.tools.dmn_evaluation import DmnEngineError
+
     dmn_b64 = base64.b64encode(dmn_xml.encode()).decode()
     r = requests.post(
         f"{KOGITO_URL}/jit/dmn",
         json={"dmn_xml_base64": dmn_b64, "inputs": inputs},
         timeout=30,
     )
+    if 400 <= r.status_code < 500:
+        raise DmnEngineError.from_response(r)
     r.raise_for_status()
     return r.json()
+
+
+@mlflow.trace(span_type="TOOL", name="validate_dmn_with_engine")
+def _validate_dmn_with_engine(dmn_xml: str) -> dict | None:
+    """Validate DMN with KIE, returning ``None`` when the engine is unavailable.
+
+    Deployment remains available when the optional decision engine is down. The
+    caller distinguishes that fail-open path from an engine response with
+    ``valid: false`` and rejects only the latter.
+    """
+    dmn_b64 = base64.b64encode(dmn_xml.encode()).decode()
+    try:
+        response = requests.post(
+            f"{KOGITO_URL}/jit/dmn/validate",
+            json={"dmn_xml_base64": dmn_b64},
+            timeout=30,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict) or "valid" not in result:
+            raise ValueError("decision engine returned an invalid validation response")
+        return result
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("DMN engine validation unavailable; accepting model provisionally: %s", exc)
+        return None
+
+
+def _validation_failure_response(validation: dict) -> JSONResponse:
+    messages = validation.get("messages", [])
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "DMN engine validation failed",
+            "messages": messages,
+        },
+    )
 
 
 # --- Health ---
@@ -319,7 +360,11 @@ async def update_careplan_status(careplan_id: str, request: Request):
 
 
 @app.post("/api/v1/decisions/models", status_code=201)
-async def deploy_decision_model(request: Request, source_cpg: str | None = None):
+async def deploy_decision_model(
+    request: Request,
+    source_cpg: str | None = None,
+    validate_only: bool = False,
+):
     content_type = request.headers.get("content-type", "")
     body = await request.body()
     dmn_xml = body.decode("utf-8")
@@ -328,6 +373,14 @@ async def deploy_decision_model(request: Request, source_cpg: str | None = None)
         summary = _parse_dmn_metadata(dmn_xml)
     except ET.ParseError as e:
         raise HTTPException(status_code=400, detail=f"Invalid DMN XML: {e}")
+
+    validation = _validate_dmn_with_engine(dmn_xml)
+    if validation is not None and not validation.get("valid", False):
+        return _validation_failure_response(validation)
+    if validate_only:
+        if validation is None:
+            raise HTTPException(status_code=503, detail="Decision engine validation unavailable")
+        return JSONResponse(status_code=200, content=validation)
 
     if source_cpg:
         summary.source_cpg = source_cpg

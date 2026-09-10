@@ -14,6 +14,7 @@ import mlflow
 
 from acp_writer.state import CarePlanComposerState
 from acp_writer.tools.dmn_evaluation import (
+    DmnEngineError,
     DmnEvaluationClient,
     ModelNotDeployed,
     get_evaluation_client,
@@ -328,6 +329,21 @@ def dmn_executor(state: CarePlanComposerState) -> dict:
                 "input_resolution": input_audit,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": "Model not deployed",
+            })
+
+        except DmnEngineError as exc:
+            logger.error("DMN engine rejected %s: %s", model_id, exc.messages)
+            audit_trail.append({
+                "model_id": model_id,
+                "model_name": model_info.get("name", model_id),
+                "inputs": inputs,
+                "outputs": {},
+                "fhir_references": fhir_refs,
+                "input_resolution": input_audit,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": str(exc),
+                "error_status": exc.status_code,
+                "error_messages": exc.messages,
             })
 
         except Exception as e:

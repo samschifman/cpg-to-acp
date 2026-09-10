@@ -1,9 +1,11 @@
 package com.redhat.cpg;
 
 import java.io.ByteArrayInputStream;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.Consumes;
@@ -20,6 +22,9 @@ import org.kie.dmn.api.core.DMNModel;
 import org.kie.dmn.api.core.DMNResult;
 import org.kie.dmn.api.core.DMNRuntime;
 import org.kie.dmn.core.internal.utils.DMNRuntimeBuilder;
+import org.kie.dmn.api.core.DMNMessage;
+import org.kie.dmn.validation.DMNValidator;
+import org.kie.dmn.validation.DMNValidatorFactory;
 
 @Path("/jit/dmn")
 public class JitDmnResource {
@@ -27,6 +32,75 @@ public class JitDmnResource {
     public static class JitRequest {
         public String dmn_xml_base64;
         public Map<String, Object> inputs;
+    }
+
+    public static class ValidationRequest {
+        public String dmn_xml_base64;
+    }
+
+    /**
+     * Validate a DMN document using the same KIE validator used by the engine.
+     * Schema validation remains the ingester's responsibility; this endpoint
+     * checks the model, compilation, and decision-table analysis layers.
+     */
+    @POST
+    @Path("/validate")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response validate(ValidationRequest request) {
+        if (request == null || request.dmn_xml_base64 == null) {
+            return Response.status(400)
+                .entity(Map.of("error", "dmn_xml_base64 is required"))
+                .build();
+        }
+
+        final String dmnXml;
+        try {
+            dmnXml = new String(
+                Base64.getDecoder().decode(request.dmn_xml_base64),
+                StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return Response.status(400)
+                .entity(Map.of("error", "dmn_xml_base64 is not valid Base64"))
+                .build();
+        }
+
+        try {
+            DMNValidator validator = DMNValidatorFactory.newValidator();
+            List<DMNMessage> messages = validator.validate(
+                new StringReader(dmnXml),
+                DMNValidator.Validation.VALIDATE_MODEL,
+                DMNValidator.Validation.VALIDATE_COMPILATION,
+                DMNValidator.Validation.ANALYZE_DECISION_TABLE);
+
+            List<Map<String, Object>> responseMessages = messages.stream()
+                .map(JitDmnResource::validationMessage)
+                .toList();
+            boolean valid = messages.stream()
+                .noneMatch(message -> message.getSeverity() == DMNMessage.Severity.ERROR);
+
+            return Response.ok(Map.of(
+                "valid", valid,
+                "messages", responseMessages)).build();
+        } catch (Exception e) {
+            return Response.status(500)
+                .entity(Map.of("error", "DMN validation failed: " + e.getMessage()))
+                .build();
+        }
+    }
+
+    private static Map<String, Object> validationMessage(DMNMessage message) {
+        return Map.of(
+            "severity", message.getSeverity().name(),
+            "text", message.getMessage());
+    }
+
+    private static Map<String, Object> engineError(String error, String text) {
+        return Map.of(
+            "error", error,
+            "messages", List.of(Map.of(
+                "severity", DMNMessage.Severity.ERROR.name(),
+                "text", text == null ? error : text)));
     }
 
     @POST
@@ -44,10 +118,17 @@ public class JitDmnResource {
             var resource = new InputStreamResource(
                 new ByteArrayInputStream(dmnBytes));
 
-            DMNRuntime runtime = DMNRuntimeBuilder.fromDefaults()
-                .buildConfiguration()
-                .fromResources(java.util.Collections.singletonList(resource))
-                .getOrElseThrow(e -> new RuntimeException("Failed to build DMN runtime: " + e));
+            DMNRuntime runtime;
+            try {
+                runtime = DMNRuntimeBuilder.fromDefaults()
+                    .buildConfiguration()
+                    .fromResources(java.util.Collections.singletonList(resource))
+                    .getOrElseThrow(e -> new RuntimeException("Failed to build DMN runtime: " + e));
+            } catch (Exception e) {
+                return Response.status(422)
+                    .entity(engineError("DMN compilation errors", e.getMessage()))
+                    .build();
+            }
 
             var models = runtime.getModels();
             if (models.isEmpty()) {
@@ -70,7 +151,7 @@ public class JitDmnResource {
                     .entity(Map.of(
                         "error", "DMN evaluation errors",
                         "messages", result.getMessages().stream()
-                            .map(m -> m.getText())
+                            .map(JitDmnResource::validationMessage)
                             .toList()))
                     .build();
             }

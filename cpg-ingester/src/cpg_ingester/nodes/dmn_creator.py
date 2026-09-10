@@ -14,14 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 def _build_feedback(syntax_errors: list, semantic_discrepancies: list,
-                    previous_dmn_xml: str) -> str:
+                    previous_dmn_xml: str, engine_errors: list | None = None) -> str:
     """Assemble repair-mode feedback: previous attempt + all labeled errors.
 
     Both error kinds are rendered when both are present (no masking), and matched
     known-error patterns are appended so the model gets a concrete fix, not just
     the raw message.
     """
-    if not syntax_errors and not semantic_discrepancies:
+    engine_errors = engine_errors or []
+    if not syntax_errors and not semantic_discrepancies and not engine_errors:
         return ""
 
     sections = [
@@ -36,8 +37,12 @@ def _build_feedback(syntax_errors: list, semantic_discrepancies: list,
     if semantic_discrepancies:
         sections.append("## Semantic discrepancies to fix\n"
                         + "\n".join(f"- {d}" for d in semantic_discrepancies))
+    if engine_errors:
+        sections.append("## Engine validation errors to fix\n"
+                        + "\n".join(f"- {e}" for e in engine_errors))
 
-    hints = format_error_pattern_hints(list(syntax_errors) + list(semantic_discrepancies))
+    hints = format_error_pattern_hints(
+        list(syntax_errors) + list(semantic_discrepancies) + list(engine_errors))
     if hints:
         sections.append("## Known error patterns\n" + hints)
 
@@ -82,6 +87,7 @@ def dmn_creator(state: dict) -> dict:
     output_dir = state.get("output_dir", "output")
     syntax_errors = state.get("syntax_errors", [])
     semantic_discrepancies = state.get("semantic_discrepancies", [])
+    engine_errors = state.get("engine_errors", [])
     previous_dmn_xml = state.get("dmn_xml", "")
 
     name = item.get("name", "Unknown Decision")
@@ -91,7 +97,8 @@ def dmn_creator(state: dict) -> dict:
     inputs = item.get("inputs", [])
     outputs = item.get("outputs", [])
 
-    feedback = _build_feedback(syntax_errors, semantic_discrepancies, previous_dmn_xml)
+    feedback = _build_feedback(
+        syntax_errors, semantic_discrepancies, previous_dmn_xml, engine_errors)
 
     abbr_str = "\n".join(f"- {k}: {v}" for k, v in abbreviations.items()) if abbreviations else "(none)"
 
@@ -124,7 +131,7 @@ def dmn_creator(state: dict) -> dict:
     # independently so one loop cannot exhaust the other's budget.
     syntax_retry_count = state.get("syntax_retry_count", 0)
     semantic_retry_count = state.get("semantic_retry_count", 0)
-    if syntax_errors:
+    if syntax_errors or engine_errors:
         syntax_retry_count += 1
     if semantic_discrepancies:
         semantic_retry_count += 1
@@ -137,6 +144,8 @@ def dmn_creator(state: dict) -> dict:
         "syntax_errors": [],
         "syntax_warnings": [],
         "semantic_discrepancies": [],
+        "engine_errors": [],
+        "engine_validation_warnings": [],
         "syntax_retry_count": syntax_retry_count,
         "semantic_retry_count": semantic_retry_count,
     }

@@ -10,8 +10,15 @@ Security profile: Kogito runtime + MinIO only (no LLM, no MaaS).
 import logging
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
-from acp_writer.api import _dynamic_models, _parse_dmn_metadata, _evaluate_jit
+from acp_writer.api import (
+    _dynamic_models,
+    _parse_dmn_metadata,
+    _evaluate_jit,
+    _validate_dmn_with_engine,
+    _validation_failure_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +34,21 @@ def health():
 
 
 @app.post("/api/v1/decisions/models", status_code=201)
-async def deploy_decision_model(request: Request, source_cpg: str | None = None):
+async def deploy_decision_model(
+    request: Request,
+    source_cpg: str | None = None,
+    validate_only: bool = False,
+):
     body = await request.body()
     dmn_xml = body.decode("utf-8")
     summary = _parse_dmn_metadata(dmn_xml)
+    validation = _validate_dmn_with_engine(dmn_xml)
+    if validation is not None and not validation.get("valid", False):
+        return _validation_failure_response(validation)
+    if validate_only:
+        if validation is None:
+            raise HTTPException(status_code=503, detail="Decision engine validation unavailable")
+        return JSONResponse(status_code=200, content=validation)
     if source_cpg:
         summary.source_cpg = source_cpg
     _dynamic_models[summary.id] = {"summary": summary, "dmn_xml": dmn_xml}

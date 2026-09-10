@@ -45,8 +45,11 @@ def find_resources(bundle: dict, resource_type: str) -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
-def clear_models():
+def clear_models(monkeypatch):
     """Clear dynamic models between tests."""
+    # Deployment validation is covered by test_dmn_validation.py. Keep the
+    # broad integration suite independent of a running decision-service.
+    monkeypatch.setattr("acp_writer.api._validate_dmn_with_engine", lambda _: None)
     _dynamic_models.clear()
     yield
     _dynamic_models.clear()

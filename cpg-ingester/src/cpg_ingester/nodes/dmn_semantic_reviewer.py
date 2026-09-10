@@ -16,6 +16,27 @@ from cpg_ingester.prompts.dmn_semantic_reviewer import (
 logger = logging.getLogger(__name__)
 
 
+def _validate_review_result(result: dict) -> dict:
+    """Validate the reviewer contract before using its claims for routing."""
+    if not isinstance(result, dict):
+        raise ValueError("reviewer response must be a JSON object")
+    claims = result.get("claims_checked")
+    if not isinstance(claims, list):
+        raise ValueError("reviewer response must include a claims_checked list")
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            raise ValueError(f"reviewer claim {index} is not an object")
+        if claim.get("severity") not in {"CRITICAL", "MINOR"}:
+            raise ValueError(
+                f"reviewer claim {index} must include severity CRITICAL or MINOR"
+            )
+        if claim.get("verdict") not in {"VERIFIED", "DISCREPANCY"}:
+            raise ValueError(
+                f"reviewer claim {index} must include verdict VERIFIED or DISCREPANCY"
+            )
+    return result
+
+
 @mlflow.trace(name="dmn_semantic_reviewer")
 def dmn_semantic_reviewer(state: dict) -> dict:
     """Adversarial review of generated DMN against source material."""
@@ -61,7 +82,7 @@ def dmn_semantic_reviewer(state: dict) -> dict:
     logger.info("LLM responded in %.1fs", time.time() - t0)
 
     try:
-        result = _parse_llm_json(content_to_text(response.content))
+        result = _validate_review_result(_parse_llm_json(content_to_text(response.content)))
     except (json.JSONDecodeError, ValueError):
         # One structured re-ask before giving up — the model often recovers when
         # explicitly told its previous reply was not valid JSON.
@@ -72,7 +93,7 @@ def dmn_semantic_reviewer(state: dict) -> dict:
                          "the JSON object, no prose and no code fences."})
         response = llm.invoke(messages)
         try:
-            result = _parse_llm_json(content_to_text(response.content))
+            result = _validate_review_result(_parse_llm_json(content_to_text(response.content)))
         except (json.JSONDecodeError, ValueError):
             logger.warning("Semantic review for '%s' still unparseable — escalating", name)
             return {
@@ -83,9 +104,17 @@ def dmn_semantic_reviewer(state: dict) -> dict:
                 "escalation_reason": "reviewer-unparseable",
             }
 
-    discrepancies_found = result.get("discrepancies_found", False)
-    discrepancies = result.get("discrepancies", [])
     claims = result.get("claims_checked", [])
+
+    critical_discrepancies = [
+        claim for claim in claims
+        if claim.get("verdict") == "DISCREPANCY" and claim.get("severity") == "CRITICAL"
+    ]
+    discrepancies = [
+        claim.get("feedback") or claim.get("evidence") or claim.get("claim", "")
+        for claim in critical_discrepancies
+    ]
+    discrepancies_found = bool(discrepancies)
 
     verified = sum(1 for c in claims if c.get("verdict") == "VERIFIED")
     failed = sum(1 for c in claims if c.get("verdict") == "DISCREPANCY")

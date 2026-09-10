@@ -4,12 +4,16 @@ repair-mode feedback, escalation propagation, and the no-silent-drop guarantee.
 
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from cpg_ingester import generation
 from cpg_ingester.generation import (
     MAX_DMN_SEMANTIC_RETRIES,
     MAX_DMN_SYNTAX_RETRIES,
     _dmn_escalate,
+    _route_after_dmn_engine,
     _route_after_dmn_semantic,
+    dmn_engine_preflight,
     _route_after_dmn_syntax,
     generate_all,
 )
@@ -46,6 +50,11 @@ class TestSeparateBudgets:
     def test_clean_semantic_accepts(self):
         assert _route_after_dmn_semantic({"semantic_discrepancies": []}) == "dmn_accept"
 
+    def test_engine_errors_share_syntax_retry_budget(self):
+        assert _route_after_dmn_engine({"engine_errors": ["compile failed"], "syntax_retry_count": 0}) == "dmn_creator"
+        assert _route_after_dmn_engine({"engine_errors": ["compile failed"], "syntax_retry_count": MAX_DMN_SYNTAX_RETRIES}) == "dmn_escalate"
+        assert _route_after_dmn_engine({"engine_errors": []}) == "dmn_complete"
+
 
 class TestEscalateNode:
     def test_records_syntax_budget_reason(self):
@@ -68,6 +77,11 @@ class TestRepairFeedback:
         assert "<definitions/>" in fb
         assert "missing hitPolicy" in fb
         assert "threshold wrong" in fb
+
+    def test_renders_engine_validation_section(self):
+        fb = _build_feedback([], [], "<definitions/>", ["unknown variable 'age'"])
+        assert "Engine validation errors to fix" in fb
+        assert "unknown variable 'age'" in fb
 
     def test_empty_when_no_errors(self):
         assert _build_feedback([], [], "<definitions/>") == ""
@@ -148,3 +162,35 @@ class TestGenerateAllNoSilentDrop:
         assert result["dmn_results"][0]["validation_warnings"] == [
             "FIRST is order-dependent"
         ]
+
+
+class TestDmnEnginePreflight:
+    def test_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("DMN_PREFLIGHT_URL", raising=False)
+        result = dmn_engine_preflight({"dmn_xml": "<definitions/>"})
+        assert result == {"engine_errors": [], "engine_validation_warnings": []}
+
+    @patch("cpg_ingester.generation.requests.post")
+    def test_engine_errors_feed_repair_loop(self, mock_post, monkeypatch):
+        monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
+        response = MagicMock(status_code=422, ok=False)
+        response.json.return_value = {
+            "messages": [{"severity": "ERROR", "text": "FEEL compilation failed"}],
+        }
+        mock_post.return_value = response
+
+        result = dmn_engine_preflight({"dmn_xml": "<definitions/>"})
+
+        assert result["engine_errors"] == ["FEEL compilation failed"]
+        assert result["engine_validation_warnings"] == []
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].endswith("?validate_only=true")
+
+    @patch("cpg_ingester.generation.requests.post", side_effect=requests.ConnectionError("offline"))
+    def test_unreachable_engine_continues_with_warning(self, _mock_post, monkeypatch):
+        monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
+
+        result = dmn_engine_preflight({"dmn_xml": "<definitions/>"})
+
+        assert result["engine_errors"] == []
+        assert "DMN preflight unavailable" in result["engine_validation_warnings"][0]

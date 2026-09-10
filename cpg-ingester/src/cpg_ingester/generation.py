@@ -6,8 +6,11 @@ no Docling, no structure analyzer, no assembly/delivery.
 """
 
 import logging
+import os
 import re
 
+import mlflow
+import requests
 from langgraph.graph import END, START, StateGraph
 
 from cpg_ingester.nodes.dmn_creator import dmn_creator
@@ -101,13 +104,83 @@ def _dmn_escalate(state: DMNPipelineState) -> dict:
     if not reason:
         if state.get("syntax_errors"):
             reason = "syntax-budget-exhausted"
+        elif state.get("engine_errors"):
+            reason = "engine-validation-budget-exhausted"
         elif state.get("semantic_discrepancies"):
             reason = "semantic-budget-exhausted"
         else:
             reason = "unknown"
-    errors = state.get("syntax_errors") or state.get("semantic_discrepancies") or []
+    errors = (
+        state.get("syntax_errors")
+        or state.get("engine_errors")
+        or state.get("semantic_discrepancies")
+        or []
+    )
     logger.warning("DMN escalated for human review: %s (%s)", name, reason)
     return {"escalated": True, "escalation_reason": reason, "escalation_errors": list(errors)}
+
+
+@mlflow.trace(name="dmn_engine_preflight")
+def dmn_engine_preflight(state: DMNPipelineState) -> dict:
+    """Optionally validate an accepted DMN against the KIE engine."""
+    preflight_url = os.environ.get("DMN_PREFLIGHT_URL", "").strip()
+    if not preflight_url:
+        return {"engine_errors": [], "engine_validation_warnings": []}
+
+    separator = "&" if "?" in preflight_url else "?"
+    url = f"{preflight_url}{separator}validate_only=true"
+    try:
+        response = requests.post(
+            url,
+            data=state.get("dmn_xml", ""),
+            headers={"Content-Type": "application/xml"},
+            timeout=15,
+        )
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+
+        if response.status_code == 422 or (
+            response.ok and isinstance(payload, dict) and not payload.get("valid", True)
+        ):
+            messages = payload.get("messages", []) if isinstance(payload, dict) else []
+            errors = [
+                message.get("text", str(message)) if isinstance(message, dict) else str(message)
+                for message in messages
+            ]
+            return {
+                "engine_errors": errors or ["DMN engine validation failed"],
+                "engine_validation_warnings": [],
+            }
+
+        if not response.ok:
+            logger.warning(
+                "DMN preflight unavailable (%s); continuing without engine validation",
+                response.status_code,
+            )
+            return {
+                "engine_errors": [],
+                "engine_validation_warnings": [
+                    f"DMN preflight unavailable (HTTP {response.status_code})"
+                ],
+            }
+    except requests.RequestException as exc:
+        logger.warning("DMN preflight unavailable; continuing without engine validation: %s", exc)
+        return {
+            "engine_errors": [],
+            "engine_validation_warnings": [f"DMN preflight unavailable: {exc}"],
+        }
+
+    return {"engine_errors": [], "engine_validation_warnings": []}
+
+
+def _route_after_dmn_engine(state: DMNPipelineState) -> str:
+    if not state.get("engine_errors"):
+        return "dmn_complete"
+    if state.get("syntax_retry_count", 0) >= MAX_DMN_SYNTAX_RETRIES:
+        return "dmn_escalate"
+    return "dmn_creator"
 
 
 # --- Rec subgraph routing ---
@@ -146,6 +219,7 @@ def _build_dmn_subgraph() -> StateGraph:
     graph.add_node("dmn_creator", dmn_creator)
     graph.add_node("dmn_syntax_validator", dmn_syntax_validator)
     graph.add_node("dmn_semantic_reviewer", dmn_semantic_reviewer)
+    graph.add_node("dmn_engine_preflight", dmn_engine_preflight)
     graph.add_node("dmn_accept", _dmn_accept)
     graph.add_node("dmn_escalate", _dmn_escalate)
 
@@ -161,7 +235,12 @@ def _build_dmn_subgraph() -> StateGraph:
         "dmn_creator": "dmn_creator",
         "dmn_escalate": "dmn_escalate",
     })
-    graph.add_edge("dmn_accept", END)
+    graph.add_edge("dmn_accept", "dmn_engine_preflight")
+    graph.add_conditional_edges("dmn_engine_preflight", _route_after_dmn_engine, {
+        "dmn_complete": END,
+        "dmn_creator": "dmn_creator",
+        "dmn_escalate": "dmn_escalate",
+    })
     graph.add_edge("dmn_escalate", END)
 
     return graph
@@ -265,6 +344,10 @@ def generate_all(state: dict) -> dict:
         }
         if result.get("syntax_warnings"):
             entry["validation_warnings"] = list(result["syntax_warnings"])
+        if result.get("engine_validation_warnings"):
+            entry.setdefault("validation_warnings", []).extend(
+                result["engine_validation_warnings"]
+            )
         if result.get("escalated"):
             entry["escalated"] = True
             entry["escalation_reason"] = result.get("escalation_reason", "")

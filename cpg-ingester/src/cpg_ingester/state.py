@@ -52,6 +52,8 @@ class DMNPipelineState(TypedDict, total=False):
     syntax_errors: list[str]
     syntax_warnings: list[str]
     semantic_discrepancies: list[str]
+    engine_errors: list[str]
+    engine_validation_warnings: list[str]
     syntax_retry_count: int
     semantic_retry_count: int
     escalated: bool
