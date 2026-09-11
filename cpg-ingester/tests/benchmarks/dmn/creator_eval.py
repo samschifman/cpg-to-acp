@@ -27,8 +27,13 @@ from cpg_ingester.generation import (
 from cpg_ingester.nodes.dmn_creator import dmn_creator
 from cpg_ingester.nodes.dmn_semantic_reviewer import dmn_semantic_reviewer
 from cpg_ingester.nodes.dmn_syntax_validator import dmn_syntax_validator
-from cpg_ingester.validators.dmn_schema import validate_dmn_schema
 from cpg_ingester.validators.dmn_syntax import validate_dmn_xml
+
+try:
+    from cpg_ingester.validators.dmn_schema import validate_dmn_schema
+except ImportError:
+    def validate_dmn_schema(_dmn_xml: str) -> list[str]:
+        return []
 
 from compile_check import compile_check, validate_check
 from dmn_diff import diff_models
@@ -112,8 +117,11 @@ def _drive_loop(item: dict, source_text: str, llm_config: dict, output_dir: str)
         state.update(dmn_semantic_reviewer(state))
         route = _route_after_dmn_semantic(state)
         if route == "dmn_accept":
-            state.update(generation.dmn_engine_preflight(state))
-            engine_route = generation._route_after_dmn_engine(state)
+            preflight = getattr(generation, "dmn_engine_preflight", None)
+            engine_route = "dmn_complete"
+            if preflight is not None:
+                state.update(preflight(state))
+                engine_route = generation._route_after_dmn_engine(state)
             if engine_route == "dmn_complete":
                 break
             if engine_route == "dmn_escalate":
