@@ -43,9 +43,10 @@ graph TD
 An explicit `DecisionVariable.extraction` annotation takes precedence when a
 CPG requires a temporal aggregation. It names one of the five temporal
 primitives and carries JSON parameters; the executor records the function,
-parameters, data quality, and FHIR provenance in the audit trail. If the
-annotation is absent or has insufficient data, normal chained-result and
-patient-data resolution continues.
+parameters, data quality, and FHIR provenance in the audit trail. An explicit
+annotation is authoritative: if it fails or has insufficient data, the input
+is reported unresolved with its temporal audit rather than falling back to a
+most-recent value.
 
 ### Layer 2: Prior DMN Results
 
@@ -83,7 +84,11 @@ Each extracted input records:
 - `match_basis` — which pipeline step produced the resolution (cache, terminology, display_text, llm_inventory, definitive_miss, prior_dmn, decision_variable_codes)
 - `steps_run` — which pipeline steps were attempted
 - `degraded` — whether the LLM step was unavailable
-- FHIR provenance references
+- FHIR provenance references (`fhir_references` is a flat list; temporal extraction may contribute multiple references)
+
+An explicit extraction annotation is authoritative: if it fails, the input is
+reported unresolved with its temporal audit rather than falling back to the
+most-recent observation pipeline.
 
 ## Answer Verification (Guardrails)
 
@@ -119,6 +124,10 @@ All extraction functions are in `acp-writer/src/acp_writer/tools/ips_extractor.p
 | `extract_patient_age` | Patient | Computed age in years from birthDate relative to a reference date. |
 
 ## Temporal Queries
+
+The screening golden's "Years Since Last Fasting Lipoprotein Profile" input is
+currently a documented temporal-data gap because no extraction primitive
+computes time since the last observation.
 
 For explicit DMN temporal annotations and QA questions, the system builds an
 in-memory **temporal index** (`acp-writer/src/acp_writer/tools/temporal_index.py`)

@@ -251,6 +251,12 @@ paths:
           description: Model not found
         "400":
           description: Invalid input data
+        "422":
+          description: DMN engine rejected the evaluation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DMNValidationError"
 
   # --- Knowledge Base (Recommendations) ---
 
@@ -625,9 +631,9 @@ components:
           enum: [TRACE, INFO, WARN, ERROR]
         text:
           type: string
-        line:
-          type: integer
-          minimum: 1
+        source_id:
+          type: string
+          description: KIE source identifier for the validation message, when available
 
     DMNValidationError:
       type: object

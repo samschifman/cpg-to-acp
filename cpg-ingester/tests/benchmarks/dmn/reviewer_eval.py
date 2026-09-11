@@ -6,14 +6,16 @@ must pass (a flag on a clean model is a false escalation); defective variants
 should be flagged (recall). Metrics are computed per defect class.
 
 A subset of the corpus is designated *holdout* (never used to drive prompt
-tuning) to guard against overfitting the reviewer to the
-synthetic injectors — see ``config.yaml``.
+tuning) to guard against overfitting the reviewer to the synthetic injectors —
+see ``config.yaml``.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+
+import mlflow
 
 from cpg_ingester.generation import _extract_section_text
 from cpg_ingester.nodes.dmn_semantic_reviewer import dmn_semantic_reviewer
@@ -51,6 +53,7 @@ class ReviewerCase:
     error: str = ""
 
 
+@mlflow.trace(name="dmn_benchmark_run_reviewer")
 def _run_reviewer(dmn_xml: str, name: str, source_text: str, llm_config: dict,
                   output_dir: str) -> dict:
     clean_tree = _parse(dmn_xml)
@@ -86,6 +89,7 @@ def _targets(desc: DefectDescriptor, discrepancies: list[str]) -> bool:
     return False
 
 
+@mlflow.trace(name="dmn_benchmark_reviewer_suite")
 def run_reviewer_suite(corpus: dict, markdown: str, llm_config: dict,
                        output_dir: str, holdout_classes: set[str],
                        repo_root, return_cases: bool = False) -> dict:

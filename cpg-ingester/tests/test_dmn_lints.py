@@ -10,6 +10,7 @@ from cpg_ingester.validators.dmn_syntax import (
     check_feel_names,
     check_extraction_annotations,
     check_hit_policies,
+    check_definitions_namespace,
     check_ids_and_references,
     check_input_expressions,
     check_raw_xml,
@@ -69,6 +70,25 @@ def test_variable_names_accept_match_and_reject_mismatch():
                                  'id="variable_age" name="Patient Age"')
     errors, _ = check_variable_names(_root(mismatch))
     assert any("does not match parent name" in error for error in errors)
+
+
+def test_definitions_namespace_requires_per_model_target_namespace():
+    assert check_definitions_namespace(_root()) == ([], [])
+
+    language_namespace = VALID_DMN.replace(
+        "namespace=\"https://redhat.com/cpg-to-acp/dmn/example\"",
+        "namespace=\"https://www.omg.org/spec/DMN/20211108/MODEL/\"",
+    )
+    errors, warnings = check_definitions_namespace(_root(language_namespace))
+    assert any("must not equal the DMN language namespace" in error for error in errors)
+    assert warnings == []
+
+    missing_namespace = VALID_DMN.replace(
+        ' namespace="https://redhat.com/cpg-to-acp/dmn/example"', ""
+    )
+    errors, warnings = check_definitions_namespace(_root(missing_namespace))
+    assert errors == []
+    assert any("missing or should start" in warning for warning in warnings)
 
 
 def test_input_expressions_accept_declared_name_and_reject_unknown_name():
@@ -145,14 +165,14 @@ def test_extraction_annotations_validate_function_and_parameters():
     valid = VALID_DMN.replace(
         '<variable id="variable_age" name="Age" typeRef="number"/>',
         '<extensionElements><acp:extraction xmlns:acp="https://redhat.com/cpg-to-acp/dmn">'
-        '<![CDATA[{"function":"observation_count","params":{"code":"http://loinc.org|8480-6","duration":"P3M","threshold":140}}]]>'
+        '<![CDATA[{"function":"observation_count","params":{"code":"http://loinc.org|8480-6","duration":"P3M","threshold":140,"comparator":"ge"}}]]>'
         '</acp:extraction></extensionElements>\n'
         '<variable id="variable_age" name="Age" typeRef="number"/>',
     )
     assert check_extraction_annotations(_root(valid)) == ([], [])
     invalid = valid.replace('"observation_count"', '"not_a_function"')
     errors, _ = check_extraction_annotations(_root(invalid))
-    assert any("Unknown temporal extraction function" in error for error in errors)
+    assert any("Extraction annotation" in error for error in errors)
 
 
 def test_raw_xml_accepts_clean_cdata_and_rejects_entities_and_controls():
@@ -166,10 +186,34 @@ def test_raw_xml_accepts_clean_cdata_and_rejects_entities_and_controls():
 
 
 def test_goldens_have_no_errors_and_first_policy_warning_is_non_blocking():
+    first_warning_count = 0
     for golden in GOLDEN_DIR.glob("*.dmn"):
         errors, warnings = validate_dmn(golden.read_text())
         assert errors == [], f"{golden.name}: {errors}"
         assert all("FIRST is order-dependent" in warning for warning in warnings)
+        first_warning_count += sum("FIRST is order-dependent" in warning for warning in warnings)
+    assert first_warning_count > 0
+
+
+def test_feel_lint_rejects_unknown_types_boolean_case_and_smart_quotes():
+    unknown = VALID_DMN.replace('typeRef="number"', 'typeRef="decimal"', 1)
+    errors, _ = check_type_refs(_root(unknown))
+    assert any("unknown typeRef" in error for error in errors)
+
+    for value in ("True", "FALSE", '“Adult”'):
+        xml = VALID_DMN.replace('"Adult"', value)
+        errors, _ = check_feel_entries(_root(xml))
+        assert errors, value
+
+
+def test_input_expression_must_be_declared_by_that_decision():
+    extra = VALID_DMN.replace(
+        "</definitions>",
+        '<inputData id="input_other" name="Other"><variable name="Other" typeRef="number"/></inputData>'
+        "</definitions>",
+    ).replace("<![CDATA[Age]]>", "<![CDATA[Other]]>")
+    errors, _ = check_input_expressions(_root(extra))
+    assert any("does not match" in error for error in errors)
 
 
 def test_validator_node_returns_warnings_separately_from_retry_errors():

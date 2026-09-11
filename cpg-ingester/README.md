@@ -51,6 +51,9 @@ Environment variables (alternative to CLI flags):
 - `LITELLM_URL` — LiteLLM proxy URL (default: `http://localhost:4000`)
 - `LLM_MODEL` — Model name (default: `default`)
 - `LITELLM_API_KEY` — API key (default: `sk-change-me`)
+- `DMN_PREFLIGHT_URL` — optional decision-service validation endpoint; when set,
+  accepted DMN is validated at `<url>?validate_only=true` and failures feed the
+  repair loop. Unset means preflight is disabled.
 
 Docling / figure knobs (all optional; blank or unset means the default):
 - `INGESTION_OCR_ENABLED` — run the conditional OCR re-parse for scanned/image-only
@@ -81,6 +84,13 @@ Each run writes to an output directory (`output/<run-id>/`):
 | `classification-review-*.json` | Adversarial review reports |
 | `dmn/*.dmn` | Generated DMN 1.4 XML files |
 | `dmn-review-*.json` | DMN semantic review reports |
+| `recommendations-*.json` | Extracted recommendations per section |
+| `rec-review-*.json` | Recommendation semantic review reports |
+| `recommendation-bundle.json` | Assembled RecommendationBundle |
+| `assembly-report.json` | Integrity check results |
+| `escalated-items.json` | Items needing human review (if any) |
+| `delivery-status.json` | API delivery results |
+| `run-summary.json` | Overall run summary |
 
 Decision model IDs are stable slugs of the manifest decision name (for example,
 `Treatment Recommendation` becomes `treatment-recommendation`). The same ID is
@@ -89,13 +99,6 @@ redeploy updates the intended model rather than creating a second name-derived
 identity. Inputs with explicit temporal language may also carry an
 `acp:extraction` JSON annotation naming one of the supported temporal
 primitives and its parameters; ordinary inputs omit the annotation.
-| `recommendations-*.json` | Extracted recommendations per section |
-| `rec-review-*.json` | Recommendation semantic review reports |
-| `recommendation-bundle.json` | Assembled RecommendationBundle |
-| `assembly-report.json` | Integrity check results |
-| `escalated-items.json` | Items needing human review (if any) |
-| `delivery-status.json` | API delivery results |
-| `run-summary.json` | Overall run summary |
 
 ### Legacy commands (still available)
 
@@ -138,7 +141,11 @@ Every extraction step has a two-layer review:
 | DMN | XML/XSD/FEEL/structure checks | Claim-level source comparison |
 | Recommendations | Pydantic/enum/cross-ref checks | Content faithfulness review |
 
-Review loops retry up to 2 times, then escalate to human review.
+Syntax review retries up to 3 times and semantic review retries up to 2 times,
+then escalates to human review.
+
+The manifest-fed DMN benchmark and its offline tests are documented in
+[`tests/benchmarks/dmn/README.md`](tests/benchmarks/dmn/README.md).
 
 ## Tracing
 

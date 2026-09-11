@@ -714,3 +714,8 @@ Points U.S. DEPARTMENT OF HEALTH AND HUMAN SERVICES Public Health Service Nation
 | ≥ 25          | ≥ 30             |
 
 30
+
+<!-- Provenance: NIH Publication No. 01-3670, ATP III Executive Summary, May
+2001. This US Government work is public domain. Extracted with Docling from
+the PDF. -->
+`<!-- image -->` placeholders are extraction artifacts.

@@ -38,14 +38,69 @@ ERROR_PATTERNS: list[ErrorPattern] = [
     ErrorPattern(
         match="XML parse error",
         cause="A raw <, > or & in a FEEL expression breaks XML well-formedness.",
-        fix="Escape operators (&lt; &gt; &amp;) or wrap the FEEL text in a "
-            "<![CDATA[ ... ]]> section. Never leave a bare < or & in element text.",
+        fix="Wrap the FEEL text in <![CDATA[ ... ]]>; never use XML entities inside CDATA.",
     ),
     ErrorPattern(
         match="Wrong namespace",
         cause="The definitions element uses the wrong DMN MODEL namespace URI.",
         fix="Use the exact DMN MODEL namespace URI required by this project on "
             "the root <definitions> element.",
+    ),
+    ErrorPattern(
+        match="No matching global declaration available for the validation root",
+        cause="The XML root is not in the DMN 1.4 MODEL namespace.",
+        fix="Use https://www.omg.org/spec/DMN/20211108/MODEL/ as the root xmlns.",
+    ),
+    ErrorPattern(
+        match="This element is not expected",
+        cause="DMN children are in an order not accepted by the schema.",
+        fix="Order children as description, extensionElements, variable, informationRequirement, then the expression; put input/output before rule.",
+    ),
+    ErrorPattern(
+        match="is not a valid value of the atomic type 'xs:ID'",
+        cause="An XML id is not unique or is not a valid NCName.",
+        fix="Use unique XML ids with no spaces and no leading digit.",
+    ),
+    ErrorPattern(
+        match="unsupported FEEL unary test",
+        cause="An input entry uses a FEEL form outside the supported unary-test subset.",
+        fix="Use comparisons, ranges, quoted strings, booleans, null, contains(?, \"text\"), or valid and/or/not combinations.",
+    ),
+    ErrorPattern(
+        match="string literal must be quoted",
+        cause="A string output entry is a bare FEEL word or phrase.",
+        fix="Wrap the literal in double quotes.",
+    ),
+    ErrorPattern(
+        match="CDATA contains XML entities",
+        cause="FEEL text contains entity references inside CDATA.",
+        fix="Write the literal FEEL operator directly inside CDATA; do not use &lt;, &gt;, or &amp; there.",
+    ),
+    ErrorPattern(
+        match="does not resolve to an existing id",
+        cause="An information requirement points to an absent element.",
+        fix="Set the href to the #id of an existing inputData or decision.",
+    ),
+    ErrorPattern(
+        match="PRIORITY requires outputValues",
+        cause="A PRIORITY table is missing its output precedence values.",
+        fix="Add outputValues containing an ordered value list to every output column, or use FIRST/UNIQUE.",
+    ),
+    ErrorPattern(
+        match="name contains FEEL token 'in'",
+        cause="A FEEL-scoped name contains the reserved token in.",
+        fix="Rename the decision, inputData, or scoped variable without FEEL keywords.",
+    ),
+    ErrorPattern(
+        match="starts with FEEL keyword",
+        cause="A FEEL-scoped name starts with a reserved keyword.",
+        fix="Rename the decision, inputData, or scoped variable so it does not start with a FEEL keyword.",
+    ),
+    ErrorPattern(
+        match="definitions namespace must not equal the DMN language namespace",
+        cause="The definitions target namespace was copied from the DMN language namespace.",
+        fix="Set definitions/@namespace to a unique per-model URI beginning with "
+            "https://redhat.com/cpg-to-acp/dmn/.",
     ),
     ErrorPattern(
         match="missing hitPolicy",
@@ -95,7 +150,7 @@ ERROR_PATTERNS: list[ErrorPattern] = [
             "character for character.",
     ),
     ErrorPattern(
-        match=r"duplicate",
+        match="Duplicate id",
         regex=True,
         cause="Two elements share the same id (ids must be unique per document).",
         fix="Give every element a unique id; the definitions @id must differ from "

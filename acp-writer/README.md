@@ -202,11 +202,10 @@ The reviewer identity is a SMART-on-FHIR-ready seam: a request may override the 
 
 The DMN Executor extracts patient data from FHIR IPS bundles using a layered resolution strategy:
 
-1. **Prior DMN results** — chained decision outputs
-2. **DecisionVariable.extraction** — explicit temporal primitive plus parameters from the CPG manifest
+1. **DecisionVariable.extraction** — explicit temporal primitive plus parameters from the CPG manifest
+2. **Prior DMN results** — chained decision outputs
 3. **DecisionVariable.codes** — terminology codes from DMN metadata (when cpg-ingester provides them)
 4. **Concept resolver** — deterministic mapping of 60+ observation terms, 20+ conditions, drug classes, and computed values (age, BMI) to FHIR codes
-5. **KNOWN_VARIABLE_MAP** — legacy 6-entry hardcoded fallback
 
 Temporal queries (time-windowed counts, consecutive readings, rate of change)
 are handled by named primitives in `tools/temporal_queries.py`; explicit

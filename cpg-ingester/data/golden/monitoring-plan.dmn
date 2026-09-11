@@ -3,7 +3,7 @@
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
              xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/"
              xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
-             id="definitions_monitoring_plan"
+             id="monitoring-plan"
              name="Monitoring Plan"
              namespace="https://redhat.com/cpg-to-acp/dmn/monitoring-plan">
 
@@ -16,7 +16,7 @@
   </inputData>
 
   <decision id="decision_monitoring_plan" name="Monitoring Plan">
-    <variable id="var_decision_monitoring" name="Monitoring Plan" typeRef="string"/>
+    <variable id="var_decision_monitoring" name="Monitoring Plan" typeRef="Any"/>
     <informationRequirement id="ir1">
       <requiredInput href="#input_treatment_action"/>
     </informationRequirement>

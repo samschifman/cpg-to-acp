@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+import mlflow
+
 from cpg_ingester import generation
 from cpg_ingester.generation import (
     _extract_section_text,
@@ -73,13 +75,14 @@ class CreatorResult:
         return d
 
 
+@mlflow.trace(name="dmn_benchmark_drive_loop")
 def _drive_loop(item: dict, source_text: str, llm_config: dict, output_dir: str) -> CreatorResult:
     """Run creator→validate→(retry|review)→(retry|accept|escalate), instrumented."""
     res = CreatorResult(decision=item.get("name", "unknown"),
                         section_text_present=bool(source_text))
     state: dict = {
         "item": item,
-        "source_pages": source_text or item.get("source_pages", ""),
+        "source_pages": source_text,
         "output_dir": output_dir,
         "syntax_retry_count": 0,
         "semantic_retry_count": 0,
@@ -183,6 +186,7 @@ def _score_execution(res: CreatorResult, decision: dict, run_compile: bool) -> N
     res.execution_match_rate = round(sum(scored) / len(scored), 4) if scored else None
 
 
+@mlflow.trace(name="dmn_benchmark_creator_suite")
 def run_creator_suite(corpus: dict, markdown: str, llm_config: dict, output_dir: str,
                       repo_root, run_compile: bool = True,
                       return_records: bool = False) -> dict:
@@ -196,7 +200,7 @@ def run_creator_suite(corpus: dict, markdown: str, llm_config: dict, output_dir:
             "name": dec["name"],
             "type": "decision",
             "category": dec.get("category", "treatment"),
-            "hit_policy": dec.get("hit_policy", "FIRST"),
+            "hit_policy": dec.get("hit_policy", "UNIQUE"),
             "inputs": dec.get("inputs", []),
             "outputs": [o["name"] for o in dec.get("outputs", [])],
             "section": heading,
@@ -282,6 +286,7 @@ def _aggregate(results: list[CreatorResult]) -> dict:
     }
 
 
+@mlflow.trace(name="dmn_benchmark_score_generated_corpus")
 def score_generated_corpus(dmn_paths: list, run_compile: bool = True) -> dict:
     """L0 + compile validity for a directory of generated DMN (no goldens)."""
     rows = []

@@ -3,7 +3,7 @@
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
              xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/"
              xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
-             id="definitions_treatment_recommendation"
+             id="treatment-recommendation"
              name="Treatment Recommendation"
              namespace="https://redhat.com/cpg-to-acp/dmn/treatment-recommendation">
 
@@ -20,7 +20,7 @@
   </inputData>
 
   <decision id="decision_treatment_recommendation" name="Treatment Recommendation">
-    <variable id="var_decision_treatment" name="Treatment Recommendation" typeRef="string"/>
+    <variable id="var_decision_treatment" name="Treatment Recommendation" typeRef="Any"/>
     <informationRequirement id="ir1">
       <requiredInput href="#input_systolic_bp"/>
     </informationRequirement>

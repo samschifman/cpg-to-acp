@@ -7,4 +7,5 @@ Retrieved 2026-09-09 from the OMG DMN machine-readable specifications:
 - `DC.xsd`: https://www.omg.org/spec/DMN/20180521/DC.xsd
 - `DI.xsd`: https://www.omg.org/spec/DMN/20180521/DI.xsd
 
-The files are retained unmodified so the relative schema imports resolve locally.
+The files are byte-identical to the OMG originals after CRLF-to-LF
+normalization, so the relative schema imports resolve locally.

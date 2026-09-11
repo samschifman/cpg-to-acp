@@ -153,7 +153,7 @@ def dmn_creator(state: dict) -> dict:
     model_id = item.get("model_id") or decision_model_id(name)
     description = item.get("description", "")
     category = item.get("category", "treatment")
-    hit_policy = item.get("hit_policy", "FIRST")
+    hit_policy = item.get("hit_policy", "UNIQUE")
     inputs = item.get("inputs", [])
     outputs = item.get("outputs", [])
 
@@ -203,7 +203,6 @@ def dmn_creator(state: dict) -> dict:
 
     return {
         "dmn_xml": dmn_xml,
-        "previous_dmn_xml": previous_dmn_xml,
         "syntax_errors": [],
         "syntax_warnings": [],
         "semantic_discrepancies": [],

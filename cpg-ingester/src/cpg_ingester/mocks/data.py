@@ -156,7 +156,10 @@ ESCALATED_ITEMS = [
         "name": "Renal denervation for resistant hypertension",
         "type": "recommendation",
         "section": "7. Special Populations",
-        "reason": "Automated reviewers could not verify evidence quality — emerging intervention with limited long-term data.",
+        "escalation_reason": "reviewer-unparseable",
+        "escalation_errors": [
+            "Automated reviewers could not verify evidence quality — emerging intervention with limited long-term data."
+        ],
     },
 ]
 

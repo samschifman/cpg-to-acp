@@ -51,6 +51,9 @@ export interface DecisionResult {
   artifact_id?: string;
   dmn_xml: string;
   validation_warnings?: string[];
+  escalated?: boolean;
+  escalation_reason?: string;
+  escalation_errors?: string[];
   item: {
     name: string;
     type: string;
@@ -108,7 +111,8 @@ export interface EscalatedItem {
   name: string;
   type: string;
   section?: string;
-  reason?: string;
+  escalation_reason?: string;
+  escalation_errors?: string[];
 }
 
 export interface PublishedArtifact {

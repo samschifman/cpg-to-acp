@@ -35,6 +35,21 @@ class JitDmnResourceTest {
         assertEquals(false, body.get("valid"));
         assertNotNull(body.get("messages"));
         assertFalse(((java.util.List<?>) body.get("messages")).isEmpty());
+        assertTrue(((java.util.List<?>) body.get("messages")).stream()
+            .map(Object::toString)
+            .anyMatch(message -> message.contains("FEEL") || message.contains(">=")));
+    }
+
+    @Test
+    void tableGapIsReportedAsWarningNotError() {
+        Response response = resource.validate(request(validModel()));
+
+        Map<?, ?> body = (Map<?, ?>) response.getEntity();
+        assertEquals(true, body.get("valid"));
+        assertTrue(((java.util.List<?>) body.get("messages")).stream()
+            .map(Object::toString)
+            .anyMatch(message -> message.contains("WARN")
+                && message.toLowerCase().contains("gap")));
     }
 
     @Test
@@ -73,6 +88,16 @@ class JitDmnResourceTest {
         Map<?, ?> body = (Map<?, ?>) response.getEntity();
         assertEquals("DMN compilation errors", body.get("error"));
         assertFalse(((java.util.List<?>) body.get("messages")).isEmpty());
+    }
+
+    @Test
+    void malformedBase64OnEvaluateIsBadRequest() {
+        JitDmnResource.JitRequest request = new JitDmnResource.JitRequest();
+        request.dmn_xml_base64 = "not-base64";
+        request.inputs = Map.of();
+
+        assertEquals(400, resource.evaluate(request).getStatus());
+        assertEquals(400, resource.evaluate(null).getStatus());
     }
 
     private static JitDmnResource.ValidationRequest request(String xml) {

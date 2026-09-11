@@ -1,9 +1,13 @@
 # Synthetic Type 2 Diabetes Management Guideline
 
+*This is a synthetic clinical practice guideline created for demonstration and
+testing. It is not intended for clinical use and has not undergone formal
+clinical review.*
+
 ## 1. Scope
 
-This synthetic guideline addresses adults with newly diagnosed type 2 diabetes
-and an HbA1c measurement available at the initial visit.
+This synthetic guideline addresses adults with type 2 diabetes and an HbA1c
+measurement available at the initial visit.
 
 ## 2.1 Glycemic Treatment Decision
 
@@ -12,7 +16,7 @@ below 9, begin metformin together with lifestyle support.
 
 ### Decision Table 1: Glycemic Treatment Decision
 
-| HbA1c | Treatment |
+| HbA1c (%) | Treatment |
 | --- | --- |
 | >= 9 | Combination therapy |
 | < 9 | Metformin plus lifestyle |

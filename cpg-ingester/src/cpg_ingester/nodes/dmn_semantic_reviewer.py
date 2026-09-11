@@ -83,7 +83,7 @@ def dmn_semantic_reviewer(state: dict) -> dict:
 
     try:
         result = _validate_review_result(_parse_llm_json(content_to_text(response.content)))
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError:
         # One structured re-ask before giving up — the model often recovers when
         # explicitly told its previous reply was not valid JSON.
         logger.warning("Semantic review for '%s' was not valid JSON — re-asking", name)
@@ -92,17 +92,26 @@ def dmn_semantic_reviewer(state: dict) -> dict:
                          "Your previous reply was not valid JSON. Reply with only "
                          "the JSON object, no prose and no code fences."})
         response = llm.invoke(messages)
-        try:
-            result = _validate_review_result(_parse_llm_json(content_to_text(response.content)))
-        except (json.JSONDecodeError, ValueError):
-            logger.warning("Semantic review for '%s' still unparseable — escalating", name)
-            return {
-                "semantic_discrepancies": [
-                    "Semantic reviewer did not return valid JSON after a re-ask"
-                ],
-                "force_escalate": True,
-                "escalation_reason": "reviewer-unparseable",
-            }
+    except ValueError as exc:
+        logger.warning("Semantic review for '%s' failed schema validation — re-asking", name)
+        messages.append({"role": "assistant", "content": content_to_text(response.content)})
+        messages.append({"role": "user", "content":
+                         f"Your previous reply was valid JSON but did not match the required "
+                         f"schema: {exc}. Reply with only the corrected JSON object, no prose "
+                         "and no code fences."})
+        response = llm.invoke(messages)
+
+    try:
+        result = _validate_review_result(_parse_llm_json(content_to_text(response.content)))
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("Semantic review for '%s' still unparseable — escalating", name)
+        return {
+            "semantic_discrepancies": [
+                "Semantic reviewer did not return valid JSON after a re-ask"
+            ],
+            "force_escalate": True,
+            "escalation_reason": "reviewer-unparseable",
+        }
 
     claims = result.get("claims_checked", [])
 

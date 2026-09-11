@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from cpg_contracts import (
+    Extraction,
     CPGMetadata,
     DecisionModelSummary,
     Recommendation,
@@ -91,9 +92,27 @@ def test_decision_variable_extraction_roundtrip():
     variable = DecisionVariable(
         name="Systolic BP",
         type="number",
-        extraction={"function": "observation_count", "params": {"duration": "P3M"}},
+        extraction={"function": "observation_count", "params": {
+            "code": "http://loinc.org|8480-6", "duration": "P3M",
+        }},
     )
     assert DecisionVariable.model_validate(variable.model_dump()).extraction.params["duration"] == "P3M"
+
+
+def test_extraction_contract_rejects_invalid_parameters():
+    import pytest
+
+    with pytest.raises(ValueError, match="system\\|code"):
+        Extraction(function="observation_count", params={"code": "8480-6", "duration": "P3M"})
+    with pytest.raises(ValueError, match="comparator"):
+        Extraction(function="observation_count", params={
+            "code": "http://loinc.org|8480-6", "duration": "P3M",
+            "threshold": 9, "comparator": "gte",
+        })
+    with pytest.raises(ValueError, match="not boolean"):
+        Extraction(function="consecutive_above", params={
+            "code": "http://loinc.org|8480-6", "threshold": True, "comparator": "ge",
+        })
 
 
 def test_sample_fixture_roundtrip():

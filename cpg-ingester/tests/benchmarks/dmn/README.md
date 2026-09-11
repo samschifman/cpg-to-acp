@@ -92,6 +92,7 @@ corpus (skips the no-golden `real_corpora` directories).
 | **inputs_match_rate / outputs_match_rate / hit_policy_match_rate** | Fraction of decisions whose corresponding declarations match the golden. |
 | **threshold_exactness** | Fraction of matched rules whose numeric thresholds match the golden exactly. |
 | **mean_execution_match_rate** | Fraction of non-assumption representative inputs whose engine outputs match the expected values. |
+| **execution_match_rate** | Per-decision execution equivalence; the aggregate report exposes the mean of these rates. |
 | **compile_pass_rate** | Fraction whose DMN actually compiles in the decision service. |
 | **l0_pass_but_compile_fail** | Passed syntax validation but failed to compile — the gap the validator ladder must close. |
 
@@ -122,6 +123,8 @@ corpus (skips the no-golden `real_corpora` directories).
 - Assumption rules are carried in the goldens for complete engine tables but are
   excluded from rule-fidelity and execution denominators; they are named in the
   manifest and documented with the golden derivations.
+- An assumption rule is still consumed during matching, but an omitted one is
+  reported as `unmatched_assumption_rules` rather than a missing rule.
 - Holdout separation is a reporting convention enforced by process, not by code.
 - The `real_corpora` paths are machine-local and are skipped when absent.
 - `creator_eval.py` / `reviewer_eval.py` import the **production** nodes so the

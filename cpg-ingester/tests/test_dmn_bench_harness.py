@@ -1,5 +1,6 @@
 """Tests for harness scoring/classification logic (no network, no LLM)."""
 
+import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,7 @@ from creator_eval import CreatorResult, _aggregate, _score_execution, _source_te
 from reviewer_eval import ReviewerCase, _score
 from cpg_ingester.validators.dmn_schema import validate_dmn_schema
 from cpg_ingester.validators.dmn_syntax import validate_dmn
+from dmn_model import Interval, UNIVERSAL, ValueSet, normalize_unary, parse_dmn
 
 INGESTER_ROOT = Path(__file__).parent.parent
 
@@ -201,6 +203,7 @@ class TestCorpusManifest:
             for dec in corpus["decisions"]:
                 assert (INGESTER_ROOT / dec["golden"]).exists()
                 assert dec["representative_inputs"]
+                assert all(input_spec.get("description") for input_spec in dec["inputs"])
 
     def test_source_line_ranges_narrow_broad_sections(self):
         markdown = "one\ntwo\nthree\nfour"
@@ -227,3 +230,64 @@ class TestCorpusManifest:
                 assert validate_dmn_schema(xml) == []
                 errors, _warnings = validate_dmn(xml)
                 assert errors == []
+
+    def test_assumptions_are_declared_and_representatives_match_golden_rules(self):
+        manifest = yaml.safe_load((_BENCH / "corpus.yaml").read_text())
+        derivations = (INGESTER_ROOT / "data/golden/README.md").read_text().splitlines()
+        section = None
+        documented = {}
+        for line in derivations:
+            heading = re.match(r"^## .* \(`([^`]+)`\)$", line)
+            if heading:
+                section = heading.group(1)
+                documented.setdefault(section, set())
+                continue
+            row = re.match(r"^\|\s*([^|]+?)\s*\|.*\|\s*(Assumption:.*?)\s*\|$", line)
+            if row and section:
+                documented[section].add(row.group(1).strip())
+
+        for corpus in manifest["corpora"].values():
+            for decision in corpus["decisions"]:
+                golden_path = INGESTER_ROOT / decision["golden"]
+                model = parse_dmn(golden_path.read_text())
+                parsed_decision = next(d for d in model.decisions if d.name == decision["name"])
+                rule_ids = {rule.rule_id for rule in parsed_decision.rules}
+                assumption_ids = set(decision.get("assumption_rules", []))
+                assert assumption_ids <= rule_ids, decision["id"]
+                assert documented.get(golden_path.name, set()) == assumption_ids
+
+                for representative in decision["representative_inputs"]:
+                    matching = next(
+                        (rule for rule in parsed_decision.rules
+                         if all(_cell_matches(value, cell, raw)
+                                for value, cell, raw in zip(
+                                    (representative["inputs"].get(name)
+                                     for name in parsed_decision.input_columns),
+                                    rule.inputs, rule.raw_inputs))),
+                        None,
+                    )
+                    assert matching is not None, (
+                        decision["id"], representative["inputs"], parsed_decision.input_columns
+                    )
+                    actual = dict(zip(parsed_decision.output_columns, matching.outputs))
+                    for name, expected in representative["expect"].items():
+                        assert actual[name] == expected, (decision["id"], name, actual, expected)
+
+
+def _cell_matches(value, cell, raw):
+    """Evaluate the subset of FEEL unary cells used by the golden corpus."""
+    raw = raw.strip()
+    if raw.startswith("not(") and raw.endswith(")"):
+        return not _cell_matches(value, normalize_unary(raw[4:-1]), raw[4:-1])
+    if cell is UNIVERSAL:
+        return True
+    if isinstance(cell, Interval):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False
+        return ((value > cell.lo or (cell.lo_inc and value == cell.lo)) and
+                (value < cell.hi or (cell.hi_inc and value == cell.hi)))
+    if isinstance(cell, ValueSet):
+        return value in cell.values
+    if isinstance(cell, tuple):
+        return any(_cell_matches(value, candidate, "") for candidate in cell)
+    return value == cell

@@ -12,6 +12,7 @@ import re
 import mlflow
 import requests
 from langgraph.graph import END, START, StateGraph
+from lxml import etree
 from cpg_contracts import DecisionCategory, DecisionModelSummary, DecisionVariable, SourceLocation, decision_model_id
 
 from cpg_ingester.nodes.dmn_creator import dmn_creator
@@ -20,7 +21,7 @@ from cpg_ingester.nodes.dmn_syntax_validator import dmn_syntax_validator
 from cpg_ingester.nodes.rec_extractor import rec_extractor
 from cpg_ingester.nodes.rec_schema_validator import rec_schema_validator
 from cpg_ingester.nodes.rec_semantic_reviewer import rec_semantic_reviewer
-from cpg_ingester.state import CPGIngesterState, DMNPipelineState, RecPipelineState
+from cpg_ingester.state import DMNPipelineState, RecPipelineState
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 # cannot starve the semantic review (and vice versa).
 MAX_DMN_SYNTAX_RETRIES = 3
 MAX_DMN_SEMANTIC_RETRIES = 2
+MAX_REC_REVIEWS = 2
 
 
 def _extract_section_text(markdown: str, section_map: list, section_id: str) -> str:
@@ -69,7 +71,6 @@ def _extract_section_text(markdown: str, section_map: list, section_id: str) -> 
                     break
 
     return "\n".join(lines[start_idx:end_idx]).strip()
-MAX_REC_REVIEWS = 2
 
 
 # --- DMN subgraph routing ---
@@ -121,17 +122,24 @@ def _dmn_escalate(state: DMNPipelineState) -> dict:
     return {"escalated": True, "escalation_reason": reason, "escalation_errors": list(errors)}
 
 
-def _decision_summary(item: dict, state: dict, decision_items: list[dict]) -> dict:
+def _coerce_page_number(value):
+    """Return an integer page number, ignoring compound/non-numeric labels."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _decision_summary(item: dict, state: dict, decision_items: list[dict], dmn_xml: str = "") -> dict:
     """Build the stable decision contract from the approved manifest item."""
     decision_by_guid = {entry.get("id"): entry for entry in decision_items}
     modifies: list[str] = []
-    for ref in item.get("cross_references", []) or []:
-        target = decision_by_guid.get(ref)
-        if target and target.get("model_id"):
-            modifies.append(target["model_id"])
     explicit = item.get("modifies")
     target = decision_by_guid.get(explicit)
-    if target and target.get("model_id") and target["model_id"] not in modifies:
+    if target and target.get("model_id"):
         modifies.append(target["model_id"])
 
     inputs = [DecisionVariable.model_validate({
@@ -141,12 +149,24 @@ def _decision_summary(item: dict, state: dict, decision_items: list[dict]) -> di
         "codes": value.get("codes"),
         "extraction": value.get("extraction"),
     }) for value in item.get("inputs", [])]
-    outputs = [DecisionVariable(name=value if isinstance(value, str) else value.get("name", ""),
-                                type=(value.get("type", "string") if isinstance(value, dict) else "string"))
-               for value in item.get("outputs", [])]
+    outputs = []
+    if dmn_xml:
+        root = etree.fromstring(dmn_xml.encode("utf-8"))
+        output_columns = root.xpath(
+            './/*[local-name()="decisionTable"]/*[local-name()="output"]'
+        )
+        outputs = [
+            DecisionVariable(
+                name=output.get("name", ""),
+                type=output.get("typeRef", "string"),
+            )
+            for output in output_columns
+        ]
     location = None
-    if item.get("page_start") is not None or item.get("page_end") is not None:
-        location = SourceLocation(page_start=item.get("page_start"), page_end=item.get("page_end"))
+    page_start = _coerce_page_number(item.get("page_start"))
+    page_end = _coerce_page_number(item.get("page_end"))
+    if page_start is not None:
+        location = SourceLocation(page_start=page_start, page_end=page_end)
     category = None
     try:
         category = DecisionCategory(item.get("category")) if item.get("category") else None
@@ -191,13 +211,17 @@ def dmn_engine_preflight(state: DMNPipelineState) -> dict:
             response.ok and isinstance(payload, dict) and not payload.get("valid", True)
         ):
             messages = payload.get("messages", []) if isinstance(payload, dict) else []
-            errors = [
-                message.get("text", str(message)) if isinstance(message, dict) else str(message)
-                for message in messages
-            ]
+            errors = []
+            warnings = []
+            for message in messages:
+                if isinstance(message, dict):
+                    text = message.get("text", str(message))
+                    (errors if message.get("severity", "ERROR") == "ERROR" else warnings).append(text)
+                else:
+                    errors.append(str(message))
             return {
-                "engine_errors": errors or ["DMN engine validation failed"],
-                "engine_validation_warnings": [],
+                "engine_errors": errors,
+                "engine_validation_warnings": warnings,
             }
 
         if not response.ok:
@@ -352,9 +376,9 @@ def generate_all(state: dict) -> dict:
         source_text = _extract_section_text(markdown, section_map, item.get("section", ""))
         try:
             result = dmn_graph.invoke({
-            "item": item,
-            "source_pages": source_text or item.get("source_pages", ""),
-            "cpg_metadata": state.get("cpg_metadata", {}),
+                "item": item,
+                "source_pages": source_text,
+                "cpg_metadata": state.get("cpg_metadata", {}),
                 **shared,
             })
         except Exception as e:
@@ -379,18 +403,34 @@ def generate_all(state: dict) -> dict:
                 "item": item,
                 "decision_model_summary": result.get("decision_model_summary", {}),
                 "escalated": True,
-                "escalation_reason": "empty-result",
-                "escalation_errors": ["Subgraph returned no DMN XML"],
+                "escalation_reason": result.get("escalation_reason") or "empty-result",
+                "escalation_errors": result.get("escalation_errors") or [
+                    "Subgraph returned no DMN XML"
+                ],
             })
             continue
 
         entry = {
             "dmn_xml": result["dmn_xml"],
             "item": item,
-            "decision_model_summary": _decision_summary(item, state, decisions),
+            "decision_model_summary": {},
         }
+        try:
+            entry["decision_model_summary"] = _decision_summary(
+                item, state, decisions, result["dmn_xml"]
+            )
+            if ((item.get("page_start") is not None or item.get("page_end") is not None)
+                    and "source_location" not in entry["decision_model_summary"]):
+                entry.setdefault("validation_warnings", []).append(
+                    "summary-build-failed: invalid source page range"
+                )
+        except Exception as exc:
+            logger.error("Decision summary failed for '%s': %s", item.get("name"), exc)
+            entry.setdefault("validation_warnings", []).append(
+                f"summary-build-failed: {exc}"
+            )
         if result.get("syntax_warnings"):
-            entry["validation_warnings"] = list(result["syntax_warnings"])
+            entry.setdefault("validation_warnings", []).extend(result["syntax_warnings"])
         if result.get("engine_validation_warnings"):
             entry.setdefault("validation_warnings", []).extend(
                 result["engine_validation_warnings"]
@@ -420,7 +460,7 @@ def generate_all(state: dict) -> dict:
         try:
             result = rec_graph.invoke({
                 "items": section_items,
-                "source_pages": source_text or item.get("source_pages", ""),
+                "source_pages": source_text,
                 "grading_definitions": state.get("grading_definitions", ""),
                 **shared,
             })

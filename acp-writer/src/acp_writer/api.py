@@ -28,6 +28,7 @@ from acp_writer.store.embedding import (
 )
 from acp_writer.store.guidelines_store import GuidelinesStore
 from acp_writer.store.vector_store import InMemoryVectorStore, VectorStore
+from acp_writer.tools.dmn_evaluation import DmnEngineError
 
 try:
     mlflow.fastapi.autolog()
@@ -213,8 +214,6 @@ def _parse_dmn_metadata(dmn_xml: str) -> DecisionModelSummary:
 @mlflow.trace(span_type="TOOL", name="evaluate_jit_dmn")
 def _evaluate_jit(dmn_xml: str, inputs: dict) -> dict:
     """Evaluate DMN via the JIT endpoint on the decision-service."""
-    from acp_writer.tools.dmn_evaluation import DmnEngineError
-
     dmn_b64 = base64.b64encode(dmn_xml.encode()).decode()
     r = requests.post(
         f"{KOGITO_URL}/jit/dmn",
@@ -242,14 +241,28 @@ def _validate_dmn_with_engine(dmn_xml: str) -> dict | None:
             json={"dmn_xml_base64": dmn_b64},
             timeout=30,
         )
-        response.raise_for_status()
-        result = response.json()
-        if not isinstance(result, dict) or "valid" not in result:
-            raise ValueError("decision engine returned an invalid validation response")
-        return result
-    except (requests.RequestException, ValueError) as exc:
+    except (requests.ConnectionError, requests.Timeout) as exc:
         logger.warning("DMN engine validation unavailable; accepting model provisionally: %s", exc)
         return None
+    if response.status_code >= 400:
+        body = getattr(response, "text", "")[:500]
+        logger.error("DMN engine validation returned HTTP %s: %s", response.status_code, body)
+        return {"valid": False, "messages": [{
+            "severity": "ERROR",
+            "text": f"decision engine validation returned HTTP {response.status_code}: {body}",
+        }]}
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+    if not isinstance(result, dict) or "valid" not in result:
+        body = getattr(response, "text", "")[:500]
+        logger.error("Decision engine returned invalid validation response: %s", body)
+        return {"valid": False, "messages": [{
+            "severity": "ERROR",
+            "text": f"decision engine validation returned invalid JSON: {body}",
+        }]}
+    return result
 
 
 def _validation_failure_response(validation: dict) -> JSONResponse:
@@ -463,6 +476,11 @@ async def evaluate_decision(model_id: str, request: Request):
     try:
         result = _evaluate_jit(model["dmn_xml"], inputs)
         return result
+    except DmnEngineError as exc:
+        logger.warning("DMN engine rejected evaluation for %s: %s", model_id, exc.error)
+        return JSONResponse(status_code=exc.status_code, content={
+            "error": exc.error, "messages": exc.messages,
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Decision evaluation failed: {e}")
 

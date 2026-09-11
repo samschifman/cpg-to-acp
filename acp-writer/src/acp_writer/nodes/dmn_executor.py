@@ -35,6 +35,7 @@ from acp_writer.tools.temporal_queries import (
     observations_in_window,
     rate_of_change,
 )
+from cpg_contracts import Extraction
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,6 @@ _MEDICATION_SYSTEMS = {RXNORM}
 _INACTIVE_CONDITION_STATUSES = {"resolved", "inactive", "remission"}
 _INACTIVE_MEDICATION_STATUSES = {"cancelled", "entered-in-error", "stopped"}
 _INACTIVE_ALLERGY_STATUSES = {"resolved", "inactive"}
-_TEMPORAL_FUNCTIONS = {
-    "observations_in_window", "observation_count", "consecutive_above",
-    "rate_of_change", "cross_resource_temporal",
-}
-
-
 def _filter_active_entries(entries: list, inactive_statuses: set) -> list:
     """Filter inventory entries to those with active (or absent) status."""
     return [e for e in entries if (e.status or "active") not in inactive_statuses]
@@ -180,25 +175,30 @@ def _extract_temporal(
     extraction: dict,
     temporal_index: TemporalIndex,
     reference_date: str | date | None,
-) -> tuple[Any, str | None, dict]:
+) -> tuple[Any, list[str], dict]:
     """Execute an explicitly annotated temporal extraction."""
-    function = extraction.get("function") if isinstance(extraction, dict) else None
-    params = extraction.get("params", {}) if isinstance(extraction, dict) else {}
+    try:
+        contract = Extraction.model_validate(extraction)
+    except Exception as exc:
+        return None, [], {
+            "match_basis": "decision_variable_extraction",
+            "extraction": extraction,
+            "degraded": True,
+            "error": str(exc),
+        }
+    function = contract.function
+    params = contract.params
     audit = {
         "match_basis": "decision_variable_extraction",
         "extraction": extraction,
     }
-    if function not in _TEMPORAL_FUNCTIONS or not isinstance(params, dict):
-        audit["degraded"] = True
-        audit["error"] = "Unknown or malformed temporal extraction annotation"
-        return None, None, audit
     if isinstance(reference_date, str):
         try:
             resolved_date = date.fromisoformat(reference_date[:10])
         except ValueError:
             audit["degraded"] = True
             audit["error"] = f"Invalid reference date: {reference_date}"
-            return None, None, audit
+            return None, [], audit
     else:
         resolved_date = reference_date or datetime.now(timezone.utc).date()
 
@@ -229,11 +229,11 @@ def _extract_temporal(
     except (TypeError, ValueError, KeyError) as exc:
         audit["degraded"] = True
         audit["error"] = str(exc)
-        return None, None, audit
+        return None, [], audit
 
     audit["data_quality"] = result.data_quality
     audit["insufficient_data"] = result.insufficient_data
-    return result.value, (result.provenance[0] if result.provenance else None), audit
+    return result.value, result.provenance, audit
 
 
 @mlflow.trace(name="dmn_resolve_input")
@@ -245,7 +245,7 @@ def _extract_input_value(
     inventory: Any = None, llm_client: Any = None,
     extraction: dict | None = None,
     temporal_index: TemporalIndex | None = None,
-) -> tuple[Any, str | None, dict]:
+) -> tuple[Any, str | list[str] | None, dict]:
     """Extract a DMN input value — prior results, codes, then pipeline."""
     key = re.sub(r"([a-z])([A-Z])", r"\1 \2", var_name).lower().strip()
     audit: dict[str, Any] = {}
@@ -255,8 +255,7 @@ def _extract_input_value(
         value, ref, temporal_audit = _extract_temporal(
             ips_bundle, extraction, temporal_index, reference_date,
         )
-        if value is not None:
-            return value, ref, temporal_audit
+        return value, ref, temporal_audit
 
     for model_output in prior_results.values():
         for decision_name, decision_val in model_output.items():
@@ -321,7 +320,9 @@ def resolve_inputs(
         )
         if value is not None:
             inputs[var["name"]] = value
-        if ref:
+        if isinstance(ref, list):
+            fhir_refs.extend(ref)
+        elif ref:
             fhir_refs.append(ref)
         input_audit[var["name"]] = var_audit
 

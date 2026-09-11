@@ -19,6 +19,7 @@ from acp_writer.api import (
     _validate_dmn_with_engine,
     _validation_failure_response,
 )
+from acp_writer.tools.dmn_evaluation import DmnEngineError
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,11 @@ async def evaluate(request: Request):
     try:
         outputs = _evaluate_jit(deployed["dmn_xml"], inputs)
         return {"outputs": outputs}
+    except DmnEngineError as exc:
+        logger.warning("DMN engine rejected evaluation for %s: %s", model_id, exc.error)
+        return JSONResponse(status_code=exc.status_code, content={
+            "error": exc.error, "messages": exc.messages,
+        })
     except Exception as exc:
         logger.error("DMN evaluation failed for %s: %s", model_id, exc)
         raise HTTPException(status_code=500, detail=str(exc))

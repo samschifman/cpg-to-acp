@@ -47,8 +47,6 @@ class DMNPipelineState(TypedDict, total=False):
     llm_api_key: str
     output_dir: str
     dmn_xml: str
-    previous_dmn_xml: str
-    decision_model_summary: dict
     cpg_metadata: dict
     syntax_errors: list[str]
     syntax_warnings: list[str]

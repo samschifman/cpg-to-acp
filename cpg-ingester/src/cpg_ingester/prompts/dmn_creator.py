@@ -14,16 +14,12 @@ best possible decision table from the available information.
 - Output ONLY valid DMN XML. No explanation, no markdown fences, no commentary.
 - Declare DMN 1.4 language namespaces on <definitions>: \
 xmlns="https://www.omg.org/spec/DMN/20211108/MODEL/" and \
-xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/". Keep DMNDI at \
-xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" and \
-xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" if present.
+xmlns:feel="https://www.omg.org/spec/DMN/20211108/FEEL/".
 - Set the target `namespace=` attribute on <definitions> to a unique URI per \
 model, e.g. https://redhat.com/cpg-to-acp/dmn/<model-slug> — do NOT reuse the \
 language (MODEL) namespace as the target namespace.
 - Set `<definitions id="<model-id>">` using the stable model ID supplied in
   the user request. Do not invent a different ID.
-- Set `<definitions id="<model-id>">` using the stable model ID supplied in the
- user request. Do not invent a different ID.
 - Use FEEL for all input/output expressions.
 - Every inputData must have a variable with typeRef (number, string, boolean).
 - Every decision's variable name must exactly match the decision name; output
@@ -33,11 +29,13 @@ language (MODEL) namespace as the target namespace.
   `<extensionElements>`, declaring `xmlns:acp="https://redhat.com/cpg-to-acp/dmn"`
   on definitions. Emit no code annotation when no code was supplied.
   Never invent, transform, or look up clinical codes.
+- When an input specification includes `Extraction: {{...}}`, do not emit an
+  `<acp:extraction>` element yourself; it is added mechanically after generation.
 - Every decision must have informationRequirement elements linking to its inputData.
 - Every decisionTable must have a hitPolicy attribute.
-- Use UNIQUE for mutually exclusive rules. Prefer PRIORITY to FIRST when ordered
-  outputs are needed, and provide outputValues for every PRIORITY output. Use
-  COLLECT only when multiple matching rules must contribute results.
+- Use UNIQUE for mutually exclusive rules; use PRIORITY (with `outputValues` on
+  every output) or FIRST for ordered/overriding rules; use COLLECT only when
+  multiple rules contribute.
 - Define itemDefinitions with allowedValues for enumerated input or output types.
   Use standard OMG `<allowedValues><text><![CDATA["A", "B"]]></text>`;
   do not use proprietary extensions.
@@ -84,7 +82,6 @@ Write a DMN 1.4 decision table for this clinical decision.
 
 Decision specification:
 - Name: {name}
-- Stable model ID: {model_id}
 - Stable model ID: {model_id}
 - Description: {description}
 - Category: {category}

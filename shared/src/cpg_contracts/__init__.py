@@ -4,12 +4,15 @@ from cpg_contracts.guidelines import (
     GradingSystem,
 )
 from cpg_contracts.decisions import (
+    COMPARATORS,
     DecisionCategory,
     DecisionEvaluationRequest,
     DecisionEvaluationResponse,
     DecisionModelSummary,
     DecisionVariable,
     Extraction,
+    EXTRACTION_FUNCTIONS,
+    REQUIRED_EXTRACTION_PARAMS,
     decision_model_id,
 )
 from cpg_contracts.recommendations import (
@@ -58,6 +61,9 @@ __all__ = [
     "DecisionCategory",
     "DecisionVariable",
     "Extraction",
+    "EXTRACTION_FUNCTIONS",
+    "COMPARATORS",
+    "REQUIRED_EXTRACTION_PARAMS",
     "DecisionModelSummary",
     "decision_model_id",
     "DecisionEvaluationRequest",

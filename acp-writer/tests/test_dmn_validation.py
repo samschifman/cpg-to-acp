@@ -1,11 +1,13 @@
 """Tests for engine-backed DMN validation during model deployment."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from acp_writer.api import _dynamic_models, app
+from acp_writer.api import _validate_dmn_with_engine
+from acp_writer.tools.dmn_evaluation import DmnEngineError
 from acp_writer.services.decision_engine import app as decision_engine_app
 
 
@@ -87,3 +89,54 @@ class TestDecisionEngineDeploymentValidation:
         assert response.status_code == 200
         assert response.json() == VALIDATION_OK
         assert _dynamic_models == {}
+
+
+class TestEvaluationErrors:
+    def setup_method(self):
+        _dynamic_models["test-model"] = {"dmn_xml": DMN}
+
+    def test_monolith_preserves_engine_messages(self):
+        error = DmnEngineError(422, [{"severity": "ERROR", "text": "unknown variable"}],
+                               "DMN evaluation errors")
+        with patch("acp_writer.api._evaluate_jit", side_effect=error):
+            response = client.post("/api/v1/decisions/evaluate/test-model", json={})
+        assert response.status_code == 422
+        assert response.json()["messages"] == error.messages
+
+    def test_decision_engine_preserves_engine_messages(self):
+        error = DmnEngineError(422, [{"severity": "ERROR", "text": "unknown variable"}],
+                               "DMN evaluation errors")
+        with patch("acp_writer.services.decision_engine._evaluate_jit", side_effect=error):
+            response = decision_engine_client.post("/api/v1/evaluate", json={
+                "model_id": "test-model", "inputs": {},
+            })
+        assert response.status_code == 422
+        assert response.json()["messages"] == error.messages
+
+
+class TestEngineValidationTransport:
+    @staticmethod
+    def response(status_code, body=None, text=""):
+        response = MagicMock()
+        response.status_code = status_code
+        response.text = text
+        response.json.return_value = body
+        return response
+
+    def test_http_failures_are_rejections(self):
+        for status in (404, 500):
+            with patch("acp_writer.api.requests.post", return_value=self.response(status, text="old service")):
+                result = _validate_dmn_with_engine(DMN)
+            assert result["valid"] is False
+            assert str(status) in result["messages"][0]["text"]
+
+    def test_invalid_json_is_rejection(self):
+        with patch("acp_writer.api.requests.post", return_value=self.response(200, ValueError(), "plain text")):
+            result = _validate_dmn_with_engine(DMN)
+        assert result["valid"] is False
+
+    def test_connection_and_timeout_fail_open(self):
+        import requests
+        for exc in (requests.ConnectionError(), requests.Timeout()):
+            with patch("acp_writer.api.requests.post", side_effect=exc):
+                assert _validate_dmn_with_engine(DMN) is None

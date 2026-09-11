@@ -33,9 +33,12 @@ source treats separately is wrong.
 5. **Completeness claims**: Are there decision criteria in the source that \
 the DMN does not capture? Missing rules are as dangerous as wrong rules.
 
-6. **Hit policy claim**: Is the hit policy appropriate for how the source \
-organizes the decision? Priority-ordered rules need FIRST; mutually \
-exclusive rules need UNIQUE.
+6. **Hit policy claim**: does the hit policy match how the source organizes the \
+decision? Mutually exclusive rules → UNIQUE; ordered or overriding rules → FIRST \
+or PRIORITY (both acceptable); COLLECT only when several rules contribute results. \
+Flag CRITICAL only when the policy would change which rule fires (e.g. COLLECT or \
+ANY on a table that must return one result, UNIQUE on overlapping rules, or an \
+order-dependent policy whose rule order contradicts the source).
 
 7. **Unit and abbreviation claims**: Verify units and abbreviations match the \
 source exactly (for example, mg versus mcg or mmol/L versus mg/dL). A unit \
@@ -56,8 +59,8 @@ Classify each discrepancy as CRITICAL or MINOR:
 - **CRITICAL**: Changes clinical behavior. Examples: wrong numeric \
 threshold (135 vs 140), fabricated input variable not in the source, \
 missing rule that changes which patients get treated, wrong output \
-action (medication when source says lifestyle only), hit policy that \
-produces incorrect priority ordering.
+action (medication when source says lifestyle only), or a hit policy that \
+changes which overlapping rule fires.
 - **MINOR**: Structural choices that do not change clinical outcomes. \
 Examples: column ordering differences, naming conventions (camelCase \
 vs snake_case), grouping of related outputs into one vs multiple \

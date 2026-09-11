@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 
 from lxml import etree
+import mlflow
 
 from dmn_model import _children_local, _local
 
@@ -83,6 +84,7 @@ def _entry_text_el(entry):
 _NUM_IN_TEXT = re.compile(r"(-?\d+(?:\.\d+)?)")
 
 
+@mlflow.trace(name="dmn_benchmark_defect_threshold_shift")
 def threshold_shift(dmn_xml: str, delta: float = 5) -> tuple[str, DefectDescriptor]:
     """Shift every numeric bound in the first numeric inputEntry by ``delta``."""
     tree = _parse(dmn_xml)
@@ -115,6 +117,7 @@ def threshold_shift(dmn_xml: str, delta: float = 5) -> tuple[str, DefectDescript
     raise DefectNotApplicable("no numeric inputEntry to shift")
 
 
+@mlflow.trace(name="dmn_benchmark_defect_drop_rule")
 def drop_rule(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     """Remove one rule (prefers a middle rule, not the boundary rows)."""
     tree = _parse(dmn_xml)
@@ -134,6 +137,7 @@ def drop_rule(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     )
 
 
+@mlflow.trace(name="dmn_benchmark_defect_fabricate_input")
 def fabricate_input(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     """Add an input column (+ inputData) that appears nowhere in the source.
 
@@ -202,6 +206,7 @@ def fabricate_input(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     )
 
 
+@mlflow.trace(name="dmn_benchmark_defect_wrong_output")
 def wrong_output(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     """Change one string output to another value already present in the table."""
     tree = _parse(dmn_xml)
@@ -240,6 +245,7 @@ def wrong_output(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     raise DefectNotApplicable("no substitutable output found")
 
 
+@mlflow.trace(name="dmn_benchmark_defect_wrong_hit_policy")
 def wrong_hit_policy(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     """Change the decision table's hit policy to a clinically unsafe one."""
     tree = _parse(dmn_xml)

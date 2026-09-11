@@ -47,6 +47,9 @@ test = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+cpg_ingester = ["resources/schemas/*.xsd"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not live'"

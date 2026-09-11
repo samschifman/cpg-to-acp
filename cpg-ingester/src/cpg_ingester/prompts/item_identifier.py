@@ -35,7 +35,7 @@ For each decision, provide:
   `cross_resource_temporal`, plus explicit parameters. Leave it absent for
   ordinary most-recent extraction and never infer unstated temporal meaning.
 - Output values: what the decision produces
-- Hit policy hint: UNIQUE (mutually exclusive rules), FIRST (priority-ordered), COLLECT (multiple matches)
+- Hit policy hint: UNIQUE (mutually exclusive), FIRST or PRIORITY (ordered), COLLECT (multiple matches)
 - Cross-references to other items (by the other item's name — IDs will be assigned later)
 
 ### Recommendations (non-computable guidance → vector store)

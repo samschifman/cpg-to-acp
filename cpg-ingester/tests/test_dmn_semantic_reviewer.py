@@ -192,6 +192,7 @@ class TestDMNSemanticReviewer:
                 result = dmn_semantic_reviewer(state)
 
             assert mock_llm.invoke.call_count == 2
+            assert "severity" in mock_llm.invoke.call_args_list[1].args[0][-1]["content"]
             assert result["semantic_discrepancies"] == []
 
     def test_minor_discrepancy_does_not_trigger_repair(self):
@@ -230,3 +231,5 @@ class TestDMNSemanticReviewer:
         from cpg_ingester.prompts.dmn_semantic_reviewer import DMN_SEMANTIC_REVIEWER_SYSTEM
         assert "claim" in DMN_SEMANTIC_REVIEWER_SYSTEM.lower()
         assert "atomic" in DMN_SEMANTIC_REVIEWER_SYSTEM.lower()
+        assert "need first" not in DMN_SEMANTIC_REVIEWER_SYSTEM.lower()
+        assert "first or priority" in DMN_SEMANTIC_REVIEWER_SYSTEM.lower()

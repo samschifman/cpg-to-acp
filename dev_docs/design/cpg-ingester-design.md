@@ -258,7 +258,7 @@ flowchart LR
     X --> L[FEEL and metadata lints]
     L --> R[Claim-level semantic reviewer]
     R --> A[Accepted DMN]
-    A --> E{Optional KIE preflight}
+    A --> E{Optional KIE preflight\nDMN_PREFLIGHT_URL}
     E -->|valid| O[Emit DMN + DecisionModelSummary]
     E -->|invalid| C
     E -->|unavailable| O
@@ -280,7 +280,7 @@ On failure: routes back to DMN Creator with the specific error message. The Crea
 - Must see both the generated DMN XML and the original source text
 - Prompted as a clinical pharmacist reviewing decision support logic (different persona than the Creator)
 
-On failure: routes back to DMN Creator with specific discrepancies ("threshold X in source is Y, but DMN says Z"). Max 2 retry iterations. After 2 failures, the DMN is marked as needing human review and included in output with a `review_needed` flag.
+On failure: routes back to DMN Creator with specific discrepancies ("threshold X in source is Y, but DMN says Z"). Syntax review has a budget of 3 retries and semantic review has a budget of 2. After those budgets are exhausted, the DMN remains in output with `escalated`, `escalation_reason`, and `escalation_errors` for human review.
 
 **Output:** Validated DMN XML + `DecisionModelSummary` (with `id`, `name`, `inputs`, `outputs`, `source_cpg`, `category`, `modifies`, `source_location`).
 

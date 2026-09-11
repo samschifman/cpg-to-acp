@@ -90,9 +90,13 @@ public class JitDmnResource {
     }
 
     private static Map<String, Object> validationMessage(DMNMessage message) {
-        return Map.of(
-            "severity", message.getSeverity().name(),
-            "text", message.getMessage());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("severity", message.getSeverity().name());
+        result.put("text", message.getMessage());
+        if (message.getSourceId() != null) {
+            result.put("source_id", message.getSourceId());
+        }
+        return result;
     }
 
     private static Map<String, Object> engineError(String error, String text) {
@@ -107,14 +111,22 @@ public class JitDmnResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response evaluate(JitRequest request) {
-        if (request.dmn_xml_base64 == null || request.inputs == null) {
+        if (request == null || request.dmn_xml_base64 == null || request.inputs == null) {
             return Response.status(400)
                 .entity(Map.of("error", "dmn_xml_base64 and inputs are required"))
                 .build();
         }
 
+        final byte[] dmnBytes;
         try {
-            byte[] dmnBytes = Base64.getDecoder().decode(request.dmn_xml_base64);
+            dmnBytes = Base64.getDecoder().decode(request.dmn_xml_base64);
+        } catch (IllegalArgumentException e) {
+            return Response.status(400)
+                .entity(Map.of("error", "dmn_xml_base64 is not valid Base64"))
+                .build();
+        }
+
+        try {
             var resource = new InputStreamResource(
                 new ByteArrayInputStream(dmnBytes));
 

@@ -143,9 +143,34 @@ class TestGenerateAllNoSilentDrop:
         assert entry["escalated"] is True
         assert entry["escalation_reason"] == "generation-exception"
 
-    def test_accepted_decision_carries_model_summary(self):
+    def test_source_page_range_is_not_used_as_review_source_text(self):
         graph = MagicMock()
         graph.invoke = MagicMock(return_value={"dmn_xml": "<definitions/>"})
+        state = {
+            "item_manifest": [{
+                "type": "decision", "name": "D1", "section": "Missing section",
+                "source_page_range": "pages 3-4",
+            }],
+            "markdown": "source exists but the section heading does not",
+            "section_map": [],
+        }
+        with patch.object(generation, "_build_dmn_subgraph") as mock_builder, \
+             patch.object(generation, "_build_rec_subgraph") as mock_rec:
+            mock_builder.return_value.compile.return_value = graph
+            mock_rec.return_value.compile.return_value = MagicMock(invoke=MagicMock(return_value={}))
+            generate_all(state)
+        assert graph.invoke.call_args.args[0]["source_pages"] == ""
+
+    def test_accepted_decision_carries_model_summary(self):
+        graph = MagicMock()
+        graph.invoke = MagicMock(return_value={
+            "dmn_xml": (
+                "<definitions><decision><decisionTable>"
+                "<output name=\"Action\" typeRef=\"string\"/>"
+                "<output name=\"Follow Up Weeks\" typeRef=\"number\"/>"
+                "</decisionTable></decision></definitions>"
+            )
+        })
         state = {
             "item_manifest": [{
                 "type": "decision", "name": "Treatment Recommendation", "section": "S1",
@@ -164,6 +189,61 @@ class TestGenerateAllNoSilentDrop:
         assert summary["id"] == "treatment-recommendation"
         assert summary["source_cpg"] == "CPG-1"
         assert summary["source_location"]["page_start"] == 3
+        assert summary["outputs"] == [
+            {"name": "Action", "type": "string"},
+            {"name": "Follow Up Weeks", "type": "number"},
+        ]
+
+    def test_summary_skips_invalid_page_range_and_records_warning(self):
+        graph = MagicMock(return_value={})
+        graph.invoke = MagicMock(return_value={
+            "dmn_xml": "<definitions><decision><decisionTable/></decision></definitions>"
+        })
+        state = {
+            "item_manifest": [{
+                "type": "decision", "name": "D1", "section": "S1",
+                "inputs": [], "outputs": [], "page_start": "3-4",
+            }],
+            "markdown": "", "section_map": [],
+        }
+        with patch.object(generation, "_build_dmn_subgraph") as mock_builder, \
+             patch.object(generation, "_build_rec_subgraph") as mock_rec:
+            mock_builder.return_value.compile.return_value = graph
+            mock_rec.return_value.compile.return_value = MagicMock(invoke=MagicMock(return_value={}))
+            result = generate_all(state)
+        entry = result["dmn_results"][0]
+        assert "source_location" not in entry["decision_model_summary"]
+        assert any("summary-build-failed" in warning for warning in entry["validation_warnings"])
+
+    def test_summary_uses_only_modifies_not_cross_references(self):
+        graph = MagicMock()
+        graph.invoke = MagicMock(return_value={
+            "dmn_xml": "<definitions><decision><decisionTable/></decision></definitions>"
+        })
+        target = {
+            "type": "decision", "name": "Target", "section": "S1",
+            "inputs": [], "outputs": [], "id": "target-guid", "model_id": "target-model",
+        }
+        source = {
+            "type": "decision", "name": "Source", "section": "S1",
+            "inputs": [], "outputs": [], "id": "source-guid",
+            "model_id": "source-model", "cross_references": ["target-guid"],
+        }
+        state = {"item_manifest": [source, target], "markdown": "", "section_map": []}
+        with patch.object(generation, "_build_dmn_subgraph") as mock_builder, \
+             patch.object(generation, "_build_rec_subgraph") as mock_rec:
+            mock_builder.return_value.compile.return_value = graph
+            mock_rec.return_value.compile.return_value = MagicMock(invoke=MagicMock(return_value={}))
+            result = generate_all(state)
+        assert result["dmn_results"][0]["decision_model_summary"].get("modifies") is None
+
+        source["modifies"] = "target-guid"
+        with patch.object(generation, "_build_dmn_subgraph") as mock_builder, \
+             patch.object(generation, "_build_rec_subgraph") as mock_rec:
+            mock_builder.return_value.compile.return_value = graph
+            mock_rec.return_value.compile.return_value = MagicMock(invoke=MagicMock(return_value={}))
+            result = generate_all({"item_manifest": [source, target], "markdown": "", "section_map": []})
+        assert result["dmn_results"][0]["decision_model_summary"]["modifies"] == ["target-model"]
 
     def test_empty_result_becomes_flagged_entry(self):
         graph = MagicMock()
@@ -199,6 +279,18 @@ class TestGenerateAllNoSilentDrop:
             "FIRST is order-dependent"
         ]
 
+    def test_empty_result_preserves_escalation_reason_and_errors(self):
+        graph = MagicMock()
+        graph.invoke = MagicMock(return_value={
+            "dmn_xml": "",
+            "escalation_reason": "no-source-text",
+            "escalation_errors": ["source text unavailable"],
+        })
+        result = self._run_with_graph(graph)
+        entry = result["dmn_results"][0]
+        assert entry["escalation_reason"] == "no-source-text"
+        assert entry["escalation_errors"] == ["source text unavailable"]
+
 
 class TestDmnEnginePreflight:
     def test_disabled_by_default(self, monkeypatch):
@@ -230,3 +322,17 @@ class TestDmnEnginePreflight:
 
         assert result["engine_errors"] == []
         assert "DMN preflight unavailable" in result["engine_validation_warnings"][0]
+
+    @patch("cpg_ingester.generation.requests.post")
+    def test_warn_only_engine_messages_are_not_repair_errors(self, mock_post, monkeypatch):
+        monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
+        response = MagicMock(status_code=422, ok=False)
+        response.json.return_value = {
+            "messages": [{"severity": "WARN", "text": "table gap"}],
+        }
+        mock_post.return_value = response
+
+        result = dmn_engine_preflight({"dmn_xml": "<definitions/>"})
+
+        assert result["engine_errors"] == []
+        assert result["engine_validation_warnings"] == ["table gap"]

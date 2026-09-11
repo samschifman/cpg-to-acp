@@ -28,7 +28,7 @@ class CompileResult:
 
 
 def kogito_url() -> str:
-    """Read the acp-writer/compose ``KOGITO_URL``, defaulting to localhost."""
+    """Read ``KOGITO_URL`` (the acp-writer/compose variable), defaulting to ``http://localhost:8081``."""
     return os.environ.get("KOGITO_URL", "http://localhost:8081").rstrip("/")
 
 
