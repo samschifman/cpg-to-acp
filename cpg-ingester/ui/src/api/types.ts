@@ -108,6 +108,7 @@ export interface AssemblyReport {
 }
 
 export interface EscalatedItem {
+  id?: string;
   name: string;
   type: string;
   section?: string;

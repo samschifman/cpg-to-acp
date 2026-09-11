@@ -7,6 +7,7 @@ import time
 import uuid
 
 import mlflow
+from pydantic import ValidationError
 from cpg_contracts import (
     Extraction,
     content_to_text,
@@ -92,9 +93,10 @@ def _validate_decision(item: dict) -> list[str]:
                 continue
             try:
                 Extraction.model_validate(extraction)
-            except Exception as exc:
+            except ValidationError as exc:
                 issues.append(
-                    f"Decision input '{input_variable.get('name', '?')}' extraction invalid: {exc}"
+                    f"Decision input '{input_variable.get('name', '?')}' extraction invalid: "
+                    f"{exc.errors()}"
                 )
     return issues
 

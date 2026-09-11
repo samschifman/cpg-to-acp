@@ -135,8 +135,25 @@ class TestEngineValidationTransport:
             result = _validate_dmn_with_engine(DMN)
         assert result["valid"] is False
 
+    def test_valid_response_is_returned_unchanged(self):
+        body = {"valid": True, "messages": [{"severity": "WARN", "text": "gap"}]}
+        with patch("acp_writer.api.requests.post", return_value=self.response(200, body)):
+            assert _validate_dmn_with_engine(DMN) == body
+
+    def test_invalid_response_is_returned_unchanged(self):
+        body = {"valid": False, "messages": [{"severity": "ERROR", "text": "bad"}]}
+        with patch("acp_writer.api.requests.post", return_value=self.response(200, body)):
+            assert _validate_dmn_with_engine(DMN) == body
+
     def test_connection_and_timeout_fail_open(self):
         import requests
         for exc in (requests.ConnectionError(), requests.Timeout()):
             with patch("acp_writer.api.requests.post", side_effect=exc):
                 assert _validate_dmn_with_engine(DMN) is None
+
+    def test_other_request_errors_are_rejections(self):
+        from requests.exceptions import ChunkedEncodingError
+        with patch("acp_writer.api.requests.post", side_effect=ChunkedEncodingError("truncated")):
+            result = _validate_dmn_with_engine(DMN)
+        assert result["valid"] is False
+        assert "truncated" in result["messages"][0]["text"]

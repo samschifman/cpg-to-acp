@@ -11,6 +11,7 @@ from cpg_ingester.generation import (
     MAX_DMN_SEMANTIC_RETRIES,
     MAX_DMN_SYNTAX_RETRIES,
     _dmn_escalate,
+    _rec_escalate,
     _route_after_dmn_engine,
     _route_after_dmn_semantic,
     dmn_engine_preflight,
@@ -69,6 +70,19 @@ class TestEscalateNode:
                              "semantic_discrepancies": ["no source"]})
         assert out["escalation_reason"] == "no-source-text"
 
+    def test_rec_schema_reason_and_errors(self):
+        out = _rec_escalate({"schema_errors": ["bad json"]})
+        assert out == {
+            "escalated": True,
+            "escalation_reason": "schema-budget-exhausted",
+            "escalation_errors": ["bad json"],
+        }
+
+    def test_rec_semantic_reason_and_errors(self):
+        out = _rec_escalate({"semantic_discrepancies": ["unsupported claim"]})
+        assert out["escalation_reason"] == "semantic-budget-exhausted"
+        assert out["escalation_errors"] == ["unsupported claim"]
+
 
 class TestRepairFeedback:
     def test_creator_embeds_stable_model_id(self):
@@ -118,6 +132,9 @@ class TestErrorPatternKB:
     def test_no_match_returns_empty(self):
         assert match_error_patterns(["something totally unrecognized xyzzy"]) == []
         assert format_error_pattern_hints(["xyzzy"]) == ""
+
+    def test_semantic_duplicate_word_does_not_match_duplicate_id_pattern(self):
+        assert match_error_patterns(["semantic text contains a duplicate clinical claim"]) == []
 
 
 class TestGenerateAllNoSilentDrop:
@@ -268,6 +285,82 @@ class TestGenerateAllNoSilentDrop:
         assert entry["escalation_reason"] == "syntax-budget-exhausted"
         assert entry["escalation_errors"] == ["missing hitPolicy"]
 
+    def test_escalated_recommendation_carries_reason_and_errors(self):
+        rec_graph = MagicMock()
+        rec_graph.invoke = MagicMock(return_value={
+            "recommendations": [{"id": "rec-1", "title": "Use therapy"}],
+            "escalated": True,
+            "escalation_reason": "schema-budget-exhausted",
+            "escalation_errors": ["bad json"],
+        })
+        with patch.object(generation, "_build_dmn_subgraph") as dmn_builder, \
+             patch.object(generation, "_build_rec_subgraph") as rec_builder:
+            dmn_builder.return_value.compile.return_value = MagicMock()
+            rec_builder.return_value.compile.return_value = rec_graph
+            result = generate_all({
+                "item_manifest": [{"type": "recommendation", "section": "Treatment"}],
+                "markdown": "", "section_map": [],
+            })
+        assert result["recommendation_results"] == [{
+            "id": "rec-1", "title": "Use therapy", "escalated": True,
+            "escalation_reason": "schema-budget-exhausted",
+            "escalation_errors": ["bad json"],
+        }]
+        assert result["recommendation_escalations"] == []
+
+    def test_empty_escalated_recommendation_section_is_preserved_separately(self):
+        rec_graph = MagicMock()
+        rec_graph.invoke = MagicMock(return_value={
+            "recommendations": [],
+            "escalated": True,
+            "escalation_reason": "schema-budget-exhausted",
+            "escalation_errors": ["bad json"],
+        })
+        with patch.object(generation, "_build_dmn_subgraph") as dmn_builder, \
+             patch.object(generation, "_build_rec_subgraph") as rec_builder:
+            dmn_builder.return_value.compile.return_value = MagicMock()
+            rec_builder.return_value.compile.return_value = rec_graph
+            result = generate_all({
+                "item_manifest": [{"type": "recommendation", "section": "Treatment"}],
+                "markdown": "", "section_map": [],
+            })
+        assert result["recommendation_results"] == []
+        assert result["recommendation_escalations"] == [{
+            "type": "recommendation", "id": "Treatment", "name": "Section: Treatment",
+            "section": "Treatment", "escalation_reason": "schema-budget-exhausted",
+            "escalation_errors": ["bad json"],
+        }]
+
+    def test_crashed_recommendation_section_is_preserved_separately(self):
+        rec_graph = MagicMock()
+        rec_graph.invoke = MagicMock(side_effect=RuntimeError("boom"))
+        with patch.object(generation, "_build_dmn_subgraph") as dmn_builder, \
+             patch.object(generation, "_build_rec_subgraph") as rec_builder:
+            dmn_builder.return_value.compile.return_value = MagicMock()
+            rec_builder.return_value.compile.return_value = rec_graph
+            result = generate_all({
+                "item_manifest": [{"type": "recommendation", "section": "Treatment"}],
+                "markdown": "", "section_map": [],
+            })
+        assert result["recommendation_results"] == []
+        assert result["recommendation_escalations"][0]["escalation_reason"] == "generation-exception"
+        assert result["recommendation_escalations"][0]["escalation_errors"] == ["boom"]
+
+    def test_healthy_recommendation_section_has_no_escalation(self):
+        rec_graph = MagicMock()
+        rec_graph.invoke = MagicMock(return_value={
+            "recommendations": [{"id": "rec-1", "title": "Use therapy"}],
+        })
+        with patch.object(generation, "_build_dmn_subgraph") as dmn_builder, \
+             patch.object(generation, "_build_rec_subgraph") as rec_builder:
+            dmn_builder.return_value.compile.return_value = MagicMock()
+            rec_builder.return_value.compile.return_value = rec_graph
+            result = generate_all({
+                "item_manifest": [{"type": "recommendation", "section": "Treatment"}],
+                "markdown": "", "section_map": [],
+            })
+        assert result["recommendation_escalations"] == []
+
     def test_non_blocking_validation_warnings_reach_review_payload(self):
         graph = MagicMock()
         graph.invoke = MagicMock(return_value={
@@ -314,6 +407,20 @@ class TestDmnEnginePreflight:
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].endswith("?validate_only=true")
 
+    @patch("cpg_ingester.generation.requests.post")
+    def test_valid_reply_preserves_engine_warnings(self, mock_post, monkeypatch):
+        monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
+        response = MagicMock(status_code=200, ok=True)
+        response.json.return_value = {
+            "valid": True,
+            "messages": [{"severity": "WARN", "text": "gap"}],
+        }
+        mock_post.return_value = response
+
+        result = dmn_engine_preflight({"dmn_xml": "<definitions/>"})
+
+        assert result == {"engine_errors": [], "engine_validation_warnings": ["gap"]}
+
     @patch("cpg_ingester.generation.requests.post", side_effect=requests.ConnectionError("offline"))
     def test_unreachable_engine_continues_with_warning(self, _mock_post, monkeypatch):
         monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
@@ -326,8 +433,9 @@ class TestDmnEnginePreflight:
     @patch("cpg_ingester.generation.requests.post")
     def test_warn_only_engine_messages_are_not_repair_errors(self, mock_post, monkeypatch):
         monkeypatch.setenv("DMN_PREFLIGHT_URL", "http://engine/decisions/models")
-        response = MagicMock(status_code=422, ok=False)
+        response = MagicMock(status_code=200, ok=True)
         response.json.return_value = {
+            "valid": False,
             "messages": [{"severity": "WARN", "text": "table gap"}],
         }
         mock_post.return_value = response

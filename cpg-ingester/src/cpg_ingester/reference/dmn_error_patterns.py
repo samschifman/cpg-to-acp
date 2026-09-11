@@ -36,6 +36,11 @@ class ErrorPattern:
 # mismatches, missing structure, and duplicate identifiers.
 ERROR_PATTERNS: list[ErrorPattern] = [
     ErrorPattern(
+        match="forbidden control character",
+        cause="The DMN contains a non-printable control character copied from source text.",
+        fix="Remove non-printable control characters (U+0000–U+001F except tab/newline) from the document; they usually come from copied text — retype the affected FEEL entry.",
+    ),
+    ErrorPattern(
         match="XML parse error",
         cause="A raw <, > or & in a FEEL expression breaks XML well-formedness.",
         fix="Wrap the FEEL text in <![CDATA[ ... ]]>; never use XML entities inside CDATA.",

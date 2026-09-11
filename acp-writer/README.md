@@ -275,4 +275,4 @@ The **Conflict Analyst** is not a separate SonataFlow state — it runs inside t
 
 ## Decision Service (Internal)
 
-Kogito auto-generates REST endpoints from DMN. Internal — use the acp-writer API, not Kogito directly.
+The decision service bundles no DMN models. It compiles and validates DMN sent by acp-writer at request time; use the acp-writer API rather than calling the internal service directly.

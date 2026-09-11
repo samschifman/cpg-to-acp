@@ -175,6 +175,32 @@ class TestDMNSyntaxValidatorNode:
         result = dmn_syntax_validator(state)
         assert any("XML" in e for e in result["syntax_errors"])
 
+    def test_control_character_returns_only_targeted_error_and_hint(self):
+        from cpg_ingester.reference.dmn_error_patterns import format_error_pattern_hints
+
+        result = dmn_syntax_validator({
+            "dmn_xml": TREATMENT_DMN.read_text() + "\x01",
+            "item": {"name": "Test"},
+        })
+        assert len(result["syntax_errors"]) == 1
+        assert "forbidden control character" in result["syntax_errors"][0]
+        hint = format_error_pattern_hints(result["syntax_errors"])
+        assert "control characters" in hint
+        assert "CDATA" not in hint
+
+    def test_dmn_13_namespace_returns_targeted_error_and_hint(self):
+        from cpg_ingester.reference.dmn_error_patterns import format_error_pattern_hints
+
+        result = dmn_syntax_validator({
+            "dmn_xml": TREATMENT_DMN.read_text().replace(
+                "https://www.omg.org/spec/DMN/20211108/MODEL/",
+                "http://www.omg.org/spec/DMN/20191111/MODEL/",
+            ),
+            "item": {"name": "Test"},
+        })
+        assert any("Wrong namespace" in error for error in result["syntax_errors"])
+        assert "namespace" in format_error_pattern_hints(result["syntax_errors"]).lower()
+
 
 class TestStripMarkdownFences:
 
@@ -201,6 +227,10 @@ class TestDMNCreatorReference:
         prompt = DMN_CREATOR_SYSTEM.format(reference=REFERENCE_EXAMPLES)
         assert "<acp:clinicalCode system=" in prompt
         assert "element order" in prompt
+
+    def test_reference_allows_first_for_ordered_rules(self):
+        assert "Avoid it" not in REFERENCE_EXAMPLES
+        assert "PRIORITY or FIRST" in REFERENCE_EXAMPLES
 
     def test_input_format_includes_explicit_codes(self):
         rendered = _format_inputs([{

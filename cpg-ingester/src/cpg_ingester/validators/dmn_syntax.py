@@ -8,6 +8,7 @@ from io import BytesIO
 
 import mlflow
 from lxml import etree
+from pydantic import ValidationError
 from cpg_contracts import Extraction
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,8 @@ def check_raw_xml(dmn_xml: str) -> tuple[list[str], list[str]]:
 def validate_dmn_preflight(dmn_xml: str) -> list[str]:
     """Run cheap raw-XML, parse, and namespace checks before XSD validation."""
     errors, _ = check_raw_xml(dmn_xml)
+    if errors:
+        return errors
     try:
         tree = etree.parse(BytesIO(dmn_xml.encode("utf-8")))
     except etree.XMLSyntaxError as exc:
@@ -400,8 +403,8 @@ def check_extraction_annotations(root: etree._Element) -> tuple[list[str], list[
             continue
         try:
             Extraction.model_validate(payload)
-        except Exception as exc:
-            for detail in getattr(exc, "errors", lambda: [{"loc": (), "msg": str(exc)}])():
+        except ValidationError as exc:
+            for detail in exc.errors():
                 location = ".".join(str(part) for part in detail.get("loc", ())) or "annotation"
                 errors.append(f"Extraction annotation: {location}: {detail.get('msg', str(exc))}")
     return _result(errors)

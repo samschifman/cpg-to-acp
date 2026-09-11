@@ -83,6 +83,63 @@ class TestPipelineWiredInExecutor:
         assert ref is not None
         assert audit["match_basis"] == "decision_variable_extraction"
 
+    def test_consecutive_above_temporal_extraction(self):
+        bundle = _load("htn-temporal-01.json")
+        value, ref, audit = _extract_input_value(
+            bundle, "Systolic BP", "number", {},
+            extraction={"function": "consecutive_above", "params": {
+                "code": "http://loinc.org|8480-6", "threshold": 140,
+            }},
+            reference_date="2026-04-28",
+        )
+        assert value == 3
+        assert ref is not None
+        assert audit["match_basis"] == "decision_variable_extraction"
+        assert audit.get("degraded") is not True
+
+    def test_observations_in_window_temporal_extraction(self):
+        bundle = _load("htn-temporal-01.json")
+        value, ref, audit = _extract_input_value(
+            bundle, "Systolic BP", "number", {},
+            extraction={"function": "observations_in_window", "params": {
+                "code": "http://loinc.org|8480-6", "duration": "P3M",
+            }},
+            reference_date="2026-06-01",
+        )
+        assert len(value) == 5
+        assert ref is not None
+        assert audit["match_basis"] == "decision_variable_extraction"
+        assert audit.get("degraded") is not True
+
+    def test_rate_of_change_temporal_extraction(self):
+        bundle = _load("htn-temporal-01.json")
+        value, ref, audit = _extract_input_value(
+            bundle, "Systolic BP", "number", {},
+            extraction={"function": "rate_of_change", "params": {
+                "code": "http://loinc.org|8480-6", "duration": "P1Y",
+            }},
+            reference_date="2026-06-01",
+        )
+        assert isinstance(value, (int, float))
+        assert ref is not None
+        assert audit["match_basis"] == "decision_variable_extraction"
+        assert audit.get("degraded") is not True
+
+    def test_cross_resource_temporal_extraction(self):
+        bundle = _load("htn-temporal-01.json")
+        value, ref, audit = _extract_input_value(
+            bundle, "Follow-up BP", "boolean", {},
+            extraction={"function": "cross_resource_temporal", "params": {
+                "anchor_code": "http://www.nlm.nih.gov/research/umls/rxnorm|329528",
+                "target_code": "http://loinc.org|8480-6", "window": "P6M",
+            }},
+            reference_date="2026-06-01",
+        )
+        assert value is True
+        assert ref is not None
+        assert audit["match_basis"] == "decision_variable_extraction"
+        assert audit.get("degraded") is not True
+
     def test_temporal_extraction_preserves_all_provenance_references(self):
         bundle = _load("htn-temporal-01.json")
         inputs, refs, audit = resolve_inputs(

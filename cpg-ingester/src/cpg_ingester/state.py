@@ -31,6 +31,7 @@ class CPGIngesterState(TypedDict, total=False):
     # Phase 2 outputs
     dmn_results: list[dict]
     recommendation_results: list[dict]
+    recommendation_escalations: list[dict]
     escalated_items: list[dict]
     assembly_report: dict
     delivery_status: dict
@@ -77,3 +78,5 @@ class RecPipelineState(TypedDict, total=False):
     semantic_discrepancies: list[str]
     review_count: int
     escalated: bool
+    escalation_reason: str
+    escalation_errors: list[str]

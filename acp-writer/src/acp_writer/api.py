@@ -244,6 +244,12 @@ def _validate_dmn_with_engine(dmn_xml: str) -> dict | None:
     except (requests.ConnectionError, requests.Timeout) as exc:
         logger.warning("DMN engine validation unavailable; accepting model provisionally: %s", exc)
         return None
+    except requests.RequestException as exc:
+        logger.error("DMN engine validation request failed: %s", exc)
+        return {"valid": False, "messages": [{
+            "severity": "ERROR",
+            "text": f"decision engine validation request failed: {exc}",
+        }]}
     if response.status_code >= 400:
         body = getattr(response, "text", "")[:500]
         logger.error("DMN engine validation returned HTTP %s: %s", response.status_code, body)

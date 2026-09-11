@@ -43,7 +43,11 @@ def _resolve_cross_references(recommendations: list[dict], dmn_results: list[dic
     return recommendations
 
 
-def _collect_escalations(dmn_results: list[dict], recommendations: list[dict]) -> list[dict]:
+def _collect_escalations(
+    dmn_results: list[dict],
+    recommendations: list[dict],
+    recommendation_escalations: list[dict] | None = None,
+) -> list[dict]:
     """Gather every result flagged for human review, with its reason and errors."""
     escalated = []
     for dmn in dmn_results:
@@ -59,8 +63,11 @@ def _collect_escalations(dmn_results: list[dict], recommendations: list[dict]) -
             escalated.append({
                 "type": "recommendation",
                 "id": rec.get("id", "?"),
+                "name": rec.get("title") or rec.get("id", "?"),
                 "escalation_reason": rec.get("escalation_reason", ""),
+                "escalation_errors": rec.get("escalation_errors", []),
             })
+    escalated.extend(recommendation_escalations or [])
     return escalated
 
 
@@ -121,6 +128,7 @@ def assembly(state: dict) -> dict:
 
     dmn_results = state.get("dmn_results") or []
     all_recs = state.get("recommendation_results") or []
+    recommendation_escalations = state.get("recommendation_escalations") or []
     if not dmn_results and not all_recs:
         dmn_results, all_recs = _collect_from_output_dir(output_dir)
 
@@ -131,10 +139,12 @@ def assembly(state: dict) -> dict:
 
     all_recs = _resolve_cross_references(all_recs, dmn_results)
 
-    # Escalations are carried on the generated results themselves (the subgraphs
-    # write the flag there), so collect them from dmn_results / recommendations
-    # rather than the manifest — that keeps the state flow one-directional.
-    escalated = _collect_escalations(dmn_results, all_recs)
+    # Per-recommendation escalations travel on recommendation objects. Empty or
+    # crashed sections use the separate section-level list so the bundle stays
+    # a valid list of recommendations.
+    escalated = _collect_escalations(
+        dmn_results, all_recs, recommendation_escalations,
+    )
 
     integrity_errors = _check_integrity(all_recs, dmn_results, cpg_metadata)
     if integrity_errors:

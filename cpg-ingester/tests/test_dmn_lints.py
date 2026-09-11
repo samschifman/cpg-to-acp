@@ -98,6 +98,17 @@ def test_input_expressions_accept_declared_name_and_reject_unknown_name():
     assert any("does not match" in error for error in errors)
 
 
+def test_extraction_annotations_accept_consecutive_above_without_comparator():
+    xml = VALID_DMN.replace(
+        "</inputData>",
+        "<extensionElements><extraction><![CDATA[{\"function\":\"consecutive_above\","
+        "\"params\":{\"code\":\"http://loinc.org|8480-6\",\"threshold\":140}}]]>"
+        "</extraction></extensionElements></inputData>",
+        1,
+    )
+    assert check_extraction_annotations(_root(xml)) == ([], [])
+
+
 def test_feel_entries_cover_lists_negation_combinations_and_functions():
     expressions = (
         '">= 18, [65..120]"',

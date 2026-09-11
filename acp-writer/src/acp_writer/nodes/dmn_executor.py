@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 import mlflow
+from pydantic import ValidationError
 
 from acp_writer.state import CarePlanComposerState
 from acp_writer.tools.dmn_evaluation import (
@@ -179,12 +180,12 @@ def _extract_temporal(
     """Execute an explicitly annotated temporal extraction."""
     try:
         contract = Extraction.model_validate(extraction)
-    except Exception as exc:
+    except ValidationError as exc:
         return None, [], {
             "match_basis": "decision_variable_extraction",
             "extraction": extraction,
             "degraded": True,
-            "error": str(exc),
+            "error": exc.errors(),
         }
     function = contract.function
     params = contract.params

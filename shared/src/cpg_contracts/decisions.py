@@ -63,7 +63,11 @@ class Extraction(BaseModel):
         params = self.params
         if "comparator" in params and params["comparator"] not in COMPARATORS:
             raise ValueError(f"comparator must be one of {COMPARATORS}")
-        if ("threshold" in params) != ("comparator" in params):
+        if self.function == "consecutive_above" and "comparator" in params:
+            raise ValueError("comparator is not supported by consecutive_above")
+        if self.function == "observation_count" and (
+            ("threshold" in params) != ("comparator" in params)
+        ):
             raise ValueError("threshold and comparator must be provided together")
         if "threshold" in params and (
             isinstance(params["threshold"], bool)

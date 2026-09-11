@@ -5,9 +5,8 @@ They use DMN 1.4, CDATA for FEEL text, `definitions/@id` equal to
 `decision_model_id(name)`, and a per-model target namespace beginning with
 `https://redhat.com/cpg-to-acp/dmn/`. A multi-output decision uses
 `variable/@typeRef="Any"`; the output columns carry the individual types.
-Clinical sign-off happens in PR review. The decision-service resources mirror
-only the two synthetic hypertension fixtures; the remaining goldens are
-ingester benchmark artifacts.
+Clinical sign-off happens in PR review. These files are the ingester's reference
+corpus; they are not bundled into the decision service.
 
 Each row below is one DMN rule. The input and output cells are shown in table
 order. `Assumption:` is deliberately literal in the final column because the

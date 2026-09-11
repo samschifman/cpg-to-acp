@@ -71,7 +71,7 @@ https://redhat.com/cpg-to-acp/dmn/<model-slug>), NOT the language namespace.
 ### 2. Missing hit policy
 WRONG: <decisionTable id="dt_1">
 RIGHT: <decisionTable id="dt_1" hitPolicy="FIRST">
-Hit policies: UNIQUE (mutually exclusive), FIRST (priority order), COLLECT (multiple matches)
+Hit policies: UNIQUE (mutually exclusive), PRIORITY or FIRST (ordered/overriding), COLLECT (multiple matches)
 
 ### 3. Missing typeRef on inputExpression
 WRONG: <inputExpression id="ie_1"><text>Systolic BP</text></inputExpression>
@@ -128,8 +128,9 @@ REFERENCE_EXAMPLES = f"""\
   Use for classification grids where categories don't overlap.
 - **PRIORITY**: More than one rule may match; outputValues defines the selected
   result. Prefer this when ordered outputs are needed.
-- **FIRST**: First matching rule wins. Avoid it when PRIORITY or UNIQUE can
-  express the same logic.
+- **FIRST**: First matching rule wins; acceptable for ordered rules — PRIORITY
+  with outputValues is preferred when the ordering is by output value rather
+  than by rule position.
 - **COLLECT**: All matching rules fire — outputs are collected.
   Use for monitoring schedules where multiple actions may apply.
 

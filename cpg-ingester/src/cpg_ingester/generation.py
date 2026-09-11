@@ -207,18 +207,25 @@ def dmn_engine_preflight(state: DMNPipelineState) -> dict:
         except ValueError:
             payload = {}
 
+        messages = payload.get("messages", []) if isinstance(payload, dict) else []
+        errors = []
+        warnings = []
+        for message in messages:
+            if isinstance(message, dict):
+                text = message.get("text", str(message))
+                (errors if message.get("severity", "ERROR") == "ERROR" else warnings).append(text)
+            else:
+                errors.append(str(message))
+
         if response.status_code == 422 or (
             response.ok and isinstance(payload, dict) and not payload.get("valid", True)
         ):
-            messages = payload.get("messages", []) if isinstance(payload, dict) else []
-            errors = []
-            warnings = []
-            for message in messages:
-                if isinstance(message, dict):
-                    text = message.get("text", str(message))
-                    (errors if message.get("severity", "ERROR") == "ERROR" else warnings).append(text)
-                else:
-                    errors.append(str(message))
+            return {
+                "engine_errors": errors,
+                "engine_validation_warnings": warnings,
+            }
+
+        if response.ok and messages:
             return {
                 "engine_errors": errors,
                 "engine_validation_warnings": warnings,
@@ -278,7 +285,20 @@ def _rec_accept(state: RecPipelineState) -> dict:
 
 def _rec_escalate(state: RecPipelineState) -> dict:
     logger.warning("Recommendations escalated for human review")
-    return {"escalated": True}
+    if state.get("schema_errors"):
+        reason = "schema-budget-exhausted"
+        errors = state["schema_errors"]
+    elif state.get("semantic_discrepancies"):
+        reason = "semantic-budget-exhausted"
+        errors = state["semantic_discrepancies"]
+    else:
+        reason = "unknown"
+        errors = []
+    return {
+        "escalated": True,
+        "escalation_reason": reason,
+        "escalation_errors": list(errors),
+    }
 
 
 # --- Subgraph builders ---
@@ -447,6 +467,7 @@ def generate_all(state: dict) -> dict:
         dmn_results.append(entry)
 
     all_recs = []
+    recommendation_escalations = []
     seen_sections = set()
     recommendations = [i for i in manifest if i.get("type") == "recommendation"]
     for item in recommendations:
@@ -470,11 +491,33 @@ def generate_all(state: dict) -> dict:
                     for rec in recs:
                         if isinstance(rec, dict):
                             rec["escalated"] = True
+                            rec["escalation_reason"] = result.get("escalation_reason", "")
+                            rec["escalation_errors"] = result.get("escalation_errors", [])
                 all_recs.extend(recs)
+            elif result.get("escalated"):
+                recommendation_escalations.append({
+                    "type": "recommendation",
+                    "id": section,
+                    "name": f"Section: {section}",
+                    "section": section,
+                    "escalation_reason": result.get("escalation_reason") or "empty-result",
+                    "escalation_errors": result.get("escalation_errors") or [
+                        "Recommendation loop returned no recommendations"
+                    ],
+                })
         except Exception as e:
             logger.error("Rec extraction failed for section '%s': %s", section, e)
+            recommendation_escalations.append({
+                "type": "recommendation",
+                "id": section,
+                "name": f"Section: {section}",
+                "section": section,
+                "escalation_reason": "generation-exception",
+                "escalation_errors": [str(e)],
+            })
 
     return {
         "dmn_results": dmn_results,
         "recommendation_results": all_recs,
+        "recommendation_escalations": recommendation_escalations,
     }

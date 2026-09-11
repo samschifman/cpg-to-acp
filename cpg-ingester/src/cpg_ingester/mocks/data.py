@@ -153,6 +153,7 @@ ASSEMBLY_REPORT: dict[str, Any] = {
 
 ESCALATED_ITEMS = [
     {
+        "id": "rec-renal-denervation",
         "name": "Renal denervation for resistant hypertension",
         "type": "recommendation",
         "section": "7. Special Populations",

@@ -161,6 +161,9 @@ class TestDMNSemanticReviewer:
                 result = dmn_semantic_reviewer(state)
 
             assert mock_llm.invoke.call_count == 2
+            reask = mock_llm.invoke.call_args_list[1].args[0][-1]["content"]
+            assert "not valid JSON" in reask
+            assert "schema" not in reask
             assert result.get("force_escalate") is None
             assert result["semantic_discrepancies"] == []
 
@@ -192,7 +195,9 @@ class TestDMNSemanticReviewer:
                 result = dmn_semantic_reviewer(state)
 
             assert mock_llm.invoke.call_count == 2
-            assert "severity" in mock_llm.invoke.call_args_list[1].args[0][-1]["content"]
+            reask = mock_llm.invoke.call_args_list[1].args[0][-1]["content"]
+            assert "schema" in reask
+            assert "severity" in reask
             assert result["semantic_discrepancies"] == []
 
     def test_minor_discrepancy_does_not_trigger_repair(self):

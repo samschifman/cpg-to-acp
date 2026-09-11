@@ -109,9 +109,36 @@ def test_extraction_contract_rejects_invalid_parameters():
             "code": "http://loinc.org|8480-6", "duration": "P3M",
             "threshold": 9, "comparator": "gte",
         })
-    with pytest.raises(ValueError, match="not boolean"):
+        with pytest.raises(ValueError, match="not boolean"):
+            Extraction(function="consecutive_above", params={
+                "code": "http://loinc.org|8480-6", "threshold": True,
+            })
+
+
+def test_consecutive_above_roundtrips_without_comparator():
+    extraction = Extraction(function="consecutive_above", params={
+        "code": "http://loinc.org|8480-6", "threshold": 140,
+    })
+    assert Extraction.model_validate(extraction.model_dump()) == extraction
+
+
+def test_consecutive_above_rejects_comparator():
+    import pytest
+
+    with pytest.raises(ValueError, match="comparator is not supported"):
         Extraction(function="consecutive_above", params={
-            "code": "http://loinc.org|8480-6", "threshold": True, "comparator": "ge",
+            "code": "http://loinc.org|8480-6", "threshold": 140, "comparator": "ge",
+        })
+
+
+def test_extraction_contract_rejects_unknown_function_and_missing_parameter():
+    import pytest
+
+    with pytest.raises(ValueError):
+        Extraction(function="unknown", params={})
+    with pytest.raises(ValueError, match="duration"):
+        Extraction(function="rate_of_change", params={
+            "code": "http://loinc.org|8480-6",
         })
 
 

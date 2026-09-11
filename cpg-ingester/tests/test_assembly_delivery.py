@@ -163,6 +163,49 @@ class TestAssemblyNode:
             assert escalated["escalation_reason"] == "syntax-budget-exhausted"
             assert (Path(tmpdir) / "escalated-items.json").exists()
 
+    def test_collects_recommendation_escalation_details(self):
+        result = assembly({
+            "cpg_metadata": {"cpg_id": "CPG-001"},
+            "recommendation_results": [{
+                "id": "rec-1", "title": "Use therapy", "escalated": True,
+                "escalation_reason": "semantic-budget-exhausted",
+                "escalation_errors": ["unsupported claim"],
+            }],
+            "output_dir": tempfile.mkdtemp(),
+        })
+        assert result["escalated_items"] == [{
+            "type": "recommendation", "id": "rec-1", "name": "Use therapy",
+            "escalation_reason": "semantic-budget-exhausted",
+            "escalation_errors": ["unsupported claim"],
+        }]
+
+    def test_recommendation_escalation_without_errors_keeps_empty_list(self):
+        result = assembly({
+            "cpg_metadata": {"cpg_id": "CPG-001"},
+            "recommendation_results": [{
+                "id": "rec-1", "title": "Use therapy", "escalated": True,
+            }],
+            "output_dir": tempfile.mkdtemp(),
+        })
+        assert result["escalated_items"][0]["name"] == "Use therapy"
+        assert result["escalated_items"][0]["escalation_errors"] == []
+
+    def test_collects_section_escalation_without_polluting_recommendations(self):
+        section_escalation = {
+            "type": "recommendation", "id": "Section 7", "name": "Section: Section 7",
+            "section": "Section 7", "escalation_reason": "generation-exception",
+            "escalation_errors": ["boom"],
+        }
+        result = assembly({
+            "cpg_metadata": {"cpg_id": "CPG-001"},
+            "recommendation_results": [],
+            "recommendation_escalations": [section_escalation],
+            "output_dir": tempfile.mkdtemp(),
+        })
+        assert result["recommendation_results"] == []
+        assert result["escalated_items"] == [section_escalation]
+        assert result["assembly_report"]["escalated_count"] == 1
+
 
 # --- Delivery tests ---
 
