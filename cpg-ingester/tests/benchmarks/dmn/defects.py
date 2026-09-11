@@ -36,11 +36,29 @@ class DefectNotApplicable(Exception):
 
 
 def _parse(dmn_xml: str):
-    return etree.parse(BytesIO(dmn_xml.encode("utf-8")))
+    tree = etree.parse(
+        BytesIO(dmn_xml.encode("utf-8")),
+        parser=etree.XMLParser(strip_cdata=False),
+    )
+    return _strip_comments(tree)
+
+
+def _strip_comments(tree):
+    """Remove comments so reviewer cases cannot reveal a mutation indirectly."""
+    for element in list(tree.getroot().iter()):
+        if isinstance(element, etree._Comment):
+            parent = element.getparent()
+            if parent is not None:
+                parent.remove(element)
+    return tree
 
 
 def _serialize(tree) -> str:
-    return etree.tostring(tree, xml_declaration=True, encoding="UTF-8").decode("utf-8")
+    serialized = etree.tostring(tree, xml_declaration=True, encoding="UTF-8").decode("utf-8")
+    first_line, separator, remainder = serialized.partition("\n")
+    if first_line.startswith("<?xml"):
+        first_line = '<?xml version="1.0" encoding="UTF-8"?>'
+    return first_line + (separator + remainder if separator else "")
 
 
 def _first_decision_table(root):
@@ -66,7 +84,7 @@ _NUM_IN_TEXT = re.compile(r"(-?\d+(?:\.\d+)?)")
 
 
 def threshold_shift(dmn_xml: str, delta: float = 5) -> tuple[str, DefectDescriptor]:
-    """Shift the first numeric bound found in an inputEntry by ``delta``."""
+    """Shift every numeric bound in the first numeric inputEntry by ``delta``."""
     tree = _parse(dmn_xml)
     root = tree.getroot()
     dec, table, name = _first_decision_table(root)
@@ -80,13 +98,19 @@ def threshold_shift(dmn_xml: str, delta: float = 5) -> tuple[str, DefectDescript
                 continue
             original = txt.text
             old = float(m.group(1))
-            new = old + delta
-            new_str = str(int(new)) if new.is_integer() else str(new)
-            txt.text = original[:m.start()] + new_str + original[m.end():]
+            matches = list(_NUM_IN_TEXT.finditer(original))
+            shifted = original
+            for match in reversed(matches):
+                old = float(match.group(1))
+                new = old + delta
+                new_str = str(int(new)) if new.is_integer() else str(new)
+                shifted = shifted[:match.start()] + new_str + shifted[match.end():]
+            txt.text = etree.CDATA(shifted)
             return _serialize(tree), DefectDescriptor(
                 defect_class="threshold_shift", decision=name,
                 detail=f"changed '{original.strip()}' to '{txt.text.strip()}' (delta {delta})",
-                location={"rule_id": rule.get("id", ""), "was": original.strip()},
+                location={"rule_id": rule.get("id", ""), "was": original.strip(),
+                          "now": txt.text.strip()},
             )
     raise DefectNotApplicable("no numeric inputEntry to shift")
 
@@ -106,7 +130,7 @@ def drop_rule(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     return _serialize(tree), DefectDescriptor(
         defect_class="drop_rule", decision=name,
         detail=f"removed rule '{target.get('id', '')}' with inputs {detail_inputs}",
-        location={"rule_id": target.get("id", "")},
+        location={"rule_id": target.get("id", ""), "inputs": detail_inputs},
     )
 
 
@@ -140,6 +164,14 @@ def fabricate_input(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     ir.set("id", "ir_fabricated")
     req = etree.SubElement(ir, q("requiredInput"))
     req.set("href", "#input_fabricated")
+    requirements = _children_local(dec, "informationRequirement")
+    if len(requirements) > 1:
+        requirements[-2].addnext(ir)
+    else:
+        decision_table = next((child for child in dec
+                               if _local(child.tag) == "decisionTable"), None)
+        if decision_table is not None:
+            decision_table.addprevious(ir)
 
     # new input column (insert after the last existing input column)
     inputs = _children_local(table, "input")
@@ -171,30 +203,40 @@ def fabricate_input(dmn_xml: str) -> tuple[str, DefectDescriptor]:
 
 
 def wrong_output(dmn_xml: str) -> tuple[str, DefectDescriptor]:
-    """Swap one rule's output for a clinically different action."""
+    """Change one string output to another value already present in the table."""
     tree = _parse(dmn_xml)
     root = tree.getroot()
     dec, table, name = _first_decision_table(root)
-    substitutions = {
-        "Start medication": "Lifestyle modification only",
-        "Lifestyle modification only": "Start medication",
-        "Basic Metabolic Panel": "No labs required",
-        "Lisinopril": "Placebo",
-    }
+    outputs = _children_local(table, "output")
+    string_column = next((index for index, output in enumerate(outputs)
+                          if (output.get("typeRef") or "").lower() == "string"), None)
+    if string_column is None:
+        raise DefectNotApplicable("no string output column")
+
+    seen: dict[str, tuple[etree._Element, etree._Element]] = {}
     for rule in _rules(table):
-        for oe in _children_local(rule, "outputEntry"):
-            txt = _entry_text_el(oe)
-            if txt is None or not txt.text:
-                continue
-            inner = txt.text.strip().strip('"')
-            if inner in substitutions:
-                original = txt.text
-                txt.text = f'"{substitutions[inner]}"'
-                return _serialize(tree), DefectDescriptor(
-                    defect_class="wrong_output", decision=name,
-                    detail=f"changed output '{inner}' to '{substitutions[inner]}'",
-                    location={"rule_id": rule.get("id", ""), "was": inner},
-                )
+        entries = _children_local(rule, "outputEntry")
+        if string_column >= len(entries):
+            continue
+        txt = _entry_text_el(entries[string_column])
+        if txt is None or not txt.text:
+            continue
+        value = txt.text.strip().strip('"')
+        if value in seen:
+            continue
+        if seen:
+            target_value, (target_txt, target_rule) = next(iter(seen.items()))
+            original = target_txt.text
+            target_txt.text = etree.CDATA(txt.text)
+            target_original = original.strip().strip('"')
+            return _serialize(tree), DefectDescriptor(
+                defect_class="wrong_output", decision=name,
+                detail=f"changed output '{target_original}' to '{value}'",
+                location={"rule_id": target_rule.get("id", ""),
+                          "column": outputs[string_column].get("name", ""),
+                          "was": target_original, "now": value},
+            )
+        seen[value] = (txt, rule)
     raise DefectNotApplicable("no substitutable output found")
 
 
@@ -209,7 +251,7 @@ def wrong_hit_policy(dmn_xml: str) -> tuple[str, DefectDescriptor]:
     return _serialize(tree), DefectDescriptor(
         defect_class="wrong_hit_policy", decision=name,
         detail=f"changed hitPolicy '{current}' to '{replacement}'",
-        location={"was": current},
+        location={"was": current, "now": replacement},
     )
 
 

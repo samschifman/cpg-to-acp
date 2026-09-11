@@ -35,6 +35,15 @@ dependencies = [
 cpg-parse = "cpg_ingester.parse:main"
 cpg-deploy-dmn = "cpg_ingester.deploy:main"
 cpg-ingest = "cpg_ingester.cli:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pyyaml>=6.0",
+    "click>=8.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

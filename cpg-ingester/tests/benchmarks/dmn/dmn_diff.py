@@ -21,6 +21,7 @@ from dmn_model import (
     Interval,
     RuleModel,
     ValueSet,
+    _norm_ws,
     parse_dmn,
 )
 
@@ -41,24 +42,48 @@ class DecisionDiff:
     threshold_deltas: list = field(default_factory=list)  # matched rules, differing bounds
     output_deltas: list = field(default_factory=list)   # matched rules, differing outputs
     threshold_exact_rules: int = 0
+    output_exact_rules: int = 0
+    unmatched_golden_columns: list = field(default_factory=list)
+    unmatched_generated_columns: list = field(default_factory=list)
+    assumption_rule_count: int = 0
+    assumption_rules_matched: int = 0
+    unmatched_assumption_rules: list = field(default_factory=list)
 
     @property
     def recall(self) -> float:
-        return self.matched_rules / self.golden_rule_count if self.golden_rule_count else 0.0
+        denominator = self.golden_rule_count - self.assumption_rule_count
+        numerator = self.matched_rules - self.assumption_rules_matched
+        return numerator / denominator if denominator else 0.0
 
     @property
     def precision(self) -> float:
-        return self.matched_rules / self.generated_rule_count if self.generated_rule_count else 0.0
+        denominator = self.generated_rule_count - self.assumption_rules_matched
+        numerator = self.matched_rules - self.assumption_rules_matched
+        return numerator / denominator if denominator else 0.0
 
     @property
     def f1(self) -> float:
         p, r = self.precision, self.recall
         return 2 * p * r / (p + r) if (p + r) else 0.0
 
+    @property
+    def output_exactness(self) -> float:
+        scored_matches = self.matched_rules - self.assumption_rules_matched
+        return self.output_exact_rules / scored_matches if scored_matches else 0.0
+
+    @property
+    def decision_exact(self) -> bool:
+        return (
+            self.inputs_match and self.outputs_match and self.hit_policy_match
+            and not self.missing_rules and not self.extra_rules
+            and not self.threshold_deltas and not self.output_deltas
+        )
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d.update(recall=round(self.recall, 4), precision=round(self.precision, 4),
-                 f1=round(self.f1, 4))
+                 f1=round(self.f1, 4), output_exactness=round(self.output_exactness, 4),
+                 decision_exact=self.decision_exact)
         return d
 
 
@@ -108,23 +133,78 @@ def _rule_condition_matches(g: RuleModel, x: RuleModel) -> bool:
     """A candidate rule match requires every aligned input cell to overlap."""
     if len(g.inputs) != len(x.inputs):
         return False
-    return all(_cells_overlap(a, b) for a, b in zip(g.inputs, x.inputs))
+    return all(b is not None and _cells_overlap(a, b) for a, b in zip(g.inputs, x.inputs))
 
 
 def _rule_exactness(g: RuleModel, x: RuleModel) -> int:
     """Count of input cells whose bounds match exactly (ranking key)."""
-    return sum(1 for a, b in zip(g.inputs, x.inputs) if _cells_bounds_equal(a, b))
+    return sum(1 for a, b in zip(g.inputs, x.inputs)
+               if b is not None and _cells_bounds_equal(a, b))
 
 
-def diff_decision(golden: DecisionModel, generated: DecisionModel) -> DecisionDiff:
+def _column_alignment(golden: list[str], generated: list[str]):
+    """Align generated columns to golden columns by normalized name."""
+    generated_names = [_norm_ws(name).lower() for name in generated]
+    used: set[int] = set()
+    mapping: list[int | None] = []
+    for name in golden:
+        normalized = _norm_ws(name).lower()
+        match = next((i for i, candidate in enumerate(generated_names)
+                      if i not in used and candidate == normalized), None)
+        mapping.append(match)
+        if match is not None:
+            used.add(match)
+
+    if not any(index is not None for index in mapping) and len(golden) == len(generated):
+        mapping = list(range(len(golden)))
+        used = set(mapping)
+
+    unmatched_golden = [name for name, index in zip(golden, mapping) if index is None]
+    unmatched_generated = [name for i, name in enumerate(generated) if i not in used]
+    return mapping, unmatched_golden, unmatched_generated
+
+
+def _permute_rule(rule: RuleModel, input_map: list[int | None], output_map: list[int | None]) -> RuleModel:
+    """Reorder a generated rule into golden input/output column order."""
+    def permute(values: list, mapping: list[int | None], default):
+        return [values[index] if index is not None and index < len(values) else default
+                for index in mapping]
+
+    return RuleModel(
+        rule_id=rule.rule_id,
+        inputs=permute(rule.inputs, input_map, None),
+        outputs=permute(rule.outputs, output_map, None),
+        raw_inputs=permute(rule.raw_inputs, input_map, ""),
+        raw_outputs=permute(rule.raw_outputs, output_map, ""),
+    )
+
+
+def diff_decision(golden: DecisionModel, generated: DecisionModel,
+                  assumption_rule_ids: set[str] | frozenset[str] = frozenset()) -> DecisionDiff:
     """Compare one golden decision against one generated decision."""
+    assumption_rule_ids = set(assumption_rule_ids)
+    golden_rule_ids = {rule.rule_id for rule in golden.rules}
+    unknown_assumptions = assumption_rule_ids - golden_rule_ids
+    if unknown_assumptions:
+        raise ValueError(
+            f"assumption rule ids not found in {golden.name}: {sorted(unknown_assumptions)}"
+        )
+
+    input_map, missing_inputs, extra_inputs = _column_alignment(
+        golden.input_columns, generated.input_columns)
+    output_map, missing_outputs, extra_outputs = _column_alignment(
+        golden.output_columns, generated.output_columns)
     inputs_match = (
-        [c.lower() for c in golden.input_columns] == [c.lower() for c in generated.input_columns]
-        and golden.input_types == generated.input_types
+        not missing_inputs
+        and len(golden.input_columns) == len(generated.input_columns)
+        and all(golden.input_types[i] == generated.input_types[j]
+                for i, j in enumerate(input_map) if j is not None)
     )
     outputs_match = (
-        [c.lower() for c in golden.output_columns] == [c.lower() for c in generated.output_columns]
-        and golden.output_types == generated.output_types
+        not missing_outputs
+        and len(golden.output_columns) == len(generated.output_columns)
+        and all(golden.output_types[i] == generated.output_types[j]
+                for i, j in enumerate(output_map) if j is not None)
     )
     hit_policy_match = golden.hit_policy.upper() == generated.hit_policy.upper()
 
@@ -136,49 +216,68 @@ def diff_decision(golden: DecisionModel, generated: DecisionModel) -> DecisionDi
         golden_rule_count=len(golden.rules),
         generated_rule_count=len(generated.rules),
         matched_rules=0,
+        unmatched_golden_columns=missing_inputs + missing_outputs,
+        unmatched_generated_columns=extra_inputs + extra_outputs,
+        assumption_rule_count=len(assumption_rule_ids),
     )
 
     # Greedy one-to-one matching: for each golden rule, pick the overlapping
     # generated rule with the most exact-bound cells (then most exact outputs).
     used = set()
-    for gi, g in enumerate(golden.rules):
+    matched_assumption_ids: set[str] = set()
+    for g in golden.rules:
         best, best_score = None, (-1, -1)
         for xi, x in enumerate(generated.rules):
-            if xi in used or not _rule_condition_matches(g, x):
+            aligned_x = _permute_rule(x, input_map, output_map)
+            if xi in used or not _rule_condition_matches(g, aligned_x):
                 continue
-            out_exact = sum(1 for a, b in zip(g.outputs, x.outputs) if a == b)
-            score = (_rule_exactness(g, x), out_exact)
+            out_exact = sum(1 for a, b in zip(g.outputs, aligned_x.outputs)
+                            if b is not None and a == b)
+            score = (_rule_exactness(g, aligned_x), out_exact)
             if score > best_score:
                 best, best_score = xi, score
         if best is None:
-            diff.missing_rules.append({"rule_id": g.rule_id, "inputs": g.raw_inputs,
-                                       "outputs": g.raw_outputs})
+            if g.rule_id not in assumption_rule_ids:
+                diff.missing_rules.append({"rule_id": g.rule_id, "inputs": g.raw_inputs,
+                                           "outputs": g.raw_outputs})
             continue
         used.add(best)
         diff.matched_rules += 1
-        x = generated.rules[best]
+        x = _permute_rule(generated.rules[best], input_map, output_map)
+        is_assumption = g.rule_id in assumption_rule_ids
+        if is_assumption:
+            diff.assumption_rules_matched += 1
+            matched_assumption_ids.add(g.rule_id)
 
         bound_diffs = []
         for col, (a, b) in enumerate(zip(g.inputs, x.inputs)):
-            if not _cells_bounds_equal(a, b):
+            if b is not None and not _cells_bounds_equal(a, b):
                 col_name = golden.input_columns[col] if col < len(golden.input_columns) else str(col)
                 bound_diffs.append({"column": col_name,
                                     "golden": g.raw_inputs[col] if col < len(g.raw_inputs) else "",
                                     "generated": x.raw_inputs[col] if col < len(x.raw_inputs) else ""})
-        if bound_diffs:
+        if bound_diffs and not is_assumption:
             diff.threshold_deltas.append({"rule_id": g.rule_id, "cells": bound_diffs})
-        else:
+        elif not is_assumption:
             diff.threshold_exact_rules += 1
 
         out_diffs = []
         for col, (a, b) in enumerate(zip(g.outputs, x.outputs)):
-            if a != b:
+            if b is not None and a != b:
                 col_name = golden.output_columns[col] if col < len(golden.output_columns) else str(col)
                 out_diffs.append({"column": col_name,
                                   "golden": g.raw_outputs[col] if col < len(g.raw_outputs) else "",
                                   "generated": x.raw_outputs[col] if col < len(x.raw_outputs) else ""})
-        if out_diffs:
+        if out_diffs and not is_assumption:
             diff.output_deltas.append({"rule_id": g.rule_id, "cells": out_diffs})
+        elif not is_assumption:
+            diff.output_exact_rules += 1
+
+    diff.unmatched_assumption_rules = [
+        {"rule_id": rule.rule_id, "inputs": rule.raw_inputs, "outputs": rule.raw_outputs}
+        for rule in golden.rules
+        if rule.rule_id in assumption_rule_ids and rule.rule_id not in matched_assumption_ids
+    ]
 
     for xi, x in enumerate(generated.rules):
         if xi not in used:
@@ -189,7 +288,8 @@ def diff_decision(golden: DecisionModel, generated: DecisionModel) -> DecisionDi
 
 
 @mlflow.trace(name="dmn_golden_diff")
-def diff_models(golden_xml: str, generated_xml: str) -> dict:
+def diff_models(golden_xml: str, generated_xml: str,
+                assumption_rule_ids: dict[str, set[str] | frozenset[str]] | None = None) -> dict:
     """Compare two DMN documents; return a per-decision + aggregate report.
 
     Decisions are paired by normalized name; if names do not line up (e.g. a
@@ -197,6 +297,16 @@ def diff_models(golden_xml: str, generated_xml: str) -> dict:
     """
     golden = parse_dmn(golden_xml)
     generated = parse_dmn(generated_xml)
+    assumption_rule_ids = assumption_rule_ids or {}
+    golden_by_name = {decision.name: decision for decision in golden.decisions}
+    for decision_name, rule_ids in assumption_rule_ids.items():
+        if decision_name not in golden_by_name:
+            raise ValueError(f"assumption decision not found in golden: {decision_name}")
+        unknown = set(rule_ids) - {rule.rule_id for rule in golden_by_name[decision_name].rules}
+        if unknown:
+            raise ValueError(
+                f"assumption rule ids not found in {decision_name}: {sorted(unknown)}"
+            )
 
     gen_by_name = {d.name.lower(): d for d in generated.decisions}
     decision_diffs = []
@@ -211,16 +321,25 @@ def diff_models(golden_xml: str, generated_xml: str) -> dict:
                 hit_policy_match=False, golden_rule_count=len(gd.rules),
                 generated_rule_count=0, matched_rules=0,
                 missing_rules=[{"rule_id": r.rule_id, "inputs": r.raw_inputs,
-                                "outputs": r.raw_outputs} for r in gd.rules],
+                                "outputs": r.raw_outputs} for r in gd.rules
+                               if r.rule_id not in assumption_rule_ids.get(gd.name, set())],
+                assumption_rule_count=len(set(assumption_rule_ids.get(gd.name, set())) &
+                                          {r.rule_id for r in gd.rules}),
+                unmatched_assumption_rules=[
+                    {"rule_id": r.rule_id, "inputs": r.raw_inputs, "outputs": r.raw_outputs}
+                    for r in gd.rules if r.rule_id in assumption_rule_ids.get(gd.name, set())
+                ],
             ))
             continue
         used_names.add(match.name.lower())
-        decision_diffs.append(diff_decision(gd, match))
+        decision_diffs.append(diff_decision(gd, match,
+                                            assumption_rule_ids.get(gd.name, set())))
 
-    total_golden = sum(d.golden_rule_count for d in decision_diffs)
-    total_gen = sum(d.generated_rule_count for d in decision_diffs)
-    total_matched = sum(d.matched_rules for d in decision_diffs)
+    total_golden = sum(d.golden_rule_count - d.assumption_rule_count for d in decision_diffs)
+    total_gen = sum(d.generated_rule_count - d.assumption_rules_matched for d in decision_diffs)
+    total_matched = sum(d.matched_rules - d.assumption_rules_matched for d in decision_diffs)
     total_exact = sum(d.threshold_exact_rules for d in decision_diffs)
+    total_output_exact = sum(d.output_exact_rules for d in decision_diffs)
     recall = total_matched / total_golden if total_golden else 0.0
     precision = total_matched / total_gen if total_gen else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
@@ -231,8 +350,24 @@ def diff_models(golden_xml: str, generated_xml: str) -> dict:
         "structural_recall": round(recall, 4),
         "threshold_exact_rules": total_exact,
         "threshold_exactness": round(total_exact / total_matched, 4) if total_matched else 0.0,
+        "output_exact_rules": total_output_exact,
+        "output_exactness": round(total_output_exact / total_matched, 4) if total_matched else 0.0,
         "golden_rule_count": total_golden,
         "generated_rule_count": total_gen,
         "matched_rules": total_matched,
+        "assumption_rule_count": sum(d.assumption_rule_count for d in decision_diffs),
+        "assumption_rules_matched": sum(d.assumption_rules_matched for d in decision_diffs),
+        "decision_exact_rate": round(
+            sum(d.decision_exact for d in decision_diffs) / len(decision_diffs), 4
+        ) if decision_diffs else 0.0,
+        "hit_policy_match_rate": round(
+            sum(d.hit_policy_match for d in decision_diffs) / len(decision_diffs), 4
+        ) if decision_diffs else 0.0,
+        "inputs_match_rate": round(
+            sum(d.inputs_match for d in decision_diffs) / len(decision_diffs), 4
+        ) if decision_diffs else 0.0,
+        "outputs_match_rate": round(
+            sum(d.outputs_match for d in decision_diffs) / len(decision_diffs), 4
+        ) if decision_diffs else 0.0,
         "decisions": [d.to_dict() for d in decision_diffs],
     }

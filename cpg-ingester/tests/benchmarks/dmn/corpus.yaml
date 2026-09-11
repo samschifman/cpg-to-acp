@@ -62,11 +62,9 @@ corpora:
           - inputs: {Treatment Action: "Lifestyle modification only", Has Kidney Disease: false}
             expect: {Lab Order: "-"}
 
-# NOTE (Phase 0 finding): the synthetic hypertension CPG defines exactly two
-# decision tables — §3.2 Treatment and §3.3 Monitoring — both covered above.
-# §3.1 (patient-assessment checklist) and §3.4 (lifestyle counseling) are not
-# conditional decision logic, so there are no further decisions to author
-# goldens for.
+# The synthetic hypertension CPG defines exactly two decision tables — §3.2
+# Treatment and §3.3 Monitoring — both covered above. §3.1 (patient-assessment
+# checklist) and §3.4 (lifestyle counseling) are not conditional decision logic.
   diabetes:
     source_cpg: data/synthetic-diabetes-cpg.md
     decisions:

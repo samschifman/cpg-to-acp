@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from lxml import etree
 
 # DMN benchmark lives in tests/benchmarks/dmn (non-package); import by bare name.
 _BENCH = Path(__file__).parent / "benchmarks" / "dmn"
@@ -22,6 +23,31 @@ from dmn_model import (
 GOLDEN_DIR = Path(__file__).parent.parent / "data" / "golden"
 TREATMENT = (GOLDEN_DIR / "treatment-recommendation.dmn").read_text()
 MONITORING = (GOLDEN_DIR / "monitoring-plan.dmn").read_text()
+
+
+def _swap_first_two_input_columns(xml: str) -> str:
+    root = etree.fromstring(xml.encode("utf-8"))
+    table = next(element for element in root.iter()
+                 if isinstance(element.tag, str)
+                 and element.tag.rsplit("}", 1)[-1] == "decisionTable")
+    inputs = [element for element in table
+              if isinstance(element.tag, str)
+              and element.tag.rsplit("}", 1)[-1] == "input"]
+    table.remove(inputs[0])
+    table.remove(inputs[1])
+    table.insert(0, inputs[1])
+    table.insert(1, inputs[0])
+    for rule in [element for element in table
+                 if isinstance(element.tag, str)
+                 and element.tag.rsplit("}", 1)[-1] == "rule"]:
+        entries = [element for element in rule
+                   if isinstance(element.tag, str)
+                   and element.tag.rsplit("}", 1)[-1] == "inputEntry"]
+        rule.remove(entries[0])
+        rule.remove(entries[1])
+        rule.insert(0, entries[1])
+        rule.insert(1, entries[0])
+    return etree.tostring(root, encoding="unicode")
 
 
 class TestNormalizeUnary:
@@ -159,3 +185,65 @@ class TestDiffModels:
         # Same conditions -> rule matched, but output differs.
         assert report["structural_f1"] == 1.0
         assert len(report["decisions"][0]["output_deltas"]) == 1
+        assert report["decisions"][0]["output_exactness"] < 1.0
+        assert report["decisions"][0]["decision_exact"] is False
+
+    def test_column_reorder_is_aligned_by_name(self):
+        report = diff_models(TREATMENT, _swap_first_two_input_columns(TREATMENT))
+        assert report["structural_f1"] == 1.0
+        assert report["decisions"][0]["decision_exact"] is True
+
+    def test_hit_policy_is_part_of_decision_exactness(self):
+        mutated = TREATMENT.replace('hitPolicy="FIRST"', 'hitPolicy="UNIQUE"', 1)
+        report = diff_models(TREATMENT, mutated)
+        assert report["decisions"][0]["hit_policy_match"] is False
+        assert report["decisions"][0]["decision_exact"] is False
+
+    def test_renamed_column_is_not_silently_dropped(self):
+        mutated = TREATMENT.replace("<text><![CDATA[Systolic BP]]></text>",
+                                    "<text><![CDATA[Diastolic BP]]></text>", 1)
+        report = diff_models(TREATMENT, mutated)
+        decision = report["decisions"][0]
+        assert decision["inputs_match"] is False
+        assert decision["unmatched_golden_columns"] == ["Systolic BP"]
+        assert report["structural_f1"] < 1.0
+
+    def test_assumption_rule_can_be_omitted_without_lowering_recall(self):
+        mutated = TREATMENT.replace(
+            """      <!-- Rule 9: SBP < 130, Diabetes, Kidney Disease -->
+      <rule id="rule_9">""", """      <!-- Rule 9: SBP < 130, Diabetes, Kidney Disease -->
+      <rule id="rule_9">""", 1)
+        # Remove the final rule while retaining the rest of the golden.
+        start = mutated.index('      <rule id="rule_9">')
+        end = mutated.index("      </rule>", start) + len("      </rule>\n")
+        mutated = mutated[:start] + mutated[end:]
+        report = diff_models(TREATMENT, mutated,
+                             {"Treatment Recommendation": {"rule_9"}})
+        decision = report["decisions"][0]
+        assert report["structural_recall"] == 1.0
+        assert decision["missing_rules"] == []
+        assert decision["unmatched_assumption_rules"][0]["rule_id"] == "rule_9"
+
+    def test_assumption_rule_is_consumed_from_precision(self):
+        report = diff_models(TREATMENT, TREATMENT,
+                             {"Treatment Recommendation": {"rule_9"}})
+        decision = report["decisions"][0]
+        assert report["structural_precision"] == 1.0
+        assert decision["extra_rules"] == []
+        assert decision["assumption_rules_matched"] == 1
+
+    def test_assumption_output_difference_is_not_scored(self):
+        mutated = TREATMENT.replace(
+            '<outputEntry id="r9_oe1"><text><![CDATA["Lifestyle modification only"]]></text></outputEntry>',
+            '<outputEntry id="r9_oe1"><text><![CDATA["Different assumption"]]></text></outputEntry>',
+        )
+        report = diff_models(TREATMENT, mutated,
+                             {"Treatment Recommendation": {"rule_9"}})
+        decision = report["decisions"][0]
+        assert decision["extra_rules"] == []
+        assert decision["output_deltas"] == []
+
+    def test_unknown_assumption_rule_is_rejected(self):
+        with pytest.raises(ValueError, match="assumption rule ids"):
+            diff_models(TREATMENT, TREATMENT,
+                        {"Treatment Recommendation": {"not-a-rule"}})

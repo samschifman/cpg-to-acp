@@ -18,19 +18,19 @@ cpg-ingester/tests/benchmarks/dmn/
 ├── config.yaml          # benchmark config (corpus manifest, MLflow, report dir, holdout)
 ├── corpus.yaml          # golden DMN corpus manifest (ties goldens to CPG source sections)
 ├── dmn_model.py         # namespace- and CDATA-tolerant DMN parser -> interval/set algebra model
-├── dmn_diff.py          # semantic golden diff: structural precision/recall/F1 + threshold-exactness
+├── dmn_diff.py          # semantic golden diff: condition coverage + fidelity metrics
 ├── defects.py           # seeded-defect injectors (threshold shift, drop rule, fabricate input, ...)
 ├── compile_check.py     # classifies decision-service /jit/dmn response (COMPILE_OK/FAIL/INFRA/SKIPPED)
 ├── creator_eval.py      # drives the REAL creator/validator/reviewer nodes + routers
 ├── reviewer_eval.py     # runs the REAL dmn_semantic_reviewer on clean + defective variants
-├── run_benchmark.py     # Click CLI: one MLflow run per invocation, writes JSON reports
+├── run_benchmark.py     # Click CLI: one MLflow run per corpus, writes JSON reports
 └── run-benchmark.sh     # thin wrapper (uses the cpg-ingester venv)
 ```
 
-Reports are written to
-`working/benchmarks/dmn/reports/eval-<suite>-<corpus>-<prompt_rev>.json`
-(gitignored), and logged as MLflow artifacts under the `dmn-generation-quality`
-experiment.
+Reports are written to timestamped files under
+`working/benchmarks/dmn/reports/` (gitignored), and logged as MLflow artifacts
+under the `dmn-generation-quality` experiment. Generated DMN and reviewer
+artifacts are retained in a timestamped run directory.
 
 ## What the goldens are
 
@@ -86,8 +86,12 @@ corpus (skips the no-golden `real_corpora` directories).
 | **first_attempt_validity_rate** | Fraction of decisions whose first generation passes L0 syntax validation. |
 | **mean_attempts_to_valid** | Average creator attempts until an L0-valid model (retry cost). |
 | **escalation_rate** | Fraction escalated to a human (retry budget exhausted / no source text). |
-| **mean_structural_f1** | Semantic golden-diff F1 over rule conditions (inputs/outputs/intervals/sets). |
+| **mean_structural_f1** | Golden-diff F1 over rule-condition coverage only (input intervals and value sets); output values, hit policy, and column identity are reported separately. |
+| **mean_output_exactness** | Fraction of matched, non-assumption rules whose output cells exactly match the golden. |
+| **decision_exact_rate** | Fraction of decisions with matching columns, hit policy, thresholds, outputs, and rule coverage. |
+| **inputs_match_rate / outputs_match_rate / hit_policy_match_rate** | Fraction of decisions whose corresponding declarations match the golden. |
 | **threshold_exactness** | Fraction of matched rules whose numeric thresholds match the golden exactly. |
+| **mean_execution_match_rate** | Fraction of non-assumption representative inputs whose engine outputs match the expected values. |
 | **compile_pass_rate** | Fraction whose DMN actually compiles in the decision service. |
 | **l0_pass_but_compile_fail** | Passed syntax validation but failed to compile — the gap the validator ladder must close. |
 
@@ -96,6 +100,7 @@ corpus (skips the no-golden `real_corpora` directories).
 | Metric | Meaning |
 |---|---|
 | **overall_recall** | Fraction of seeded defects the reviewer flagged. |
+| **targeted_recall** | Fraction of seeded defects where the reviewer both flagged the case and named the seeded defect. |
 | **overall_precision** | True flags / all flags. |
 | **false_escalation_rate** | Fraction of *clean* models the reviewer wrongly flagged. |
 | **per_defect_class** | Recall broken out by injector (threshold shift, drop rule, ...). |
@@ -106,8 +111,19 @@ corpus (skips the no-golden `real_corpora` directories).
 - `dmn_diff.py` compares at the level of **meaning** (input set, output set, hit
   policy, per-rule intervals/value-sets), so models that serialize differently
   but decide identically score 1.0, while a shifted threshold or dropped/extra
-  rule is surfaced precisely. It is namespace- and CDATA-tolerant, so DMN 1.3 and
-  1.4 serializations of the same logic compare equal.
+  rule is surfaced precisely. Structural F1 intentionally remains a condition-
+  coverage measure; `decision_exact_rate` and `output_exactness` are the fidelity
+  measures. It is namespace- and CDATA-tolerant, so DMN 1.3 and 1.4 serializations
+  of the same logic compare equal.
+- The creator suite is manifest-fed: input names, types, output names, hit policy,
+  and extraction metadata come from `corpus.yaml`. Its declaration-match metrics
+  therefore measure creator adherence to the supplied specification, not complete
+  extraction from prose.
+- Assumption rules are carried in the goldens for complete engine tables but are
+  excluded from rule-fidelity and execution denominators; they are named in the
+  manifest and documented with the golden derivations.
+- Holdout separation is a reporting convention enforced by process, not by code.
+- The `real_corpora` paths are machine-local and are skipped when absent.
 - `creator_eval.py` / `reviewer_eval.py` import the **production** nodes so the
   benchmark measures exactly what ships and cannot silently drift from it.
 - The unit tests for this harness live at `cpg-ingester/tests/test_dmn_bench_*.py`

@@ -12,7 +12,9 @@ _BENCH = Path(__file__).parent / "benchmarks" / "dmn"
 sys.path.insert(0, str(_BENCH))
 
 import compile_check as cc
-from creator_eval import CreatorResult, _aggregate, _source_text
+import creator_eval
+import run_benchmark as rb
+from creator_eval import CreatorResult, _aggregate, _score_execution, _source_text
 from reviewer_eval import ReviewerCase, _score
 from cpg_ingester.validators.dmn_schema import validate_dmn_schema
 from cpg_ingester.validators.dmn_syntax import validate_dmn
@@ -21,28 +23,69 @@ INGESTER_ROOT = Path(__file__).parent.parent
 
 
 class TestCompileClassification:
-    def _resp(self, status, text=""):
+    def _resp(self, status, text="", json_body=None):
         r = MagicMock()
         r.status_code = status
         r.text = text
+        r.json.return_value = json_body
         return r
 
-    def test_200_and_422_are_compile_ok(self):
-        with patch("compile_check.requests.post", return_value=self._resp(200)):
-            assert cc.compile_check("<x/>").status == "COMPILE_OK"
-        with patch("compile_check.requests.post", return_value=self._resp(422, "eval err")):
-            assert cc.compile_check("<x/>").status == "COMPILE_OK"
+    def test_validate_true_is_compile_ok(self):
+        response = self._resp(200, json_body={"valid": True, "messages": []})
+        with patch("compile_check.requests.post", return_value=response):
+            result = cc.validate_check("<x/>")
+        assert result.status == "COMPILE_OK"
+        assert result.messages == []
 
-    def test_500_with_marker_is_compile_fail(self):
-        body = "DMN evaluation failed: Failed to build DMN runtime: ..."
-        with patch("compile_check.requests.post", return_value=self._resp(500, body)):
+    def test_validate_false_preserves_messages(self):
+        messages = [{"severity": "ERROR", "text": "bad FEEL"}]
+        response = self._resp(200, json_body={"valid": False, "messages": messages})
+        with patch("compile_check.requests.post", return_value=response):
+            result = cc.validate_check("<x/>")
+        assert result.status == "COMPILE_FAIL"
+        assert result.messages == messages
+
+    def test_validate_500_is_infra(self):
+        with patch("compile_check.requests.post", return_value=self._resp(500, "OOM")):
+            assert cc.validate_check("<x/>").status == "INFRA"
+
+    def test_validate_unreachable_is_skipped(self):
+        with patch("compile_check.requests.post", side_effect=cc.requests.ConnectionError()):
+            assert cc.validate_check("<x/>").status == "SKIPPED"
+
+    def test_execute_200_is_compile_ok_with_outputs(self):
+        outputs = {"Treatment Recommendation": {"Action": "Start medication"}}
+        response = self._resp(200, json_body=outputs)
+        with patch("compile_check.requests.post", return_value=response):
+            result = cc.compile_check("<x/>")
+        assert result.status == "COMPILE_OK"
+        assert result.outputs == outputs
+
+    def test_execute_compile_422_is_compile_fail(self):
+        response = self._resp(422, json_body={"error": "DMN compilation errors", "messages": []})
+        with patch("compile_check.requests.post", return_value=response):
             assert cc.compile_check("<x/>").status == "COMPILE_FAIL"
 
-    def test_500_without_marker_is_infra_not_compile_fail(self):
+    def test_execute_evaluation_422_is_compile_ok(self):
+        response = self._resp(422, json_body={"error": "DMN evaluation errors", "messages": []})
+        with patch("compile_check.requests.post", return_value=response):
+            assert cc.compile_check("<x/>").status == "COMPILE_OK"
+
+    def test_execute_empty_model_400_is_compile_fail(self):
+        response = self._resp(400, json_body={"error": "No DMN models found in the provided XML"})
+        with patch("compile_check.requests.post", return_value=response):
+            assert cc.compile_check("<x/>").status == "COMPILE_FAIL"
+
+    def test_execute_bad_request_400_is_infra(self):
+        response = self._resp(400, json_body={"error": "dmn_xml_base64 and inputs are required"})
+        with patch("compile_check.requests.post", return_value=response):
+            assert cc.compile_check("<x/>").status == "INFRA"
+
+    def test_execute_500_is_infra(self):
         with patch("compile_check.requests.post", return_value=self._resp(500, "OOM")):
             assert cc.compile_check("<x/>").status == "INFRA"
 
-    def test_unreachable_is_skipped(self):
+    def test_execute_unreachable_is_skipped(self):
         with patch("compile_check.requests.post", side_effect=cc.requests.ConnectionError()):
             assert cc.compile_check("<x/>").status == "SKIPPED"
 
@@ -60,6 +103,45 @@ class TestCreatorAggregate:
         assert agg["first_attempt_validity_rate"] == 0.5
         assert agg["compile_pass_rate"] == 0.5
         assert agg["mean_attempts_to_valid"] == 1.5
+
+    def test_execution_match_rate_uses_compile_outputs(self):
+        result = CreatorResult(
+            decision="Treatment Recommendation",
+            final_dmn="<xml/>",
+            compile_status="COMPILE_OK",
+        )
+        decision = {
+            "name": "Treatment Recommendation",
+            "representative_inputs": [
+                {"inputs": {"Systolic BP": 145}, "expect": {"Action": "Start medication"}},
+                {"inputs": {"Systolic BP": 125}, "expect": {"Action": "Lifestyle modification only"}},
+            ],
+        }
+        outputs = {"Treatment Recommendation": {"Action": "Start medication"}}
+        with patch("creator_eval.compile_check",
+                   return_value=cc.CompileResult(status="COMPILE_OK", outputs=outputs)):
+            _score_execution(result, decision, run_compile=True)
+        assert result.execution_match_rate == 0.5
+        assert result.execution_results[0]["match"] is True
+        assert result.execution_results[1]["match"] is False
+
+    def test_assumption_representative_input_is_not_scored(self):
+        result = CreatorResult(
+            decision="Treatment Recommendation",
+            final_dmn="<xml/>",
+            compile_status="COMPILE_OK",
+        )
+        decision = {
+            "name": "Treatment Recommendation",
+            "representative_inputs": [
+                {"inputs": {}, "expect": {"Action": "Assumption"}, "assumption": True},
+                {"inputs": {}, "expect": {"Action": "Observed"}},
+            ],
+        }
+        with patch("creator_eval.compile_check", return_value=cc.CompileResult(
+                status="COMPILE_OK", outputs={"Action": "Observed"})):
+            _score_execution(result, decision, run_compile=True)
+        assert result.execution_match_rate == 1.0
 
 
 class TestReviewerScore:
@@ -89,6 +171,26 @@ class TestReviewerScore:
         # precision = true flags / all flags = 1/2
         assert m["overall_precision"] == 0.5
 
+    def test_error_cases_are_excluded_from_scoring(self):
+        cases = [
+            ReviewerCase("A", "error", False, flagged=False, error="no-source-text"),
+            ReviewerCase("A", "clean", False, flagged=False),
+            ReviewerCase("A", "threshold_shift", False, flagged=True, targeted=True),
+        ]
+        m = _score(cases)
+        assert m["error_cases"] == 1
+        assert m["seeded_defects"] == 1
+        assert m["false_escalation_rate"] == 0.0
+
+    def test_targeted_recall_requires_the_seeded_defect_to_be_named(self):
+        cases = [
+            ReviewerCase("A", "threshold_shift", False, flagged=True, targeted=False),
+            ReviewerCase("A", "threshold_shift", False, flagged=False, targeted=True),
+        ]
+        m = _score(cases)
+        assert m["overall_recall"] == 0.5
+        assert m["targeted_recall"] < m["overall_recall"]
+
 
 class TestCorpusManifest:
     def test_manifest_loads_and_paths_exist(self):
@@ -103,6 +205,19 @@ class TestCorpusManifest:
     def test_source_line_ranges_narrow_broad_sections(self):
         markdown = "one\ntwo\nthree\nfour"
         assert _source_text(markdown, {"markdown_lines": "2-3"}) == "two\nthree"
+
+    def test_all_corpus_selector_expands_configured_names(self):
+        config = {"corpora": ["hypertension", "diabetes", "atp_iii"]}
+        assert rb._expand_corpora("all", config) == config["corpora"]
+        assert rb._expand_corpora("diabetes", config) == ["diabetes"]
+
+    def test_mlflow_falls_back_to_local_store(self):
+        config = {"mlflow_experiment": "test"}
+        with patch.object(rb.mlflow, "set_tracking_uri") as set_uri, \
+                patch.object(rb.mlflow, "set_experiment",
+                             side_effect=[rb.MlflowException("offline"), None]):
+            rb._configure_mlflow(config)
+        assert set_uri.call_args.args[0].startswith("file://")
 
     def test_all_manifest_goldens_pass_local_gates(self):
         manifest = yaml.safe_load((_BENCH / "corpus.yaml").read_text())
