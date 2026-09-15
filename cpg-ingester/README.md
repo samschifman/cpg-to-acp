@@ -173,6 +173,7 @@ Review screens support a **cyclical feedback pattern**: approve OR request chang
 ### Tech stack
 
 - **PatternFly 6** — Red Hat design system (Page, Nav, Table, DataList, TreeView, ProgressStepper, CodeBlock, FileUpload, Modal, Skeleton, EmptyState)
+- **dmn-js 17** — renders DMN 1.3; the UI remaps the DMN 1.4 namespaces on the copy it passes to the viewer (`src/utils/dmnViewerCompat.ts`). Generated artifacts are DMN 1.4 and are not modified.
 - **React 19 + TypeScript** (strict mode)
 - **Vite 6** — dev server on port 3003, proxies `/api` to BFF at `localhost:8095`
 - **TanStack Query v5** — data fetching with adaptive polling (stops on errors, stops when no active runs)
