@@ -50,6 +50,10 @@ export interface DecisionVariable {
 export interface DecisionResult {
   artifact_id?: string;
   dmn_xml: string;
+  validation_warnings?: string[];
+  escalated?: boolean;
+  escalation_reason?: string;
+  escalation_errors?: string[];
   item: {
     name: string;
     type: string;
@@ -104,10 +108,12 @@ export interface AssemblyReport {
 }
 
 export interface EscalatedItem {
+  id?: string;
   name: string;
   type: string;
   section?: string;
-  reason?: string;
+  escalation_reason?: string;
+  escalation_errors?: string[];
 }
 
 export interface PublishedArtifact {

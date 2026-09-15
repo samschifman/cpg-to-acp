@@ -141,13 +141,20 @@ sys.stdout.buffer.write(body)
 " 2>/dev/null > "/tmp/dmn-upload.dmn"
 
     oc cp "/tmp/dmn-upload.dmn" "$ROUTER_POD:/tmp/dmn-upload.dmn" -n "$NAMESPACE"
-    code=$(oc exec "$ROUTER_POD" -n "$NAMESPACE" -- \
-        curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+    response=$(oc exec "$ROUTER_POD" -n "$NAMESPACE" -- \
+        curl -sS -w '\n__HTTP_STATUS__:%{http_code}' --max-time 15 \
         -X POST -H "Host: acp-decision-engine" \
         -H "Content-Type: application/xml" \
         --data-binary @/tmp/dmn-upload.dmn \
         http://localhost:8080/api/v1/decisions/models 2>/dev/null)
+    code="${response##*__HTTP_STATUS__:}"
+    body="${response%$'\n__HTTP_STATUS__:'*}"
     log "  $name: HTTP $code"
+    if [ "$code" = "422" ]; then
+        printf '%s' "$body" | python3 -c \
+            'import json,sys; d=json.load(sys.stdin); print("    validation messages:", json.dumps(d.get("messages", d), separators=(",", ":")))' \
+            || log "    validation response: $body"
+    fi
     dmn_count=$((dmn_count + 1))
 done
 
